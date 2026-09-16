@@ -1,0 +1,59 @@
+name: circles
+
+x-backend: &backend
+  build: .
+  image: circles-app
+  environment:
+    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+    APP_URL: ${APP_URL:?APP_URL is required}
+    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+    ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+  networks:
+    - dokploy-network
+  restart: unless-stopped
+
+services:
+  migrate:
+    <<: *backend
+    command: bun apps/api/dist/migrate.js
+    restart: "no"
+
+  api:
+    <<: *backend
+    command: bun apps/api/dist/index.js
+    expose: ["3000"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "bun", "-e", "fetch('http://localhost:3000/api/ready').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *backend
+    command: bun apps/worker/dist/index.js
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build: .
+    image: circles-app
+    command: bun apps/web/dist/server/entry.mjs
+    environment:
+      HOST: 0.0.0.0
+      PORT: 4321
+      API_INTERNAL_URL: http://api:3000
+    expose: ["4321"]
+    networks:
+      - dokploy-network
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+networks:
+  dokploy-network:
+    external: true

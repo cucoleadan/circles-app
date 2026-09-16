@@ -2,5 +2,20 @@
   "name": "worker",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "bun dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.3",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.0",
+    "typescript": "^7.0.2"
+  }
 }

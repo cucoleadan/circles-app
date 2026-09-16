@@ -4,14 +4,20 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "bun dist/index.js",
+    "migrate": "bun dist/migrate.js",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
-    "hono": "^4.13.8"
+    "better-auth": "1.6.23",
+    "hono": "^4.13.8",
+    "pg": "^8.23.0",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.23.0",
     "typescript": "^7.0.2"
   }

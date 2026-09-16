@@ -1,39 +1,17 @@
-# Astro + React + TypeScript + shadcn/ui (Monorepo)
+# Circles CRM
 
-This is a monorepo template for Astro with React, TypeScript, and shadcn/ui.
+Minimal Bun monorepo for the Circles CRM rebuild.
 
-## Structure
+- `apps/web`: Astro SSR and React/shadcn UI
+- `apps/api`: Hono API, Better Auth, migrations, PostgreSQL
+- `apps/worker`: background jobs
+- `packages/ui`: shared generated UI components
+- `packages/core`: shared domain code when needed
 
-- `apps/web` - Astro application
-- `packages/ui` - Shared UI components (shadcn/ui)
+## Local development
 
-## Adding components
+Copy `.env.example` to `.env`, then run `bun install`, `bun --cwd apps/api run dev`, and `bun --cwd apps/web run dev`.
 
-To add components, run the following command from the root:
+## Deployment
 
-```bash
-npx shadcn@latest add button -c apps/web
-```
-
-## Using components
-
-To use the components in your app, import them in an `.astro` file:
-
-```astro
----
-import { Button } from "@workspace/ui/components/button"
----
-
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
-    <title>Astro App</title>
-  </head>
-  <body>
-    <div class="grid h-screen place-items-center content-center">
-      <Button>Button</Button>
-    </div>
-  </body>
-</html>
-```
+Dokploy builds `compose.yaml`. Route the public domain to `web:4321` and the same domain with path `/api` to `api:3000`.

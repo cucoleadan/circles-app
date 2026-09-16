@@ -1,0 +1,7 @@
+.git
+.env*
+.turbo
+**/.astro
+**/dist
+**/node_modules
+node_modules
