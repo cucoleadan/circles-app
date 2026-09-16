@@ -2,7 +2,7 @@
 import "@workspace/ui/globals.css"
 
 type Contact = { id: string; name: string; handle: string | null; notes: string | null }
-const apiUrl = import.meta.env.API_INTERNAL_URL ?? "http://localhost:3000"
+const apiUrl = process.env.API_INTERNAL_URL ?? "http://localhost:3000"
 const response = await fetch(`${apiUrl}/api/contacts`, {
   headers: { cookie: Astro.request.headers.get("cookie") ?? "" },
 })
