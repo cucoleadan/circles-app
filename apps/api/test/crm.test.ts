@@ -696,5 +696,100 @@ describe("interactions", () => {
     const getConnAfterBody = (await getConnAfter.json()) as any
     expect(getConnAfterBody.connection).toBeNull()
   })
+
+  test("listPeople supports views, sorts, and nested tags/lists", async () => {
+    const alice = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Alice", handle: "@alice" })
+    )
+    const bob = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Bob", handle: "@bob" })
+    )
+    const charlie = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Charlie", handle: "@charlie" })
+    )
+
+    // Tag and list Alice
+    const tag = await withTenant({ appUserId: userA }, (client) =>
+      createTag(client, userA, "VIP", "#ff0000")
+    )
+    const list = await withTenant({ appUserId: userA }, (client) =>
+      createList(client, userA, "Partners")
+    )
+    await withTenant({ appUserId: userA }, async (client) => {
+      await attachTag(client, userA, tag.id, alice.id)
+      await addListMember(client, userA, list.id, alice.id)
+    })
+
+    // Give Alice a conversation with score 6
+    await withTenant({ appUserId: userA }, async (client) => {
+      await recordInteraction(client, userA, {
+        personId: alice.id,
+        externalId: "ext-alice-1",
+        direction: "inbound",
+        actionType: "comment",
+        occurredAt: new Date(Date.now() - 3600000).toISOString(),
+        threadKind: "post",
+        threadRootId: "thread-1",
+      })
+      await recordInteraction(client, userA, {
+        personId: alice.id,
+        externalId: "ext-alice-2",
+        direction: "outbound",
+        actionType: "reply",
+        occurredAt: new Date().toISOString(),
+        threadKind: "post",
+        threadRootId: "thread-1",
+      })
+      await refreshPersonStats(client, alice.id)
+    })
+
+    // Give Bob a single like (score 1)
+    await withTenant({ appUserId: userA }, async (client) => {
+      await recordInteraction(client, userA, {
+        personId: bob.id,
+        externalId: "ext-bob-1",
+        direction: "inbound",
+        actionType: "like",
+        occurredAt: new Date(Date.now() - 7200000).toISOString(),
+      })
+      await refreshPersonStats(client, bob.id)
+    })
+
+    // 1. View 'conversations'
+    const convs = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "conversations" })
+    )
+    expect(convs.map((p) => p.name)).toEqual(["Alice"])
+    expect(convs[0].tags).toHaveLength(1)
+    expect(convs[0].tags![0].name).toBe("VIP")
+    expect(convs[0].lists).toHaveLength(1)
+    expect(convs[0].lists![0].name).toBe("Partners")
+
+    // 2. View 'no-history'
+    const noHistory = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "no-history" })
+    )
+    expect(noHistory.map((p) => p.name)).toEqual(["Charlie"])
+
+    // 3. Sort by engagement
+    const sorted = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { sort: "engagement" })
+    )
+    expect(sorted.map((p) => p.name)).toEqual(["Alice", "Bob", "Charlie"])
+    expect(sorted[0].engagementScore).toBe(6)
+    expect(sorted[1].engagementScore).toBe(1)
+    expect(sorted[2].engagementScore).toBe(0)
+
+    // 4. API GET /people with view and sort query
+    const apiRes = await v1.fetch(
+      new Request("http://localhost:3000/people?view=conversations&sort=engagement", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(apiRes.status).toBe(200)
+    const apiBody = (await apiRes.json()) as any
+    expect(apiBody.people).toHaveLength(1)
+    expect(apiBody.people[0].name).toBe("Alice")
+  })
 })
 

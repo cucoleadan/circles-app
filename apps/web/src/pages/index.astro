@@ -1,26 +1,38 @@
 ---
 import "@workspace/ui/globals.css"
-import { CirclesWorkspace, type Contact } from "../components/circles-workspace"
+import { CirclesWorkspace } from "../components/circles-workspace"
+import type { CirclesOverview, ListRecord, Person, TagRecord } from "../lib/types"
 
 const apiUrl = process.env.API_INTERNAL_URL ?? "http://localhost:3000"
-const response = await fetch(`${apiUrl}/api/contacts`, {
-  headers: { cookie: Astro.request.headers.get("cookie") ?? "" },
-})
+const cookie = Astro.request.headers.get("cookie") ?? ""
 
-if (response.status === 401) return Astro.redirect("/login")
-if (!response.ok) {
-  const errorText = await response.text().catch(() => "")
-  throw new Error(`The API returned ${response.status}: ${errorText || "Unavailable"}`)
+const [peopleRes, listsRes, tagsRes, overviewRes] = await Promise.all([
+  fetch(`${apiUrl}/api/v1/people?limit=1000`, { headers: { cookie } }),
+  fetch(`${apiUrl}/api/v1/lists`, { headers: { cookie } }),
+  fetch(`${apiUrl}/api/v1/tags`, { headers: { cookie } }),
+  fetch(`${apiUrl}/api/v1/circles`, { headers: { cookie } }),
+])
+
+if (peopleRes.status === 401 || listsRes.status === 401) {
+  return Astro.redirect("/login")
 }
 
-const { contacts } = (await response.json()) as { contacts: Contact[] }
+if (!peopleRes.ok) {
+  const errorText = await peopleRes.text().catch(() => "")
+  throw new Error(`The API returned ${peopleRes.status}: ${errorText || "Unavailable"}`)
+}
+
+const { people = [] } = (await peopleRes.json()) as { people: Person[] }
+const { lists = [] } = listsRes.ok ? ((await listsRes.json()) as { lists: ListRecord[] }) : { lists: [] }
+const { tags = [] } = tagsRes.ok ? ((await tagsRes.json()) as { tags: TagRecord[] }) : { tags: [] }
+const overview = overviewRes.ok ? ((await overviewRes.json()) as CirclesOverview) : null
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
       content="A calm CRM for the relationships that matter."
@@ -28,7 +40,13 @@ const { contacts } = (await response.json()) as { contacts: Contact[] }
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>Circles CRM</title>
   </head>
-  <body>
-    <CirclesWorkspace initialContacts={contacts} client:load />
+  <body class="bg-[#f7f5f1] dark:bg-stone-950 font-sans antialiased">
+    <CirclesWorkspace
+      initialPeople={people}
+      initialLists={lists}
+      initialTags={tags}
+      initialOverview={overview}
+      client:load
+    />
   </body>
 </html>

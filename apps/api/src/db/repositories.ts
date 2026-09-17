@@ -15,12 +15,26 @@ const personColumns = `p.id, p.name, p.handle, p.notes,
 const personStatsColumns = `coalesce(s.interaction_count, 0) as "interactionCount",
     coalesce(s.conversation_count, 0) as "conversationCount",
     coalesce(s.engagement_score, 0) as "engagementScore",
+    s.first_interacted_at as "firstInteractedAt",
     s.last_interaction_at as "lastInteractionAt",
+    s.last_inbound_at as "lastInboundAt",
+    s.last_outbound_at as "lastOutboundAt",
     s.last_conversation_at as "lastConversationAt",
     coalesce(s.drift_status, 'new') as "driftStatus"`
 
 // insert/update RETURNING clauses cannot use the `p.` table alias
 const plainPersonColumns = personColumns.replaceAll("p.", "")
+
+export interface PersonTag {
+  id: string
+  name: string
+  color: string | null
+}
+
+export interface PersonList {
+  id: string
+  name: string
+}
 
 export interface Person {
   id: string
@@ -40,9 +54,14 @@ export interface PersonWithStats extends Person {
   interactionCount: number
   conversationCount: number
   engagementScore: number
+  firstInteractedAt: string | null
   lastInteractionAt: string | null
+  lastInboundAt: string | null
+  lastOutboundAt: string | null
   lastConversationAt: string | null
   driftStatus: string
+  tags?: PersonTag[]
+  lists?: PersonList[]
 }
 
 export interface PersonInput {
@@ -85,6 +104,22 @@ export async function getOrCreateAppUser(authUserId: string): Promise<string> {
 
 // ------------------------------------------------------------------- people
 
+export type PeopleView =
+  | "all"
+  | "conversations"
+  | "inbound"
+  | "outbound"
+  | "no-history"
+  | "opportunities"
+
+export type PeopleSort =
+  | "engagement"
+  | "recent_conversation"
+  | "recent_interaction"
+  | "name"
+  | "inbound"
+  | "outbound"
+
 export async function listPeople(
   client: PoolLike,
   options: {
@@ -92,7 +127,10 @@ export async function listPeople(
     status?: string
     tagId?: string
     listId?: string
+    view?: PeopleView | string
+    sort?: PeopleSort | string
     limit?: number
+    offset?: number
   } = {}
 ): Promise<PersonWithStats[]> {
   const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000)
@@ -120,15 +158,68 @@ export async function listPeople(
       `exists (select 1 from list_members lm where lm.person_id = p.id and lm.list_id = $${params.length})`
     )
   }
+
+  if (options.view === "conversations") {
+    conditions.push("coalesce(s.conversation_count, 0) > 0")
+  } else if (options.view === "inbound") {
+    conditions.push("s.last_inbound_at is not null")
+  } else if (options.view === "outbound") {
+    conditions.push("s.last_outbound_at is not null")
+  } else if (options.view === "no-history") {
+    conditions.push("coalesce(s.interaction_count, 0) = 0")
+  } else if (options.view === "opportunities") {
+    conditions.push(
+      "(coalesce(s.engagement_score, 0) > 0 and (s.drift_status in ('drifting', 'cold') or s.last_interaction_at < now() - interval '14 days'))"
+    )
+  }
+
+  const sort = options.sort ?? (
+    options.view === "conversations" ? "recent_conversation" :
+    options.view === "inbound" ? "inbound" :
+    options.view === "outbound" ? "outbound" :
+    options.view === "opportunities" ? "engagement" :
+    "engagement"
+  )
+
+  let orderBy = "coalesce(s.engagement_score, 0) desc, s.last_interaction_at desc nulls last, lower(p.name)"
+  if (sort === "recent_conversation") {
+    orderBy = "s.last_conversation_at desc nulls last, s.last_interaction_at desc nulls last, lower(p.name)"
+  } else if (sort === "recent_interaction") {
+    orderBy = "s.last_interaction_at desc nulls last, lower(p.name)"
+  } else if (sort === "inbound") {
+    orderBy = "s.last_inbound_at desc nulls last, lower(p.name)"
+  } else if (sort === "outbound") {
+    orderBy = "s.last_outbound_at desc nulls last, lower(p.name)"
+  } else if (sort === "name") {
+    orderBy = "lower(p.name), p.id"
+  }
+
   params.push(limit)
+  const limitParam = params.length
+
+  let offsetClause = ""
+  if (options.offset && options.offset > 0) {
+    params.push(options.offset)
+    offsetClause = ` offset $${params.length}`
+  }
 
   const result = await client.query(
-    `select ${personColumns}, ${personStatsColumns}
+    `select ${personColumns}, ${personStatsColumns},
+       coalesce((
+         select json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) order by lower(t.name))
+         from person_tags pt join tags t on t.id = pt.tag_id
+         where pt.person_id = p.id
+       ), '[]'::json) as tags,
+       coalesce((
+         select json_agg(json_build_object('id', l.id, 'name', l.name) order by lower(l.name))
+         from list_members lm join lists l on l.id = lm.list_id
+         where lm.person_id = p.id
+       ), '[]'::json) as lists
       from people p
       left join relationship_stats s on s.person_id = p.id
       where ${conditions.join(" and ")}
-      order by lower(p.name), p.id
-      limit $${params.length}`,
+      order by ${orderBy}
+      limit $${limitParam}${offsetClause}`,
     params
   )
   return result.rows as PersonWithStats[]
@@ -137,7 +228,11 @@ export async function listPeople(
 export async function getPerson(
   client: PoolLike,
   personId: string
-): Promise<{ person: PersonWithStats; tags: { id: string; name: string }[] } | null> {
+): Promise<{
+  person: PersonWithStats
+  tags: PersonTag[]
+  lists: PersonList[]
+} | null> {
   const person = await client.query(
     `select ${personColumns}, ${personStatsColumns}
       from people p
@@ -147,13 +242,26 @@ export async function getPerson(
   )
   if (!person.rows[0]) return null
 
-  const tags = await client.query(
-    `select t.id, t.name from person_tags pt
-       join tags t on t.id = pt.tag_id
-      where pt.person_id = $1 order by lower(t.name)`,
-    [personId]
-  )
-  return { person: person.rows[0], tags: tags.rows }
+  const [tags, lists] = await Promise.all([
+    client.query(
+      `select t.id, t.name, t.color from person_tags pt
+         join tags t on t.id = pt.tag_id
+        where pt.person_id = $1 order by lower(t.name)`,
+      [personId]
+    ),
+    client.query(
+      `select l.id, l.name from list_members lm
+         join lists l on l.id = lm.list_id
+        where lm.person_id = $1 order by lower(l.name)`,
+      [personId]
+    ),
+  ])
+  const foundPerson = {
+    ...person.rows[0],
+    tags: tags.rows,
+    lists: lists.rows,
+  }
+  return { person: foundPerson, tags: tags.rows, lists: lists.rows }
 }
 
 export async function createPerson(

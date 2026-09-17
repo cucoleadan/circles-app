@@ -63,7 +63,10 @@ v1.get("/people", async (c) => {
       status: c.req.query("status") || undefined,
       tagId: c.req.query("tagId") || undefined,
       listId: c.req.query("listId") || undefined,
+      view: c.req.query("view") || undefined,
+      sort: c.req.query("sort") || undefined,
       limit: Number(c.req.query("limit") ?? 1000),
+      offset: c.req.query("offset") ? Number(c.req.query("offset")) : undefined,
     })
   )
   return c.json({ people })

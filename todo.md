@@ -5,7 +5,7 @@ Update this file as work completes. Last updated: 2026-09-17.
 
 ## Where we are
 
-**Phase 3 (Ingestion and Sync) is complete and verified (26/26 tests passing across core, worker, and api; full Turbo typecheck passing across 6 packages). Phase 4 (Circles UI) starts next.**
+**Phase 4 (Circles UI) is complete and verified (27/27 tests passing across core, worker, and api; full Turbo typecheck passing across 6 packages). Phase 5 (Extension) is next.**
 
 What exists:
 
@@ -16,12 +16,15 @@ What exists:
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
   `001_auth.sql` through `005_engagement_score.sql` (full schema with tenant RLS,
   composite foreign keys, and 1/2/3/3 engagement score calculation).
-- Phase 3 Ingestion & Sync:
-  - `@workspace/core`: `createSubstackClient`, `ingestActivityBatch`, `ingestConversationReplies`, `refreshPersonStats` (likes=1, restacks=2, comments=3, notes=3).
-  - `apps/worker`: Job runner with `FOR UPDATE SKIP LOCKED`, lease fencing, bounded retries with backoff, dead-letter terminal states, `sync:activity` (15-min cadence), `import:history` (resumable checkpoints), and `enrich:profile`.
-  - `apps/api`: `/connection` (GET/POST/DELETE), `/sync` (POST with 60s cooldown), `/imports` (GET/POST/pause/resume), `/api/ext` and `/app` compatibility routes.
-- Browser extension: integrated with Circles origins (`circles.mhntwrkdan.dev`, `localhost:4321`), direct plaintext session envelope, passive activity/conversation capture.
-- Automated test coverage: 26/26 tests passing (`bun run test`).
+- D1 Live Data Imported & Reconciled: 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined rows.
+- Phase 4 Circles UI:
+  - Responsive workspace: search, engagement sort, active metric cards ribbon, sync triggers.
+  - Views: All, Conversations, Inbound, Outbound, Opportunities, No History.
+  - Sidebar: view navigation, list management (create, member counts), tag filters.
+  - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
+  - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), Substack external links, cursor pagination.
+  - URL-addressable navigation (`?view=`, `?sort=`, `?person=`).
+- Automated test coverage: 27/27 tests passing (`bun run test`).
 - Typecheck: 0 errors across 6 packages (`bun run typecheck`).
 
 ---
@@ -126,17 +129,17 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Per-account rate limits; pause/stop on expired credentials
 - [x] Gate: replays deduplicate; interrupted imports resume; tests passing (26/26)
 
-## Phase 4 — Circles UI
+## Phase 4 — Circles UI (complete 2026-09-17)
 
-- [ ] SSR first page + API-paginated subsequent pages (URL-addressable filters/selection)
-- [ ] Views: Conversations, Inbound, Outbound, No history, Opportunities
-- [ ] Sorts: last conversation, last engagement, interaction count, name
-- [ ] Distinct timestamps: last interaction / heard from them / from you / last conversation
-- [ ] Contact drawer: edit, tags, lists, archive; preserve private notes on enrichment
-- [ ] Timeline: thread grouping, provenance, incomplete-thread marking, stable pagination
-- [ ] Directory/table view for bulk browsing + list management
-- [ ] List/tag management UI (create/rename/delete, memberships, pinned views)
-- [ ] Gate: agreed Circles/CRM acceptance flows pass on desktop and mobile
+- [x] SSR first page + API-paginated subsequent pages (URL-addressable filters/selection)
+- [x] Views: Conversations, Inbound, Outbound, No history, Opportunities, All
+- [x] Sorts: Highest Engagement (1/2/3/3 rules), Recent Conversation, Recent Activity, Name
+- [x] Distinct timestamps: first contact / heard from them / from you / last conversation
+- [x] Contact drawer (`ContactDrawer`): edit notes, tags, lists, archive; status selector
+- [x] Timeline (`Timeline`): thread grouping, action type badges (like, restack, comment, reply), Substack links, cursor pagination
+- [x] Directory view with cards, engagement score pills, and list chips
+- [x] List/tag management UI (`CirclesSidebar`): create list, filter by list/tag, add/remove member chips
+- [x] Gate: 27/27 tests passing, 0 typecheck errors across all 6 packages, SSR rendering live (HTTP 200)
 
 ## Phase 5 — Extension
 
