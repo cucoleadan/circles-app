@@ -38,6 +38,7 @@ let profile: DetectedProfile | null = null;
 let lists: { id: string; name: string }[] = [];
 let flow: FlowState = { phase: "idle" };
 let appPublicationUrl: string | null = null;
+let appConnectionState: "connected" | "none" | "needsAuth" | "unreachable" = "unreachable";
 
 async function send(request: Record<string, unknown>): Promise<BackgroundResponse> {
   try {
@@ -107,8 +108,13 @@ function renderFlow() {
     flow.phase === "waiting-substack-login" ||
     flow.phase === "asking-publication" ||
     flow.phase === "sending";
-  connectBtn.disabled = busy;
-  connectBtn.textContent = busy ? "Connecting…" : "Connect Substack account";
+  const connected = appConnectionState === "connected";
+  connectBtn.disabled = busy || connected;
+  connectBtn.textContent = busy
+    ? "Connecting…"
+    : connected
+      ? "Substack account connected"
+      : "Connect Substack account";
   askSection.classList.toggle("hidden", flow.phase !== "asking-publication");
   if (flow.phase === "asking-publication") {
     if (!pubInput.value && appPublicationUrl) {
@@ -223,7 +229,8 @@ async function refreshStatus() {
     ? "Logged in"
     : "Not logged in";
   
-  renderAppStatus(status.appState ?? "unreachable", status.appProfile ?? null, status.appUserEmail ?? null);
+  appConnectionState = status.appState ?? "unreachable";
+  renderAppStatus(appConnectionState, status.appProfile ?? null, status.appUserEmail ?? null);
 
   const profileResult = await send({ type: "GET_CURRENT_PROFILE" });
   profile = profileResult.profile ?? null;
