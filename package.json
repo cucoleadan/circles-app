@@ -9,7 +9,7 @@
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
-    "test": "bun.exe --env-file=.env test packages/core apps/worker apps/api"
+    "test": "bun --env-file=.env test --concurrent-test-files=1 packages/core apps/worker apps/api"
   },
   "devDependencies": {
     "prettier": "^3.8.3",

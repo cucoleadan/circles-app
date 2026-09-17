@@ -145,11 +145,16 @@ describe("tenant isolation", () => {
       createTag(client, userB, "vip")
     )
 
-    await expect(
-      withTenant({ appUserId: userB }, (client) =>
+    let err: any
+    try {
+      await withTenant({ appUserId: userB }, (client) =>
         attachTag(client, userB, tag.id, person.id)
       )
-    ).rejects.toMatchObject({ code: "23503" })
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeDefined()
+    expect(err?.code).toBe("23503")
   })
 })
 
@@ -190,11 +195,16 @@ describe("transactional edits", () => {
     await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Alice", handle: "@Alice" })
     )
-    await expect(
-      withTenant({ appUserId: userA }, (client) =>
+    let err: any
+    try {
+      await withTenant({ appUserId: userA }, (client) =>
         createPerson(client, userA, { name: "Alice 2", handle: "alice" })
       )
-    ).rejects.toMatchObject({ code: "23505" })
+    } catch (e) {
+      err = e
+    }
+    expect(err).toBeDefined()
+    expect(err?.code).toBe("23505")
   })
 
   test("archiving hides a person and frees its handle", async () => {
