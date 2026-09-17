@@ -5,7 +5,7 @@ Update this file as work completes. Last updated: 2026-09-17.
 
 ## Where we are
 
-**Phase 1 (Foundation) is complete except for the post-deploy smoke test; Phase 2 (Database & CRM) starts next.**
+**Phase 2 (Database & CRM) is complete and verified (tests 10/10, representative D1 import reconciles); push to `main` deploys it. Phase 3 (Ingestion & sync) starts next.**
 
 What exists:
 
@@ -69,35 +69,53 @@ Notable deviations from the plan's suggested layout (accepted for now):
       (only the 127.0.0.1-bound dev proxy) — Phase 1 gate closed 2026-09-17
 - [ ] Backup role/policy deferred to Phase 6 (Dokploy scheduled backups are interim)
 
-## Phase 2 — Database and CRM (current phase — in progress)
+## Phase 2 — Database and CRM (complete 2026-09-17, pending deploy)
 
-- [x] Minimal `contacts` table + CRUD endpoints (placeholder for full model)
-- [ ] Full schema per plan section 7:
-  - [ ] `app_users` (CRM ownership, distinct from Better Auth `user`)
-  - [ ] `substack_connections` (encrypted envelopes, revocation, account generation)
-  - [ ] `people` (full: profile IDs, provenance, archive state, legacy status merge)
-  - [ ] `tags`, `person_tags` (+ composite ownership constraints)
-  - [ ] `lists`, `list_members` (delete list keeps contacts/history)
-  - [ ] `saved_views` (pinned views)
-  - [ ] `interactions` (direction, thread identity, external IDs, metadata, provenance)
-  - [ ] `profile_snapshots` / `thread_snapshots` (+ archive legacy payloads)
-  - [ ] `activity_snapshots` / `note_replies_snapshots` (capture evidence)
-  - [ ] `sync_state` / `import_runs` (cutoff, cursor, counts, paused state)
-  - [ ] `ingestion_batches`, `relationship_stats`, audit records
-  - [ ] Jobs/lease columns: lease token fencing, heartbeat/expiry, attempts, terminal states
-  - [ ] Indexes per query shapes: `(user_id, normalized_handle)`, membership edges,
+- [x] Minimal `contacts` table + CRUD endpoints (superseded by `people`)
+- [x] Full schema per plan section 7 (`003_crm.sql` + `004_crm_import.sql`):
+  - [x] `app_users` (CRM ownership, distinct from Better Auth `user`;
+        `auth_user_id` nullable until the Phase 6 link)
+  - [x] `substack_connections` (encrypted envelopes, revocation/status, generation)
+  - [x] `people` (profile IDs, provenance/source, archive state, legacy status merge)
+  - [x] `tags`, `person_tags` (+ composite ownership constraints)
+  - [x] `lists`, `list_members` (delete list only removes membership edges)
+  - [x] `saved_views` (pinned views, tag xor list)
+  - [x] `interactions` (direction, `thread_kind` namespaces, external IDs,
+        metadata, provenance via `connection_id`/`source`)
+  - [x] `profile_snapshots` / `thread_snapshots`
+  - [x] `activity_snapshots` / `note_replies_snapshots` (capture evidence)
+  - [x] `sync_state` / `import_runs` (cutoff, cursor, counts, paused state)
+  - [x] `ingestion_batches`, `relationship_stats`, `audit_log`
+  - [x] Jobs/lease columns: lease token fencing, expiry, bounded attempts, terminal states
+  - [x] Indexes per query shapes: `(user_id, normalized_handle)`, membership edges,
         `(user_id, person_id, occurred_at DESC, id DESC)`, thread lookups,
         unique source event keys, due-job index
-- [ ] Dedicated `APP_DATABASE_URL` env var so api/worker no longer receive the
-      admin `DATABASE_URL` string (noted in `docs/operations.md`)
-- [ ] Typed repositories (parameterized SQL, transactions with released clients)
-- [ ] API surface per plan section 6: `/api/v1/circles`, `/api/v1/people`,
-      `/api/v1/people/:id/interactions` (cursor pagination), `/api/v1/lists`,
-      `/api/v1/tags`, `/api/v1/me`
-- [ ] D1 → PostgreSQL migration converter (`scripts/migration/`): export, convert,
-      import in dependency order, reconciliation report, quarantine invalid records
-- [ ] RLS on tenant tables + runtime role test (non-owner, non-superuser)
-- [ ] Tenant-isolation and transactional-edit tests (Phase 2 gate)
+- [x] Dedicated `APP_DATABASE_URL` env var; api/worker no longer receive the
+      admin `DATABASE_URL` string (compose, local `.env`, Dokploy env updated)
+- [x] Typed repositories (`apps/api/src/db/`: `tenant.ts` transaction-local
+      `app.user_id`, `repositories.ts` parameterized SQL)
+- [x] API surface per plan section 6: `/api/v1/circles`, `/api/v1/people`,
+      `/api/v1/people/:id/interactions` (keyset cursor pagination), `/api/v1/lists`,
+      `/api/v1/tags`, `/api/v1/me`; `/api/contacts` kept as a thin compat layer
+      with status translation for the interim UI
+- [x] D1 → PostgreSQL migration converter (`scripts/migration/`): `d1-export.sh`
+      (wrangler), `d1-convert.ts` (dependency-ordered import, reconciliation
+      report, quarantine/flagged rows, `legacy_engagements` staging with
+      provenance); representative fixture import verified against a throwaway
+      `circles_test` database — real D1 export runs at the Phase 6 rehearsal
+- [x] RLS on all tenant tables (`app_tenant_id()` policies); runtime role is
+      `circles_app` (non-owner, non-superuser); `circles_migrate` keeps owner
+      bypass for migration tooling only
+- [x] Tenant-isolation and transactional-edit tests (Phase 2 gate):
+      10/10 passing (`bun --env-file=.env test apps/api`) — RLS isolation,
+      no-context visibility, cross-tenant edge rejection, atomic edits with
+      rollback, handle normalization, archive semantics, interaction dedupe,
+      stable cursor pagination
+
+Phase 2 incident log: a broken statement-bisect script run during migration
+debugging dropped the Phase 1 `contacts` placeholder before its port could run
+(only test data existed). `003_crm.sql` now guards the port with
+`to_regclass`, so fresh and already-migrated databases both apply cleanly.
 
 ## Phase 3 — Ingestion and sync
 
