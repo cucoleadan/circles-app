@@ -1,14 +1,16 @@
 import { Pool } from "pg"
 
 export function runtimeDatabaseUrl(): string {
+  if (process.env.APP_DATABASE_URL) return process.env.APP_DATABASE_URL
+
   const baseUrl = process.env.DATABASE_URL
-  if (!baseUrl) throw new Error("DATABASE_URL is required")
+  if (!baseUrl) throw new Error("APP_DATABASE_URL or DATABASE_URL is required")
 
   const password = process.env.APP_DB_PASSWORD
   if (!password) {
     if (process.env.NODE_ENV === "production")
       throw new Error(
-        "APP_DB_PASSWORD is required in production so the service connects as the limited circles_app role"
+        "APP_DATABASE_URL is required in production so the service connects as the limited circles_app role"
       )
     return baseUrl
   }

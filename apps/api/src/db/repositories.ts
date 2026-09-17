@@ -1,0 +1,590 @@
+import { randomUUID } from "node:crypto"
+
+import type { PoolClient } from "pg"
+
+import { withTenant } from "./tenant.js"
+
+export type PoolLike = PoolClient
+
+const personColumns = `p.id, p.name, p.handle, p.notes,
+    p.relationship_status as "relationshipStatus",
+    p.substack_profile_id as "substackProfileId", p.profile_url as "profileUrl",
+    p.source, p.created_at as "createdAt", p.updated_at as "updatedAt",
+    p.archived_at as "archivedAt"`
+
+const personStatsColumns = `coalesce(s.interaction_count, 0) as "interactionCount",
+    coalesce(s.conversation_count, 0) as "conversationCount",
+    s.last_interaction_at as "lastInteractionAt",
+    s.last_conversation_at as "lastConversationAt",
+    coalesce(s.drift_status, 'new') as "driftStatus"`
+
+// insert/update RETURNING clauses cannot use the `p.` table alias
+const plainPersonColumns = personColumns.replaceAll("p.", "")
+
+export interface Person {
+  id: string
+  name: string
+  handle: string | null
+  notes: string | null
+  relationshipStatus: string | null
+  substackProfileId: string | null
+  profileUrl: string | null
+  source: string
+  createdAt: string
+  updatedAt: string
+  archivedAt: string | null
+}
+
+export interface PersonWithStats extends Person {
+  interactionCount: number
+  conversationCount: number
+  lastInteractionAt: string | null
+  lastConversationAt: string | null
+  driftStatus: string
+}
+
+export interface PersonInput {
+  name: string
+  handle?: string | null
+  notes?: string | null
+  relationshipStatus?: string | null
+  substackProfileId?: string | null
+  profileUrl?: string | null
+}
+
+export const normalizeHandle = (handle: string) =>
+  handle.trim().replace(/^@/, "").toLowerCase()
+
+// ---------------------------------------------------------------- app users
+
+export async function getOrCreateAppUser(authUserId: string): Promise<string> {
+  return withTenant({ authUserId }, async (client) => {
+    const found = await client.query(
+      "select id from app_users where auth_user_id = $1",
+      [authUserId]
+    )
+    if (found.rows[0]) return found.rows[0].id as string
+
+    const id = randomUUID()
+    const inserted = await client.query(
+      `insert into app_users (id, auth_user_id) values ($1, $2)
+       on conflict (auth_user_id) do nothing returning id`,
+      [id, authUserId]
+    )
+    if (inserted.rows[0]) return inserted.rows[0].id as string
+
+    const raced = await client.query(
+      "select id from app_users where auth_user_id = $1",
+      [authUserId]
+    )
+    return raced.rows[0].id as string
+  })
+}
+
+// ------------------------------------------------------------------- people
+
+export async function listPeople(
+  client: PoolLike,
+  options: {
+    search?: string
+    status?: string
+    tagId?: string
+    listId?: string
+    limit?: number
+  } = {}
+): Promise<PersonWithStats[]> {
+  const limit = Math.min(Math.max(options.limit ?? 100, 1), 200)
+  const conditions = ["p.archived_at is null"]
+  const params: unknown[] = []
+  if (options.search) {
+    params.push(`%${options.search.toLowerCase()}%`)
+    conditions.push(
+      `(lower(p.name) like $${params.length} or lower(p.handle) like $${params.length})`
+    )
+  }
+  if (options.status) {
+    params.push(options.status)
+    conditions.push(`p.relationship_status = $${params.length}`)
+  }
+  if (options.tagId) {
+    params.push(options.tagId)
+    conditions.push(
+      `exists (select 1 from person_tags pt where pt.person_id = p.id and pt.tag_id = $${params.length})`
+    )
+  }
+  if (options.listId) {
+    params.push(options.listId)
+    conditions.push(
+      `exists (select 1 from list_members lm where lm.person_id = p.id and lm.list_id = $${params.length})`
+    )
+  }
+  params.push(limit)
+
+  const result = await client.query(
+    `select ${personColumns}, ${personStatsColumns}
+      from people p
+      left join relationship_stats s on s.person_id = p.id
+      where ${conditions.join(" and ")}
+      order by lower(p.name), p.id
+      limit $${params.length}`,
+    params
+  )
+  return result.rows as PersonWithStats[]
+}
+
+export async function getPerson(
+  client: PoolLike,
+  personId: string
+): Promise<{ person: PersonWithStats; tags: { id: string; name: string }[] } | null> {
+  const person = await client.query(
+    `select ${personColumns}, ${personStatsColumns}
+      from people p
+      left join relationship_stats s on s.person_id = p.id
+      where p.id = $1 and p.archived_at is null`,
+    [personId]
+  )
+  if (!person.rows[0]) return null
+
+  const tags = await client.query(
+    `select t.id, t.name from person_tags pt
+       join tags t on t.id = pt.tag_id
+      where pt.person_id = $1 order by lower(t.name)`,
+    [personId]
+  )
+  return { person: person.rows[0], tags: tags.rows }
+}
+
+export async function createPerson(
+  client: PoolLike,
+  userId: string,
+  input: PersonInput
+): Promise<Person> {
+  const handle = input.handle?.trim() ? input.handle : null
+  const result = await client.query(
+    `insert into people
+        (id, user_id, name, handle, normalized_handle, notes, relationship_status,
+         substack_profile_id, profile_url, source)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual')
+     returning ${plainPersonColumns}`,
+    [
+      randomUUID(),
+      userId,
+      input.name,
+      handle,
+      handle ? normalizeHandle(handle) : null,
+      input.notes ?? null,
+      input.relationshipStatus ?? null,
+      input.substackProfileId ?? null,
+      input.profileUrl ?? null,
+    ]
+  )
+  return result.rows[0]
+}
+
+export async function updatePerson(
+  client: PoolLike,
+  personId: string,
+  input: PersonInput
+): Promise<Person | null> {
+  const handle = input.handle?.trim() ? input.handle : null
+  const result = await client.query(
+    `update people
+        set name = $2, handle = $3, normalized_handle = $4, notes = $5,
+            relationship_status = $6, substack_profile_id = $7, profile_url = $8,
+            updated_at = now()
+      where id = $1 and archived_at is null
+      returning ${plainPersonColumns}`,
+    [
+      personId,
+      input.name,
+      handle,
+      handle ? normalizeHandle(handle) : null,
+      input.notes ?? null,
+      input.relationshipStatus ?? null,
+      input.substackProfileId ?? null,
+      input.profileUrl ?? null,
+    ]
+  )
+  return result.rows[0] ?? null
+}
+
+export async function archivePerson(
+  client: PoolLike,
+  personId: string
+): Promise<boolean> {
+  const result = await client.query(
+    `update people set archived_at = now(), updated_at = now()
+      where id = $1 and archived_at is null returning id`,
+    [personId]
+  )
+  return Boolean(result.rows[0])
+}
+
+export async function audit(
+  client: PoolLike,
+  userId: string,
+  action: string,
+  subjectType: string,
+  subjectId: string
+) {
+  await client.query(
+    `insert into audit_log (user_id, action, subject_type, subject_id)
+     values ($1, $2, $3, $4)`,
+    [userId, action, subjectType, subjectId]
+  )
+}
+
+// ------------------------------------------------------------- interactions
+
+export interface InteractionInput {
+  externalId: string
+  personId?: string | null
+  connectionId?: string | null
+  source?: "extension" | "sdk" | "import"
+  direction: "inbound" | "outbound"
+  actionType: string
+  targetType?: string | null
+  targetId?: string | null
+  targetTitle?: string | null
+  targetUrl?: string | null
+  threadKind?: "post" | "note" | null
+  threadRootId?: string | null
+  body?: string | null
+  occurredAt: string
+  metadata?: Record<string, unknown>
+}
+
+export interface InteractionRow {
+  id: string
+  externalId: string
+  personId: string | null
+  connectionId: string | null
+  source: string
+  direction: string
+  actionType: string
+  targetType: string | null
+  targetId: string | null
+  targetTitle: string | null
+  targetUrl: string | null
+  threadKind: string | null
+  threadRootId: string | null
+  body: string | null
+  occurredAt: string
+  metadata: Record<string, unknown>
+  createdAt: string
+}
+
+const interactionColumns = `id, external_id as "externalId", person_id as "personId",
+    connection_id as "connectionId", source, direction, action_type as "actionType",
+    target_type as "targetType", target_id as "targetId", target_title as "targetTitle",
+    target_url as "targetUrl", thread_kind as "threadKind",
+    thread_root_id as "threadRootId", body, occurred_at as "occurredAt",
+    metadata, created_at as "createdAt"`
+
+export async function recordInteraction(
+  client: PoolLike,
+  userId: string,
+  input: InteractionInput
+): Promise<InteractionRow | null> {
+  const result = await client.query(
+    `insert into interactions
+        (id, user_id, connection_id, person_id, external_id, source, direction,
+         action_type, target_type, target_id, target_title, target_url,
+         thread_kind, thread_root_id, body, occurred_at, metadata)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+     on conflict do nothing
+     returning ${interactionColumns}`,
+    [
+      randomUUID(),
+      userId,
+      input.connectionId ?? null,
+      input.personId ?? null,
+      input.externalId,
+      input.source ?? "extension",
+      input.direction,
+      input.actionType,
+      input.targetType ?? null,
+      input.targetId ?? null,
+      input.targetTitle ?? null,
+      input.targetUrl ?? null,
+      input.threadKind ?? null,
+      input.threadRootId ?? null,
+      input.body ?? null,
+      input.occurredAt,
+      JSON.stringify(input.metadata ?? {}),
+    ]
+  )
+  return result.rows[0] ?? null
+}
+
+export interface InteractionPage {
+  interactions: InteractionRow[]
+  nextCursor: string | null
+}
+
+const encodeCursor = (occurredAt: string, id: string) =>
+  Buffer.from(JSON.stringify({ o: occurredAt, d: id })).toString("base64url")
+
+const decodeCursor = (cursor: string) => {
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString())
+    if (typeof parsed.o === "string" && typeof parsed.d === "string") return parsed
+  } catch {
+    /* fall through */
+  }
+  return null
+}
+
+export async function personInteractions(
+  client: PoolLike,
+  personId: string,
+  options: { cursor?: string; limit?: number } = {}
+): Promise<InteractionPage> {
+  const limit = Math.min(Math.max(options.limit ?? 50, 1), 100)
+  const params: unknown[] = [personId]
+  let where = "person_id = $1"
+  if (options.cursor) {
+    const cursor = decodeCursor(options.cursor)
+    if (!cursor) throw new Error("Invalid cursor")
+    params.push(cursor.o, cursor.d)
+    where += ` and (occurred_at, id) < ($2, $3)`
+  }
+  params.push(limit)
+
+  const result = await client.query(
+    `select ${interactionColumns}
+      from interactions
+      where ${where}
+      order by occurred_at desc, id desc
+      limit $${params.length}`,
+    params
+  )
+
+  const rows = result.rows
+  const nextCursor =
+    rows.length === limit && rows.length > 0
+      ? encodeCursor(rows[rows.length - 1].occurredAt, rows[rows.length - 1].id)
+      : null
+  return { interactions: rows, nextCursor }
+}
+
+/** Rebuilds the per-person totals so overview reads never scan interactions. */
+export async function refreshPersonStats(client: PoolLike, personId: string) {
+  await client.query(
+    `insert into relationship_stats
+        (person_id, user_id, interaction_count, conversation_count,
+         first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
+         last_conversation_at, drift_status, updated_at)
+     select i.person_id, i.user_id, count(*),
+        count(distinct i.thread_root_id) filter (where i.thread_root_id is not null),
+        min(i.occurred_at), max(i.occurred_at),
+        max(i.occurred_at) filter (where i.direction = 'inbound'),
+        max(i.occurred_at) filter (where i.direction = 'outbound'),
+        max(i.occurred_at) filter (where i.thread_root_id is not null),
+        case
+          when max(i.occurred_at) is null then 'new'
+          when max(i.occurred_at) > now() - interval '30 days' then 'active'
+          when max(i.occurred_at) > now() - interval '90 days' then 'drifting'
+          else 'cold'
+        end,
+        now()
+      from interactions i
+      where i.person_id = $1
+      group by i.person_id, i.user_id
+     on conflict (person_id) do update
+      set interaction_count = excluded.interaction_count,
+        conversation_count = excluded.conversation_count,
+        first_interacted_at = excluded.first_interacted_at,
+        last_interaction_at = excluded.last_interaction_at,
+        last_inbound_at = excluded.last_inbound_at,
+        last_outbound_at = excluded.last_outbound_at,
+        last_conversation_at = excluded.last_conversation_at,
+        drift_status = excluded.drift_status,
+        updated_at = now()`,
+    [personId]
+  )
+}
+
+// ------------------------------------------------------------ lists and tags
+
+export interface NamedRecord {
+  id: string
+  name: string
+  createdAt: string
+  count: number
+}
+
+export async function listLists(client: PoolLike): Promise<NamedRecord[]> {
+  const result = await client.query(
+    `select l.id, l.name, l.created_at as "createdAt",
+        count(lm.person_id)::int as count
+      from lists l left join list_members lm on lm.list_id = l.id
+      group by l.id order by lower(l.name)`
+  )
+  return result.rows
+}
+
+export async function createList(
+  client: PoolLike,
+  userId: string,
+  name: string,
+  description?: string | null
+): Promise<{ id: string; name: string }> {
+  const result = await client.query(
+    `insert into lists (id, user_id, name, normalized_name, description)
+     values ($1, $2, $3, lower($3), $4) returning id, name`,
+    [randomUUID(), userId, name, description ?? null]
+  )
+  return result.rows[0]
+}
+
+export async function updateList(
+  client: PoolLike,
+  listId: string,
+  name: string,
+  description?: string | null
+): Promise<{ id: string; name: string } | null> {
+  const result = await client.query(
+    `update lists set name = $2, normalized_name = lower($2), description = $3,
+        updated_at = now()
+      where id = $1 returning id, name`,
+    [listId, name, description ?? null]
+  )
+  return result.rows[0] ?? null
+}
+
+/** Deleting a list only removes the membership edges, never people. */
+export async function deleteList(client: PoolLike, listId: string): Promise<boolean> {
+  const result = await client.query(
+    "delete from lists where id = $1 returning id",
+    [listId]
+  )
+  return Boolean(result.rows[0])
+}
+
+export async function addListMember(
+  client: PoolLike,
+  userId: string,
+  listId: string,
+  personId: string
+) {
+  await client.query(
+    `insert into list_members (list_id, person_id, user_id) values ($1, $2, $3)
+     on conflict (list_id, person_id) do nothing`,
+    [listId, personId, userId]
+  )
+}
+
+export async function removeListMember(
+  client: PoolLike,
+  listId: string,
+  personId: string
+) {
+  await client.query(
+    "delete from list_members where list_id = $1 and person_id = $2",
+    [listId, personId]
+  )
+}
+
+export async function listTags(client: PoolLike): Promise<NamedRecord[]> {
+  const result = await client.query(
+    `select t.id, t.name, t.created_at as "createdAt",
+        count(pt.person_id)::int as count
+      from tags t left join person_tags pt on pt.tag_id = t.id
+      group by t.id order by lower(t.name)`
+  )
+  return result.rows
+}
+
+export async function createTag(
+  client: PoolLike,
+  userId: string,
+  name: string,
+  color?: string | null
+): Promise<{ id: string; name: string }> {
+  const result = await client.query(
+    `insert into tags (id, user_id, name, normalized_name, color)
+     values ($1, $2, $3, lower($3), $4) returning id, name`,
+    [randomUUID(), userId, name, color ?? "#635bff"]
+  )
+  return result.rows[0]
+}
+
+export async function updateTag(
+  client: PoolLike,
+  tagId: string,
+  name: string,
+  color?: string | null
+): Promise<{ id: string; name: string } | null> {
+  const result = await client.query(
+    `update tags set name = $2, normalized_name = lower($2), color = $3,
+        updated_at = now()
+      where id = $1 returning id, name`,
+    [tagId, name, color ?? "#635bff"]
+  )
+  return result.rows[0] ?? null
+}
+
+export async function deleteTag(client: PoolLike, tagId: string): Promise<boolean> {
+  const result = await client.query("delete from tags where id = $1 returning id", [
+    tagId,
+  ])
+  return Boolean(result.rows[0])
+}
+
+export async function attachTag(
+  client: PoolLike,
+  userId: string,
+  tagId: string,
+  personId: string
+) {
+  await client.query(
+    `insert into person_tags (person_id, tag_id, user_id) values ($1, $2, $3)
+     on conflict (person_id, tag_id) do nothing`,
+    [personId, tagId, userId]
+  )
+}
+
+export async function detachTag(
+  client: PoolLike,
+  tagId: string,
+  personId: string
+) {
+  await client.query(
+    "delete from person_tags where person_id = $1 and tag_id = $2",
+    [personId, tagId]
+  )
+}
+
+// ------------------------------------------------------------------- circles
+
+export interface CirclesOverview {
+  people: number
+  byStatus: Record<string, number>
+  byDrift: Record<string, number>
+  interactions: number
+}
+
+export async function circlesOverview(client: PoolLike): Promise<CirclesOverview> {
+  const [people, stats, interactions] = await Promise.all([
+    client.query(
+      `select relationship_status as status, count(*)::int as count
+         from people where archived_at is null group by relationship_status`
+    ),
+    client.query(
+      `select drift_status as status, count(*)::int as count
+         from relationship_stats group by drift_status`
+    ),
+    client.query("select count(*)::int as count from interactions"),
+  ])
+  const byStatus: Record<string, number> = {}
+  for (const row of people.rows) byStatus[row.status ?? "new"] = row.count
+  const byDrift: Record<string, number> = {}
+  for (const row of stats.rows) byDrift[row.status] = row.count
+  return {
+    people: people.rows.reduce((sum: number, row: { count: number }) => sum + row.count, 0),
+    byStatus,
+    byDrift,
+    interactions: interactions.rows[0].count,
+  }
+}

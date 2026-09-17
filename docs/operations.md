@@ -20,24 +20,53 @@ every deploy, using the admin `DATABASE_URL`):
 | `circles_migrate` | `migrate` SQL execution | Owns the `public` schema objects; can create/alter tables |
 | `circles_app` | `api`, `worker` | DML only (`SELECT/INSERT/UPDATE/DELETE`); no DDL |
 
-The `api` and `worker` connect as `circles_app` by swapping the role and
-password (`APP_DB_PASSWORD`) into the admin URL at runtime. In production
-(`NODE_ENV=production`) services refuse to start without `APP_DB_PASSWORD`.
-Locally, development runs against the admin URL for convenience.
+The `api` and `worker` connect through the dedicated `APP_DATABASE_URL`
+connection string (role `circles_app`). They never see the admin
+`DATABASE_URL`. In production (`NODE_ENV=production`) services refuse to start
+without it. Locally, `scripts/dev.ts` injects the same variable for the tunnel.
 
 Required Dokploy environment variables for the compose application:
 
-- `DATABASE_URL` — the Dokploy database service connection string (admin)
-- `APP_DB_PASSWORD` — password for the `circles_app` runtime role
+- `DATABASE_URL` — the Dokploy database service connection string (admin;
+  used by the `migrate` service only)
+- `APP_DATABASE_URL` — runtime connection string as `circles_app`
+- `APP_DB_PASSWORD` — password for the `circles_app` runtime role (migrate bootstrap)
 - `MIGRATE_DB_PASSWORD` — password for the `circles_migrate` role
 - `APP_URL` — canonical public URL (e.g. `https://circles.example.com`)
 - `BETTER_AUTH_SECRET` — high-entropy secret (32+ random bytes)
 - `ALLOW_SIGNUP` — `false` after the initial account exists
 
-Known tradeoff ( revisit in Phase 2): `api`/`worker` still receive the admin
-`DATABASE_URL` string in their environment so they can derive the runtime
-connection. A dedicated `APP_DATABASE_URL` variable would remove the admin
-credentials from the app services entirely.
+Row level security: every tenant table is protected by a policy comparing
+`user_id` with `app_tenant_id()` (`current_setting('app.user_id')`). The API
+sets that value transaction-locally (`withTenant` in `apps/api/src/db/tenant.ts`)
+so context never leaks between requests. `circles_migrate` owns the tables and
+bypasses RLS, which the D1 import relies on; only migration tooling may use it.
+
+## D1 import (Phase 2 converter)
+
+From the `stackedhq-app` checkout with `wrangler` authenticated:
+
+```bash
+DATABASE=stackedhq-app-db OUT=../circles-app/scripts/migration/exports \
+  ../circles-app/scripts/migration/d1-export.sh
+```
+
+Then, from `circles-app` with the dev tunnel up:
+
+```bash
+bun --env-file=.env scripts/migration/d1-convert.ts --dir=scripts/migration/exports
+```
+
+The converter imports in dependency order as `circles_migrate`, writes
+`exports/report.json` (per-table source/imported/quarantined/flagged counts)
+and `exports/quarantine.json` (rows that cannot be converted losslessly, with
+reasons). Invalid required timestamps quarantine the row; invalid JSON
+metadata is imported empty and flagged. `community_engagements` land in a
+separate `legacy_engagements` table with provenance — never merged into
+`interactions` without proven identity. Import runs land as `import_runs`
+with leases cleared and `running` mapped to `paused`.
+For a dry run against a throwaway database, add `--database=circles_test`.
+Fixture files under `scripts/migration/fixtures/` demo the quarantine paths.
 
 ## Cloudflare Tunnel routing
 

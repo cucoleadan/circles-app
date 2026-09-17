@@ -2,20 +2,24 @@ import { randomUUID } from "node:crypto"
 
 import { Pool } from "pg"
 
+const dedicatedUrl = process.env.APP_DATABASE_URL
 const baseUrl = process.env.DATABASE_URL
-if (!baseUrl) throw new Error("DATABASE_URL is required")
-
 const appPassword = process.env.APP_DB_PASSWORD
-let connectionString = baseUrl
-if (appPassword) {
-  const url = new URL(baseUrl)
-  url.username = "circles_app"
-  url.password = appPassword
-  connectionString = url.toString()
-} else if (process.env.NODE_ENV === "production") {
-  throw new Error(
-    "APP_DB_PASSWORD is required in production so the worker connects as the limited circles_app role"
-  )
+let connectionString = dedicatedUrl
+if (!connectionString) {
+  if (!baseUrl) throw new Error("APP_DATABASE_URL or DATABASE_URL is required")
+  if (appPassword) {
+    const url = new URL(baseUrl)
+    url.username = "circles_app"
+    url.password = appPassword
+    connectionString = url.toString()
+  } else if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "APP_DATABASE_URL is required in production so the worker connects as the limited circles_app role"
+    )
+  } else {
+    connectionString = baseUrl
+  }
 }
 
 const db = new Pool({ connectionString, max: 2 })

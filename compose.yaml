@@ -34,8 +34,7 @@ services:
       retries: 5
     environment:
       <<: *backend-env
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+      APP_DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is required}
       DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
       APP_URL: ${APP_URL:?APP_URL is required}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
@@ -49,8 +48,7 @@ services:
         condition: service_completed_successfully
     environment:
       <<: *backend-env
-      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+      APP_DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is required}
 
   web:
     build: .

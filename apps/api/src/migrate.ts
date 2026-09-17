@@ -1,13 +1,7 @@
-import { readdir, readFile } from "node:fs/promises"
-import { fileURLToPath } from "node:url"
-
 import { Pool } from "pg"
 
 import { bootstrapRoles } from "./bootstrap-roles.js"
-
-const migrationsDirectory = fileURLToPath(
-  new URL("../migrations", import.meta.url)
-)
+import { runMigrations } from "./migrate-runner.js"
 
 async function connectWithRetry(db: Pool) {
   for (let attempt = 1; attempt <= 30; attempt++) {
@@ -46,35 +40,5 @@ if (appPassword && migratePassword) {
 
 const db = new Pool({ connectionString: runUrl, max: 1 })
 await connectWithRetry(db)
-
-await db.query(`create table if not exists app_migrations (
-  name text primary key,
-  applied_at timestamptz not null default now()
-)`)
-
-const files = (await readdir(migrationsDirectory))
-  .filter((file) => file.endsWith(".sql"))
-  .sort()
-for (const file of files) {
-  const applied = await db.query(
-    "select 1 from app_migrations where name = $1",
-    [file]
-  )
-  if (applied.rowCount) continue
-
-  const client = await db.connect()
-  try {
-    await client.query("begin")
-    await client.query(await readFile(`${migrationsDirectory}/${file}`, "utf8"))
-    await client.query("insert into app_migrations (name) values ($1)", [file])
-    await client.query("commit")
-    console.log(`Applied ${file}`)
-  } catch (error) {
-    await client.query("rollback")
-    throw error
-  } finally {
-    client.release()
-  }
-}
-
+await runMigrations(db)
 await db.end()

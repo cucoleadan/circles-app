@@ -8,7 +8,8 @@
     "dev:check": "bun.exe scripts/dev.ts --check",
     "lint": "turbo lint",
     "format": "turbo format",
-    "typecheck": "turbo typecheck"
+    "typecheck": "turbo typecheck",
+    "test": "bun.exe --env-file=.env test apps/api"
   },
   "devDependencies": {
     "prettier": "^3.8.3",

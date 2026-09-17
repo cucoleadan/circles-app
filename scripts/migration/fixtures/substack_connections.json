@@ -1,0 +1,1 @@
+[{"id":"conn-1","user_id":"d1-user-1","publication_url":"https://example.substack.com","envelope_version":1,"key_id":"key-1","wrapped_key":"wk","iv":"iv","ciphertext":"ct","profile_id":"pub-123","profile_name":"Example","profile_handle":"example","last_verified_at":"2026-05-01T09:00:00.000Z","created_at":"2026-03-05T09:00:00.000Z","updated_at":"2026-05-01T09:00:00.000Z"}]
