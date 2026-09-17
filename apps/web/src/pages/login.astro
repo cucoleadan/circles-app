@@ -19,11 +19,15 @@ import "@workspace/ui/globals.css"
       </form>
     </main>
     <script>
-      const form = document.querySelector<HTMLFormElement>("#auth-form")!
-      const status = document.querySelector<HTMLParagraphElement>("#status")!
+      const form = document.querySelector("#auth-form")
+      const status = document.querySelector("#status")
+      if (!(form instanceof HTMLFormElement) || !(status instanceof HTMLParagraphElement)) {
+        throw new Error("The authentication form could not be initialized.")
+      }
       form.addEventListener("submit", async (event) => {
         event.preventDefault()
-        const submitter = (event as SubmitEvent).submitter as HTMLButtonElement
+        const submitter = event.submitter
+        if (!(submitter instanceof HTMLButtonElement)) return
         const action = submitter.dataset.action
         const path = action === "sign-up" ? "sign-up/email" : "sign-in/email"
         status.textContent = "Working…"
