@@ -115,20 +115,42 @@ async function main() {
   const importer = new InsertAdapter(db, personUser, listUser)
 
   // Import order respects foreign keys.
-  for (const row of tables["users"] ?? [])
+  for (const row of tables["users"] ?? []) {
+    let matchedAuthUserId: string | null = null
+    if (row.email) {
+      const authUserRes = await db.query(
+        'select id from "user" where lower(email) = lower($1)',
+        [row.email]
+      )
+      if (authUserRes.rows[0]) {
+        matchedAuthUserId = authUserRes.rows[0].id
+        await db.query(
+          `delete from app_users
+           where auth_user_id = $1 and id != $2
+             and not exists (select 1 from people where user_id = app_users.id)`,
+          [matchedAuthUserId, row.id]
+        )
+      }
+    }
+
     await importer.insert(
       "users -> app_users",
       String(row.id),
-      `insert into app_users (id, legacy_clerk_id, extension_installed_at, created_at, updated_at)
-       values ($1, $2, $3, $4, $5)`,
+      `insert into app_users (id, auth_user_id, legacy_clerk_id, extension_installed_at, created_at, updated_at)
+       values ($1, $2, $3, $4, $5, $6)
+       on conflict (id) do update
+        set auth_user_id = coalesce(excluded.auth_user_id, app_users.auth_user_id),
+            legacy_clerk_id = coalesce(excluded.legacy_clerk_id, app_users.legacy_clerk_id)`,
       [
         row.id,
+        matchedAuthUserId,
         row.clerk_user_id ?? null,
         timestamp(row.extension_installed_at),
         timestamp(row.created_at) ?? new Date().toISOString(),
         timestamp(row.updated_at) ?? new Date().toISOString(),
       ]
     )
+  }
 
   for (const row of tables["substack_connections"] ?? [])
     await importer.insert(
@@ -138,7 +160,8 @@ async function main() {
          (id, user_id, generation, status, publication_url, envelope_version,
           key_id, wrapped_key, iv, ciphertext, profile_id, profile_name,
           profile_handle, last_verified_at, created_at, updated_at)
-       values ($1, $2, 1, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+       values ($1, $2, 1, 'active', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.publication_url ?? null,
         row.envelope_version, row.key_id, row.wrapped_key, row.iv,
@@ -163,7 +186,8 @@ async function main() {
          (id, user_id, name, handle, normalized_handle, profile_url,
           publication_url, relationship_status, notes, source, created_at,
           updated_at, archived_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'd1-import', $10, $11, $12)`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'd1-import', $10, $11, $12)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.name, row.handle ?? null,
         row.normalized_handle ?? null, row.profile_url ?? null,
@@ -180,7 +204,8 @@ async function main() {
          (person_id, user_id, interaction_count, conversation_count,
           first_interacted_at, last_interaction_at, drift_status, ai_summary,
           ai_suggested_action, ai_topics, ai_summarized_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
+       on conflict (person_id) do nothing`,
       [
         row.id, row.user_id,
         row.interaction_count ?? 0, row.conversation_count ?? 0,
@@ -197,7 +222,8 @@ async function main() {
       "community_tags -> tags",
       String(row.id),
       `insert into tags (id, user_id, name, normalized_name, color, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7)`,
+       values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.name, row.normalized_name ?? String(row.name).toLowerCase(),
         row.color ?? "#635bff", timestamp(row.created_at) ?? new Date().toISOString(),
@@ -210,7 +236,8 @@ async function main() {
       "community_lists -> lists",
       String(row.id),
       `insert into lists (id, user_id, name, normalized_name, description, created_at, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7)`,
+       values ($1, $2, $3, $4, $5, $6, $7)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.name, row.normalized_name ?? String(row.name).toLowerCase(),
         row.description ?? null, timestamp(row.created_at) ?? new Date().toISOString(),
@@ -223,7 +250,8 @@ async function main() {
       "community_person_tags -> person_tags",
       `${row.person_id}/${row.tag_id}`,
       `insert into person_tags (person_id, tag_id, user_id, created_at)
-       values ($1, $2, $3, $4)`,
+       values ($1, $2, $3, $4)
+       on conflict (person_id, tag_id) do nothing`,
       [
         row.person_id, row.tag_id,
         personUser.get(String(row.person_id)) ?? null,
@@ -236,7 +264,8 @@ async function main() {
       "community_list_members -> list_members",
       `${row.list_id}/${row.person_id}`,
       `insert into list_members (list_id, person_id, user_id, created_at)
-       values ($1, $2, $3, $4)`,
+       values ($1, $2, $3, $4)
+       on conflict (list_id, person_id) do nothing`,
       [
         row.list_id, row.person_id,
         listUser.get(String(row.list_id)) ?? null,
@@ -249,7 +278,8 @@ async function main() {
       "community_dashboard_views -> saved_views",
       String(row.id),
       `insert into saved_views (id, user_id, tag_id, list_id, created_at)
-       values ($1, $2, $3, $4, $5)`,
+       values ($1, $2, $3, $4, $5)
+       on conflict (id) do nothing`,
       [
         row.id ?? randomUUID(), row.user_id, row.tag_id ?? null,
         row.list_id ?? null, timestamp(row.created_at) ?? new Date().toISOString(),
@@ -277,7 +307,8 @@ async function main() {
           target_type, target_id, target_title, target_url, thread_kind,
           thread_root_id, body, occurred_at, metadata, created_at)
        values ($1, $2, $3, $4, 'import', $5, $6, $7, $8, $9, $10, $11, $12,
-               $13, $14, $15, $16)`,
+               $13, $14, $15, $16)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.person_id ?? null, row.external_id,
         row.direction, row.action_type, row.target_type ?? null,
@@ -301,7 +332,8 @@ async function main() {
       String(row.id),
       `insert into legacy_engagements
          (id, user_id, person_id, target_id, target_type, action_type, metadata, created_at)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (id) do nothing`,
       [
         row.id, row.user_id, row.person_id ?? null, row.target_id,
         row.target_type, row.action_type,
@@ -317,7 +349,8 @@ async function main() {
       `insert into profile_snapshots
          (person_id, user_id, connection_id, schema_version, payload,
           fetched_at, last_attempted_at, last_error)
-       values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8)
+       on conflict (person_id) do nothing`,
       [
         row.person_id, row.user_id, row.connection_id ?? null,
         row.schema_version, JSON.stringify(jsonValue(row.payload_json) ?? {}),
@@ -332,7 +365,8 @@ async function main() {
       "activity_snapshots",
       String(row.connection_id),
       `insert into activity_snapshots (connection_id, schema_version, payload, captured_at)
-       values ($1, $2, $3, $4)`,
+       values ($1, $2, $3, $4)
+       on conflict (connection_id) do nothing`,
       [
         row.connection_id, row.schema_version,
         JSON.stringify(jsonValue(row.payload_json) ?? {}),
@@ -345,7 +379,8 @@ async function main() {
       "note_replies_snapshots",
       `${row.connection_id}/${row.note_id}`,
       `insert into note_replies_snapshots (connection_id, note_id, schema_version, payload, captured_at)
-       values ($1, $2, $3, $4, $5)`,
+       values ($1, $2, $3, $4, $5)
+       on conflict (connection_id, note_id) do nothing`,
       [
         row.connection_id, row.note_id, row.schema_version,
         JSON.stringify(jsonValue(row.payload_json) ?? {}),
@@ -361,7 +396,8 @@ async function main() {
          (id, user_id, connection_id, status, started_at, cutoff, after_cursor,
           oldest_at, finish_reason, pages, items, new_interactions,
           enriched_interactions, new_people, next_request_at, pending, error)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+       on conflict (id) do nothing`,
       [
         randomUUID(), row.user_id, row.connection_id,
         row.status === "running" ? "paused" : String(row.status),
@@ -374,6 +410,51 @@ async function main() {
         jsonb(row.pending_json), row.error ?? null,
       ]
     )
+
+  // Recompute relationship_stats and engagement scores (1/2/3/3 rules) from imported interactions
+  console.log("recomputing relationship_stats and engagement scores...")
+  await db.query(`
+    insert into relationship_stats
+      (person_id, user_id, interaction_count, conversation_count,
+       first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
+       last_conversation_at, drift_status, engagement_score, updated_at)
+    select i.person_id, i.user_id, count(*),
+      count(distinct i.thread_root_id) filter (where i.thread_root_id is not null),
+      min(i.occurred_at), max(i.occurred_at),
+      max(i.occurred_at) filter (where i.direction = 'inbound'),
+      max(i.occurred_at) filter (where i.direction = 'outbound'),
+      max(i.occurred_at) filter (where i.thread_root_id is not null),
+      case
+        when max(i.occurred_at) is null then 'new'
+        when max(i.occurred_at) > now() - interval '30 days' then 'active'
+        when max(i.occurred_at) > now() - interval '90 days' then 'drifting'
+        else 'cold'
+      end,
+      coalesce(sum(
+        case
+          when i.action_type = 'like' then 1
+          when i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+          when i.action_type = 'restack' then 3
+          when i.action_type in ('comment', 'reply') then 3
+          else 1
+        end
+      ), 0)::int,
+      now()
+    from interactions i
+    where i.person_id is not null
+    group by i.person_id, i.user_id
+    on conflict (person_id) do update
+      set interaction_count = excluded.interaction_count,
+          conversation_count = excluded.conversation_count,
+          first_interacted_at = excluded.first_interacted_at,
+          last_interaction_at = excluded.last_interaction_at,
+          last_inbound_at = excluded.last_inbound_at,
+          last_outbound_at = excluded.last_outbound_at,
+          last_conversation_at = excluded.last_conversation_at,
+          drift_status = excluded.drift_status,
+          engagement_score = excluded.engagement_score,
+          updated_at = now()
+  `)
 
   await db.end()
 

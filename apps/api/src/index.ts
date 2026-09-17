@@ -90,7 +90,10 @@ app.get("/api/contacts", async (c) => {
   if (!userId) return c.json({ error: "Unauthorized" }, 401)
 
   const people = await withTenant({ appUserId: userId }, (client) =>
-    listPeople(client, { search: c.req.query("search")?.trim() || undefined })
+    listPeople(client, {
+      search: c.req.query("search")?.trim() || undefined,
+      limit: Number(c.req.query("limit") ?? 1000),
+    })
   )
   return c.json({
     contacts: people.map((person) => ({

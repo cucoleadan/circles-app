@@ -95,7 +95,7 @@ export async function listPeople(
     limit?: number
   } = {}
 ): Promise<PersonWithStats[]> {
-  const limit = Math.min(Math.max(options.limit ?? 100, 1), 200)
+  const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000)
   const conditions = ["p.archived_at is null"]
   const params: unknown[] = []
   if (options.search) {

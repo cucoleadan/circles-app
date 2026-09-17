@@ -26,13 +26,15 @@ What exists:
 
 ---
 
-## Phase 0 — Baseline (partially done)
+## Phase 0 — Baseline (complete)
 
 - [x] VPS/Dokploy PostgreSQL service exists; dev tunnel works; DB reachable
-- [ ] Inventory live D1 schema, row counts, ID formats, malformed data
-- [ ] Capture sanitized Substack fixtures for SDK validation
-- [ ] Verify pinned `unofficial-substack-sdk` release vs. local checkout
-- [ ] Decide admin recovery procedure (no transactional email yet) + sign-off on scope
+- [x] Inventory live D1 schema, row counts, ID formats, malformed data
+- [x] Exported live D1 data (`scripts/migration/export-d1.ts`) and imported into PostgreSQL (`scripts/migration/d1-convert.ts`): 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined
+- [x] Link Better Auth user (`cucoleadan@gmail.com`) to imported `app_users` record
+- [x] Capture sanitized Substack fixtures for SDK validation
+- [x] Verify pinned `unofficial-substack-sdk` release (0.3.14)
+- [x] Admin recovery procedure (`apps/api/src/reset-password.ts`)
 
 ## Phase 1 — Foundation (complete, pending deploy smoke test)
 

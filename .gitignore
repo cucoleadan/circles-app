@@ -28,3 +28,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# migration exports (contain credentials/dumps)
+scripts/migration/exports/
+
