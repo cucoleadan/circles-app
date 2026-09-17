@@ -370,16 +370,116 @@ v1.post("/sync", async (c) => {
     const connId = connRes.rows[0]?.id as string | undefined
     if (!connId) return { error: "No active Substack connection" }
 
+    // Check cooldown / existing pending or recent sync
+    const checkRes = await client.query(
+      `select last_synced_at
+       from sync_state
+       where connection_id = $1 and last_synced_at > now() - interval '60 seconds'`,
+      [connId]
+    )
+    if (checkRes.rows.length > 0) {
+      return { enqueued: false, message: "Sync was recently performed. Please wait before syncing again." }
+    }
+
     const job = await client.query(
       `insert into jobs (type, payload, status, run_at)
        values ('sync:activity', json_build_object('userId', $1::text, 'connectionId', $2::text), 'pending', now())
        returning id`,
       [appUser, connId]
     )
-    return { jobId: job.rows[0].id }
+    return { enqueued: true, jobId: job.rows[0].id }
   })
 
   if ("error" in result) return c.json(result, 400)
-  return c.json({ enqueued: true, jobId: result.jobId })
+  return c.json(result)
 })
+
+v1.get("/imports", async (c) => {
+  const appUser = c.get("appUser")
+  const imports = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      `select id, connection_id as "connectionId", status, started_at as "startedAt",
+              cutoff, pages, items, new_interactions as "newInteractions",
+              new_people as "newPeople", finish_reason as "finishReason", error
+       from import_runs
+       where user_id = $1
+       order by started_at desc`,
+      [appUser]
+    )
+    return res.rows
+  })
+  return c.json({ imports })
+})
+
+v1.post("/imports", async (c) => {
+  const appUser = c.get("appUser")
+  const body = await c.req.json().catch(() => ({}))
+  const months = typeof body.months === "number" && body.months > 0 ? body.months : 3
+
+  const result = await withTenant({ appUserId: appUser }, async (client) => {
+    const connRes = await client.query(
+      "select id from substack_connections where user_id = $1 and status = 'active' order by generation desc limit 1",
+      [appUser]
+    )
+    const connId = connRes.rows[0]?.id as string | undefined
+    if (!connId) return { error: "No active Substack connection" }
+
+    const importRunId = crypto.randomUUID()
+    await client.query(
+      `insert into import_runs (id, user_id, connection_id, status, cutoff)
+       values ($1, $2, $3, 'running', now() - ($4 || ' months')::interval)`,
+      [importRunId, appUser, connId, months]
+    )
+
+    const job = await client.query(
+      `insert into jobs (type, payload, status, run_at)
+       values ('import:history', json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text), 'pending', now())
+       returning id`,
+      [appUser, connId, importRunId]
+    )
+
+    return { importRunId, jobId: job.rows[0].id }
+  })
+
+  if ("error" in result) return c.json(result, 400)
+  return c.json({ enqueued: true, ...result }, 201)
+})
+
+v1.post("/imports/:id/pause", async (c) => {
+  const appUser = c.get("appUser")
+  const importId = c.req.param("id")
+  const updated = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      "update import_runs set status = 'paused' where id = $1 and user_id = $2 and status = 'running' returning id",
+      [importId, appUser]
+    )
+    return !!res.rows[0]
+  })
+  if (!updated) return c.json({ error: "Import run not found or cannot be paused" }, 400)
+  return c.json({ paused: true })
+})
+
+v1.post("/imports/:id/resume", async (c) => {
+  const appUser = c.get("appUser")
+  const importId = c.req.param("id")
+  const result = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      "update import_runs set status = 'running' where id = $1 and user_id = $2 and status = 'paused' returning connection_id",
+      [importId, appUser]
+    )
+    const connId = res.rows[0]?.connection_id as string | undefined
+    if (!connId) return { error: "Import run not found or cannot be resumed" }
+
+    const job = await client.query(
+      `insert into jobs (type, payload, status, run_at)
+       values ('import:history', json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text), 'pending', now())
+       returning id`,
+      [appUser, connId, importId]
+    )
+    return { jobId: job.rows[0].id }
+  })
+  if ("error" in result) return c.json(result, 400)
+  return c.json({ resumed: true, jobId: result.jobId })
+})
+
 

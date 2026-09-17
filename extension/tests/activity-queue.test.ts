@@ -1,5 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+if (!vi.stubGlobal) {
+  vi.stubGlobal = (name: string, value: any) => {
+    (globalThis as any)[name] = value;
+  };
+}
+if (!vi.unstubAllGlobals) {
+  vi.unstubAllGlobals = () => {};
+}
+
 let storage: Record<string, unknown>;
 beforeEach(() => {
   vi.resetModules();

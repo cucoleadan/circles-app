@@ -1,6 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isAppOriginUrl, requestViaBridge } from "../src/lib/app-bridge";
 
+if (!vi.stubGlobal) {
+  vi.stubGlobal = (name: string, value: any) => {
+    (globalThis as any)[name] = value;
+  };
+}
+if (!vi.unstubAllGlobals) {
+  vi.unstubAllGlobals = () => {};
+}
+
 const url = "https://stackedhq.chillital.com/app/settings";
 const query = vi.fn();
 const sendMessage = vi.fn();

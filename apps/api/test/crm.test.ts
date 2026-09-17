@@ -31,6 +31,7 @@ import {
   ingestConversationReplies,
 } from "@workspace/core"
 import { ext } from "../src/routes/ext.js"
+import { v1 } from "../src/routes/v1.js"
 
 let admin: Pool
 let migrate: Pool
@@ -554,6 +555,136 @@ describe("interactions", () => {
     )
     expect(frank).toHaveLength(1)
     expect(frank[0].handle).toBe("frank")
+  })
+
+  test("connection, sync with cooldown, and import runs lifecycle via v1 API", async () => {
+    // 1. POST /connection
+    const connRes = await v1.fetch(
+      new Request("http://localhost:3000/connection", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({
+          sessionToken: "test-v1-session-cookie",
+        }),
+      })
+    )
+    expect(connRes.status).toBe(201)
+    const connBody = (await connRes.json()) as any
+    expect(connBody.connection.id).toBeDefined()
+
+    // 2. GET /connection
+    const getConnRes = await v1.fetch(
+      new Request("http://localhost:3000/connection", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(getConnRes.status).toBe(200)
+    const getConnBody = (await getConnRes.json()) as any
+    expect(getConnBody.connection.id).toBe(connBody.connection.id)
+
+    // 3. POST /sync (first call: enqueued)
+    const syncRes1 = await v1.fetch(
+      new Request("http://localhost:3000/sync", {
+        method: "POST",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(syncRes1.status).toBe(200)
+    const syncBody1 = (await syncRes1.json()) as any
+    expect(syncBody1.enqueued).toBe(true)
+    expect(syncBody1.jobId).toBeDefined()
+
+    // 4. Update sync_state last_synced_at to now() to test cooldown
+    await withTenant({ appUserId: userA }, async (client) => {
+      await client.query(
+        "update sync_state set last_synced_at = now() where connection_id = $1",
+        [connBody.connection.id]
+      )
+    })
+
+    // 5. POST /sync (second call within cooldown: refused)
+    const syncRes2 = await v1.fetch(
+      new Request("http://localhost:3000/sync", {
+        method: "POST",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(syncRes2.status).toBe(200)
+    const syncBody2 = (await syncRes2.json()) as any
+    expect(syncBody2.enqueued).toBe(false)
+    expect(syncBody2.message).toContain("recently performed")
+
+    // 6. POST /imports (start historical import run)
+    const importRes = await v1.fetch(
+      new Request("http://localhost:3000/imports", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({ months: 6 }),
+      })
+    )
+    expect(importRes.status).toBe(201)
+    const importBody = (await importRes.json()) as any
+    expect(importBody.enqueued).toBe(true)
+    expect(importBody.importRunId).toBeDefined()
+
+    // 7. GET /imports (list imports)
+    const listImportsRes = await v1.fetch(
+      new Request("http://localhost:3000/imports", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(listImportsRes.status).toBe(200)
+    const listImportsBody = (await listImportsRes.json()) as any
+    expect(listImportsBody.imports).toHaveLength(1)
+    expect(listImportsBody.imports[0].id).toBe(importBody.importRunId)
+    expect(listImportsBody.imports[0].status).toBe("running")
+
+    // 8. POST /imports/:id/pause
+    const pauseRes = await v1.fetch(
+      new Request(`http://localhost:3000/imports/${importBody.importRunId}/pause`, {
+        method: "POST",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(pauseRes.status).toBe(200)
+    const pauseBody = (await pauseRes.json()) as any
+    expect(pauseBody.paused).toBe(true)
+
+    // 9. POST /imports/:id/resume
+    const resumeRes = await v1.fetch(
+      new Request(`http://localhost:3000/imports/${importBody.importRunId}/resume`, {
+        method: "POST",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(resumeRes.status).toBe(200)
+    const resumeBody = (await resumeRes.json()) as any
+    expect(resumeBody.resumed).toBe(true)
+    expect(resumeBody.jobId).toBeDefined()
+
+    // 10. DELETE /connection
+    const delConnRes = await v1.fetch(
+      new Request("http://localhost:3000/connection", {
+        method: "DELETE",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(delConnRes.status).toBe(204)
+
+    // Verify connection status is now revoked
+    const getConnAfter = await v1.fetch(
+      new Request("http://localhost:3000/connection", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    const getConnAfterBody = (await getConnAfter.json()) as any
+    expect(getConnAfterBody.connection).toBeNull()
   })
 })
 
