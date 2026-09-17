@@ -14,6 +14,7 @@ const personColumns = `p.id, p.name, p.handle, p.notes,
 
 const personStatsColumns = `coalesce(s.interaction_count, 0) as "interactionCount",
     coalesce(s.conversation_count, 0) as "conversationCount",
+    coalesce(s.engagement_score, 0) as "engagementScore",
     s.last_interaction_at as "lastInteractionAt",
     s.last_conversation_at as "lastConversationAt",
     coalesce(s.drift_status, 'new') as "driftStatus"`
@@ -38,6 +39,7 @@ export interface Person {
 export interface PersonWithStats extends Person {
   interactionCount: number
   conversationCount: number
+  engagementScore: number
   lastInteractionAt: string | null
   lastConversationAt: string | null
   driftStatus: string
@@ -374,7 +376,7 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
     `insert into relationship_stats
         (person_id, user_id, interaction_count, conversation_count,
          first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
-         last_conversation_at, drift_status, updated_at)
+         last_conversation_at, drift_status, engagement_score, updated_at)
      select i.person_id, i.user_id, count(*),
         count(distinct i.thread_root_id) filter (where i.thread_root_id is not null),
         min(i.occurred_at), max(i.occurred_at),
@@ -387,6 +389,15 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
           when max(i.occurred_at) > now() - interval '90 days' then 'drifting'
           else 'cold'
         end,
+        coalesce(sum(
+          case
+            when i.action_type = 'like' then 1
+            when i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+            when i.action_type = 'restack' then 3
+            when i.action_type in ('comment', 'reply') then 3
+            else 1
+          end
+        ), 0)::int,
         now()
       from interactions i
       where i.person_id = $1
@@ -400,6 +411,7 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         last_outbound_at = excluded.last_outbound_at,
         last_conversation_at = excluded.last_conversation_at,
         drift_status = excluded.drift_status,
+        engagement_score = excluded.engagement_score,
         updated_at = now()`,
     [personId]
   )

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.1",
+    "@workspace/core": "workspace:*",
     "better-auth": "1.6.23",
     "hono": "^4.13.8",
     "pg": "^8.23.0",

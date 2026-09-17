@@ -26,6 +26,11 @@ import {
   getPerson,
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
+import {
+  ingestActivityBatch,
+  ingestConversationReplies,
+} from "@workspace/core"
+import { ext } from "../src/routes/ext.js"
 
 let admin: Pool
 let migrate: Pool
@@ -297,4 +302,250 @@ describe("interactions", () => {
     )
     expect(notFound).toBeNull()
   })
+
+  test("ingests activity items and calculates engagement score accurately (1/2/3/3)", async () => {
+    const stats = await withTenant({ appUserId: userA }, (client) =>
+      ingestActivityBatch(client, {
+        userId: userA,
+        ownerHandle: "myhandle",
+        items: [
+          {
+            id: "act-1",
+            kind: "like",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "post",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "act-2",
+            kind: "restack",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "note",
+            comment_body: null, // restack without comment = 2
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "act-3",
+            kind: "comment",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "post",
+            comment_body: "Great post!", // comment = 3
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "act-4",
+            kind: "restack",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "note",
+            comment_body: "Thoughtful note attached", // restack with note = 3
+            created_at: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+
+    expect(stats.processedItems).toBe(4)
+    expect(stats.newInteractions).toBe(4)
+    expect(stats.newPeople).toBe(1)
+
+    // Check Bob's person stats
+    const people = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "bob" })
+    )
+    expect(people).toHaveLength(1)
+    const bob = people[0]
+    expect(bob.name).toBe("Bob")
+    expect(bob.handle).toBe("bob")
+    expect(bob.interactionCount).toBe(4)
+    // 1 (like) + 2 (restack) + 3 (comment) + 3 (restack with note) = 9
+    expect(bob.engagementScore).toBe(9)
+
+    // Replaying the exact same batch should not duplicate interactions or falsely increase scores
+    const replayStats = await withTenant({ appUserId: userA }, (client) =>
+      ingestActivityBatch(client, {
+        userId: userA,
+        ownerHandle: "myhandle",
+        items: [
+          {
+            id: "act-1",
+            kind: "like",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "post",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "act-2",
+            kind: "restack",
+            actor: { name: "Bob", handle: "@bob" },
+            target_kind: "note",
+            comment_body: null,
+            created_at: new Date().toISOString(),
+          },
+        ],
+      })
+    )
+    expect(replayStats.newInteractions).toBe(0)
+    expect(replayStats.newPeople).toBe(0)
+
+    const recheck = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "bob" })
+    )
+    expect(recheck[0].engagementScore).toBe(9)
+    expect(recheck[0].interactionCount).toBe(4)
+  })
+
+  test("ingests conversation replies tree and updates thread counts", async () => {
+    const stats = await withTenant({ appUserId: userA }, (client) =>
+      ingestConversationReplies(client, {
+        userId: userA,
+        ownerHandle: "myhandle",
+        conversation: {
+          targetType: "note",
+          targetId: "note-root-123",
+          comments: [
+            {
+              id: "c-1",
+              author_name: "Carol",
+              author_handle: "@carol",
+              body: "First comment",
+              children: [
+                {
+                  id: "c-2",
+                  author_name: "Owner",
+                  author_handle: "@myhandle", // outbound reply
+                  body: "Thanks Carol!",
+                },
+                {
+                  id: "c-3",
+                  author_name: "Carol",
+                  author_handle: "@carol",
+                  body: "You're welcome!",
+                },
+              ],
+            },
+          ],
+        },
+      })
+    )
+
+    expect(stats.processedItems).toBe(3)
+    expect(stats.newInteractions).toBe(3)
+
+    const people = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "carol" })
+    )
+    expect(people).toHaveLength(1)
+    const carol = people[0]
+    expect(carol.interactionCount).toBe(2) // 2 comments from Carol (owner reply is outbound, not on Carol)
+    expect(carol.conversationCount).toBe(1) // 1 thread root
+    expect(carol.engagementScore).toBe(6) // 3 + 3 = 6
+  })
+
+  test("GET /companion returns lists and handles for connected user", async () => {
+    // create session for authA
+    await migrate.query(
+      `insert into session (id, "userId", token, "expiresAt", "createdAt", "updatedAt") values
+         ('sess-a', $1, 'test-token-a', now() + interval '1 day', now(), now())
+       on conflict (id) do nothing`,
+      [authA]
+    )
+
+    const list = await withTenant({ appUserId: userA }, (client) =>
+      createList(client, userA, "VIPs")
+    )
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "David", handle: "@david" })
+    )
+    await withTenant({ appUserId: userA }, (client) =>
+      addListMember(client, userA, list.id, person.id)
+    )
+
+    const res = await ext.fetch(
+      new Request("http://localhost:3000/companion", {
+        headers: {
+          cookie: "better-auth.session_token=test-token-a",
+        },
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.ok).toBe(true)
+    expect(body.appState.lists).toContainEqual(expect.objectContaining({ name: "VIPs" }))
+    expect(body.appState.handles).toContain("david")
+    expect(body.appState.members).toContainEqual(
+      expect.objectContaining({
+        handle: "david",
+        lists: expect.arrayContaining([expect.objectContaining({ name: "VIPs" })]),
+      })
+    )
+  })
+
+  test("POST /activity ingests passively captured batch from extension", async () => {
+    const res = await ext.fetch(
+      new Request("http://localhost:3000/activity", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "better-auth.session_token=test-token-a",
+        },
+        body: JSON.stringify({
+          activityItems: [
+            {
+              id: "ext-act-1",
+              kind: "comment",
+              actor: { name: "Eve", handle: "@eve" },
+              target_kind: "post",
+              comment_body: "Loving this extension!",
+              created_at: new Date().toISOString(),
+            },
+          ],
+        }),
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.ok).toBe(true)
+    expect(body.captured).toBe(1)
+    expect(body.newInteractions).toBe(1)
+    expect(body.newPeople).toBe(1)
+
+    const eve = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "eve" })
+    )
+    expect(eve).toHaveLength(1)
+    expect(eve[0].engagementScore).toBe(3)
+  })
+
+  test("POST /community adds person to CRM and lists from extension form", async () => {
+    const list = await withTenant({ appUserId: userA }, (client) =>
+      createList(client, userA, "Newsletter")
+    )
+
+    const form = new FormData()
+    form.set("intent", "createPerson")
+    form.set("name", "Frank")
+    form.set("handle", "@frank")
+    form.append("lists", list.id)
+
+    const res = await ext.fetch(
+      new Request("http://localhost:3000/community", {
+        method: "POST",
+        headers: {
+          cookie: "better-auth.session_token=test-token-a",
+        },
+        body: form,
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.ok).toBe(true)
+    expect(body.submit.ok).toBe(true)
+
+    const frank = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "frank", listId: list.id })
+    )
+    expect(frank).toHaveLength(1)
+    expect(frank[0].handle).toBe("frank")
+  })
 })
+

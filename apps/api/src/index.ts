@@ -12,6 +12,7 @@ import {
   updatePerson,
 } from "./db/repositories.js"
 import { withTenant } from "./db/tenant.js"
+import { ext } from "./routes/ext.js"
 import { v1 } from "./routes/v1.js"
 
 const app = new Hono()
@@ -30,7 +31,8 @@ app.use("*", async (c, next) => {
     !c.req.path.startsWith("/api/auth")
   ) {
     const origin = c.req.header("origin")
-    if (origin && !allowedOrigins.has(origin))
+    const isExtension = c.req.header("x-stackedhq-extension") === "v1"
+    if (origin && !allowedOrigins.has(origin) && !isExtension)
       return c.json({ error: "Forbidden origin" }, 403)
   }
   await next()
@@ -46,6 +48,8 @@ app.get("/api/ready", async (c) => {
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 
 app.route("/api/v1", v1)
+app.route("/api/ext", ext)
+app.route("/app", ext)
 
 async function appUser(headers: Headers) {
   const session = await auth.api.getSession({ headers })

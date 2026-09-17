@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>StackedHQ Companion</h1>
+    </header>
+
+    <section class="status-grid">
+      <div class="status-row">
+        <span id="substack-dot" class="dot"></span>
+        <div>
+          <p class="label">Substack session</p>
+          <p id="substack-text" class="value">Checking…</p>
+        </div>
+      </div>
+      <div class="status-row">
+        <span id="app-dot" class="dot"></span>
+        <div>
+          <p class="label">StackedHQ connection</p>
+          <p id="app-text" class="value">Checking…</p>
+        </div>
+      </div>
+    </section>
+
+    <button id="connect-btn" class="primary">Connect Substack account</button>
+    <p id="flow-text" class="hint"></p>
+
+    <section id="ask-section" class="ask hidden">
+      <label>
+        Publication URL
+        <input
+          id="pub-input"
+          type="url"
+          placeholder="https://your-publication.substack.com"
+          spellcheck="false"
+        />
+      </label>
+      <p id="pub-error" class="hint bad hidden"></p>
+      <div class="ask-actions">
+        <button id="pub-skip-btn" class="secondary">Skip</button>
+        <button id="pub-submit-btn" class="primary">Connect</button>
+      </div>
+    </section>
+
+    <hr />
+
+    <section id="add-section">
+      <h2>Add to lists</h2>
+      <p id="profile-line" class="hint">Open a profile on substack.com to enable this.</p>
+      <label>
+        Handle
+        <input id="handle-input" type="text" placeholder="handle" spellcheck="false" />
+      </label>
+      <div id="lists-container" class="lists"></div>
+      <label>
+        Tags
+        <input id="tags-input" type="text" placeholder="tag1, tag2" spellcheck="false" />
+      </label>
+      <button id="add-btn" class="secondary" disabled>Add to selected lists</button>
+      <p id="action-text" class="hint"></p>
+    </section>
+
+    <footer class="popup-footer">
+      <span>StackedHQ Companion</span>
+      <span id="extension-version"></span>
+    </footer>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

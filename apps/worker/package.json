@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@workspace/core": "workspace:*",
     "pg": "^8.23.0"
   },
   "devDependencies": {

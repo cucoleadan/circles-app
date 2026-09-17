@@ -243,3 +243,143 @@ v1.get("/circles", async (c) => {
   const overview = await withTenant({ appUserId: c.get("appUser") }, circlesOverview)
   return c.json(overview)
 })
+
+v1.get("/connection", async (c) => {
+  const appUser = c.get("appUser")
+  const conn = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      `select id, publication_url as "publicationUrl",
+              profile_id as "profileId", profile_name as "profileName",
+              profile_handle as "profileHandle",
+              status, last_verified_at as "lastVerifiedAt",
+              created_at as "createdAt"
+       from substack_connections
+       where user_id = $1 and status = 'active'
+       order by generation desc limit 1`,
+      [appUser]
+    )
+    return res.rows[0] ?? null
+  })
+  return c.json({ connection: conn })
+})
+
+v1.post("/connection", async (c) => {
+  const appUser = c.get("appUser")
+  const input = z
+    .object({
+      sessionToken: z.string().trim().min(1),
+      publicationUrl: z.string().trim().url().optional().nullable(),
+    })
+    .safeParse(await c.req.json())
+  if (!input.success) return c.json({ error: "Invalid connection payload" }, 400)
+
+  const { sessionToken, publicationUrl } = input.data
+
+  let profileName: string | null = null
+  let profileHandle: string | null = null
+  let profileId: string | null = null
+
+  try {
+    const { createSubstackClient } = await import("@workspace/core")
+    const client = createSubstackClient({ sessionToken, publicationUrl })
+    const self = (await client.getAuthenticatedProfile()) as {
+      id?: string | number
+      name?: string
+      handle?: string
+    }
+    profileName = self?.name ?? null
+    profileHandle = self?.handle ?? null
+    profileId = self?.id ? String(self.id) : null
+  } catch (error) {
+    console.warn("Could not verify Substack credentials:", error)
+  }
+
+  const connection = await withTenant({ appUserId: appUser }, async (client) => {
+    const genRes = await client.query(
+      "select coalesce(max(generation), 0) + 1 as next_gen from substack_connections where user_id = $1",
+      [appUser]
+    )
+    const nextGen = genRes.rows[0]?.next_gen ?? 1
+
+    await client.query(
+      "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status = 'active'",
+      [appUser]
+    )
+
+    const connId = crypto.randomUUID()
+    const inserted = await client.query(
+      `insert into substack_connections
+          (id, user_id, generation, status, publication_url, envelope_version,
+           key_id, wrapped_key, iv, ciphertext,
+           profile_id, profile_name, profile_handle, last_verified_at)
+       values ($1, $2, $3, 'active', $4, 1, 'plain', 'plain', 'plain', $5, $6, $7, $8, now())
+       returning id, publication_url as "publicationUrl", profile_id as "profileId",
+                 profile_name as "profileName", profile_handle as "profileHandle"`,
+      [connId, appUser, nextGen, publicationUrl, sessionToken, profileId, profileName, profileHandle]
+    )
+
+    await client.query(
+      `insert into sync_state (connection_id, user_id, status, next_run_at)
+       values ($1, $2, 'idle', now())
+       on conflict (connection_id) do nothing`,
+      [connId, appUser]
+    )
+
+    return inserted.rows[0]
+  })
+
+  return c.json({ connection }, 201)
+})
+
+v1.delete("/connection", async (c) => {
+  const appUser = c.get("appUser")
+  await withTenant({ appUserId: appUser }, async (client) => {
+    await client.query(
+      "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status = 'active'",
+      [appUser]
+    )
+  })
+  return c.body(null, 204)
+})
+
+v1.get("/sync", async (c) => {
+  const appUser = c.get("appUser")
+  const state = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      `select s.connection_id as "connectionId", s.status, s.cursor,
+              s.last_synced_at as "lastSyncedAt", s.next_run_at as "nextRunAt",
+              s.error
+       from sync_state s
+       join substack_connections c on c.id = s.connection_id
+       where s.user_id = $1 and c.status = 'active'
+       order by c.generation desc limit 1`,
+      [appUser]
+    )
+    return res.rows[0] ?? null
+  })
+  return c.json({ syncState: state })
+})
+
+v1.post("/sync", async (c) => {
+  const appUser = c.get("appUser")
+  const result = await withTenant({ appUserId: appUser }, async (client) => {
+    const connRes = await client.query(
+      "select id from substack_connections where user_id = $1 and status = 'active' order by generation desc limit 1",
+      [appUser]
+    )
+    const connId = connRes.rows[0]?.id as string | undefined
+    if (!connId) return { error: "No active Substack connection" }
+
+    const job = await client.query(
+      `insert into jobs (type, payload, status, run_at)
+       values ('sync:activity', json_build_object('userId', $1::text, 'connectionId', $2::text), 'pending', now())
+       returning id`,
+      [appUser, connId]
+    )
+    return { jobId: job.rows[0].id }
+  })
+
+  if ("error" in result) return c.json(result, 400)
+  return c.json({ enqueued: true, jobId: result.jobId })
+})
+

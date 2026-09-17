@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "StackedHQ Companion",
+  "version": "0.2.3",
+  "description": "Connects your Substack session to StackedHQ and adds people to your lists.",
+  "permissions": ["cookies", "storage", "alarms"],
+  "host_permissions": [
+    "https://*.substack.com/*",
+    "https://circles.mhntwrkdan.dev/*",
+    "http://localhost:4321/*",
+    "http://127.0.0.1:4321/*",
+    "https://stackedhq.chillital.com/*",
+    "http://localhost:5173/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup/popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://*.substack.com/*"],
+      "js": ["page-observer.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://*.substack.com/*"],
+      "js": ["activity-bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://circles.mhntwrkdan.dev/*",
+        "http://localhost:4321/*",
+        "http://127.0.0.1:4321/*",
+        "https://stackedhq.chillital.com/*",
+        "http://localhost:5173/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://*.substack.com/*"],
+      "js": ["substack.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://circles.mhntwrkdan.dev/*",
+      "http://localhost:4321/*",
+      "http://127.0.0.1:4321/*",
+      "https://stackedhq.chillital.com/*",
+      "http://localhost:5173/*"
+    ]
+  }
+}
