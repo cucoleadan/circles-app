@@ -23,6 +23,9 @@ What exists:
   - Sidebar: view navigation, list management (create, member counts), tag filters.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
   - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), Substack external links, cursor pagination.
+  - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.
+  - Accessible card triggers and explicit "Details" button with keyboard navigation (`Enter`/`Space`).
+  - Base theme: global `cursor: pointer` on all buttons, links, roles, tabs, and interactive elements.
   - URL-addressable navigation (`?view=`, `?sort=`, `?person=`).
 - Automated test coverage: 27/27 tests passing (`bun run test`).
 - Typecheck: 0 errors across 6 packages (`bun run typecheck`).
@@ -137,9 +140,10 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Distinct timestamps: first contact / heard from them / from you / last conversation
 - [x] Contact drawer (`ContactDrawer`): edit notes, tags, lists, archive; status selector
 - [x] Timeline (`Timeline`): thread grouping, action type badges (like, restack, comment, reply), Substack links, cursor pagination
-- [x] Directory view with cards, engagement score pills, and list chips
-- [x] List/tag management UI (`CirclesSidebar`): create list, filter by list/tag, add/remove member chips
-- [x] Gate: 27/27 tests passing, 0 typecheck errors across all 6 packages, SSR rendering live (HTTP 200)
+- [x] Interactive client island (`client:only="react"`) ensuring instant event handling without SSR hydration overhead
+- [x] Accessible contact cards & explicit "Details" trigger with keyboard (`Enter`/`Space`) and click support
+- [x] Global theme rule: `cursor: pointer` on all buttons, links, `[role="button"]`, select items, tabs, and interactive elements
+- [x] Gate: 27/27 tests passing, 0 typecheck errors across all 6 packages, interactive live in dev
 
 ## Phase 5 — Extension
 

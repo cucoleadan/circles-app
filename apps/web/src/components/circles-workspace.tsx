@@ -51,21 +51,12 @@ function formatDate(iso: string | null | undefined) {
   if (!iso) return ""
   try {
     const d = new Date(iso)
-    const now = new Date()
-    const diffHours = (now.getTime() - d.getTime()) / (1000 * 60 * 60)
-    if (diffHours < 24 && diffHours >= 0) {
-      if (diffHours < 1) return "Just now"
-      return `${Math.floor(diffHours)}h ago`
-    }
-    const diffDays = Math.floor(diffHours / 24)
-    if (diffDays < 7) return `${diffDays}d ago`
-    return d.toLocaleDateString(undefined, {
+    return d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
-      year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
     })
   } catch {
-    return iso
+    return ""
   }
 }
 
@@ -502,8 +493,16 @@ export function CirclesWorkspace({
                   return (
                     <div
                       key={person.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => handleSelectPerson(person.id)}
-                      className="group cursor-pointer rounded-2xl border border-stone-200/90 bg-white p-4 transition-all hover:border-[#f15a3a]/40 hover:shadow-md dark:border-stone-800 dark:bg-stone-900 dark:hover:border-[#f15a3a]/40 flex flex-col justify-between"
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault()
+                          handleSelectPerson(person.id)
+                        }
+                      }}
+                      className="group cursor-pointer rounded-2xl border border-stone-200/90 bg-white p-4 transition-all hover:border-[#f15a3a]/40 hover:shadow-md dark:border-stone-800 dark:bg-stone-900 dark:hover:border-[#f15a3a]/40 flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#f15a3a]/30"
                     >
                       <div>
                         {/* Card Header: Avatar, Name, Handle, Score */}
@@ -588,16 +587,23 @@ export function CirclesWorkspace({
                         )}
                       </div>
 
-                      {/* Card Footer: Recency Timestamp */}
+                      {/* Card Footer: Recency Timestamp & Explicit Details Button */}
                       <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-stone-800/80 flex items-center justify-between text-[11px] text-stone-400">
                         <span>
                           {person.lastInteractionAt
                             ? `Active ${formatDate(person.lastInteractionAt)}`
                             : "No recent activity"}
                         </span>
-                        <span className="text-[#f15a3a] opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 font-medium">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            handleSelectPerson(person.id)
+                          }}
+                          className="text-[#f15a3a] hover:text-[#d04325] hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
+                        >
                           Details <ArrowUpRight className="size-3" />
-                        </span>
+                        </button>
                       </div>
                     </div>
                   )

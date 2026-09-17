@@ -46,7 +46,7 @@ const overview = overviewRes.ok ? ((await overviewRes.json()) as CirclesOverview
       initialLists={lists}
       initialTags={tags}
       initialOverview={overview}
-      client:load
+      client:only="react"
     />
   </body>
 </html>

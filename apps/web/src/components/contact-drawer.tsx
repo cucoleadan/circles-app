@@ -17,7 +17,13 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import { Separator } from "@workspace/ui/components/separator"
-import { Sheet, SheetContent } from "@workspace/ui/components/sheet"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@workspace/ui/components/sheet"
 import { Textarea } from "@workspace/ui/components/textarea"
 import type { ListRecord, Person, TagRecord } from "../lib/types"
 import { Timeline } from "./timeline"
@@ -42,7 +48,7 @@ function formatDate(iso: string | null | undefined) {
   if (!iso) return "Never"
   try {
     const d = new Date(iso)
-    return d.toLocaleDateString(undefined, {
+    return d.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -224,6 +230,11 @@ export function ContactDrawer({
       <SheetContent
         className="w-full sm:max-w-xl p-0 flex flex-col h-full bg-stone-50/95 dark:bg-stone-950 backdrop-blur-md overflow-hidden border-l border-stone-200 dark:border-stone-800"
       >
+        <SheetHeader className="sr-only">
+          <SheetTitle>{person.name}</SheetTitle>
+          <SheetDescription>Contact profile and conversation timeline for {person.name}</SheetDescription>
+        </SheetHeader>
+
         {/* Header */}
         <div className="p-6 pb-4 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800">
           <div className="flex items-start justify-between gap-4">
