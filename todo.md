@@ -145,13 +145,15 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Global theme rule: `cursor: pointer` on all buttons, links, `[role="button"]`, select items, tabs, and interactive elements
 - [x] Gate: 27/27 tests passing, 0 typecheck errors across all 6 packages, interactive live in dev
 
-## Phase 5 — Extension
+## Phase 5 — Extension (complete and verified)
 
-- [ ] `/api/ext/companion`, `/api/ext/activity` compatibility routes
-- [ ] Thin POST adapters for `/app/settings`, `/app/companion`, `/app/community`
-- [ ] Durable `ingestion_batches` ack; dedupe replay; reject other user's queued data
-- [ ] Update origin allowlists, manifest, version/download files
-- [ ] Gate: add-to-list, capture, reconnect, offline replay pass end to end
+- [x] `/api/ext/companion`, `/api/ext/activity` compatibility routes with user identity
+- [x] Thin POST adapters for `/app/settings`, `/app/companion`, `/app/community` (with tag auto-creation)
+- [x] Durable `ingestion_batches` ack; dedupe replay via SHA-256 digests; reject other user's queued data
+- [x] Modern Circles UI popup: brand concentric circles icon, dark mode zinc theme, real-time connection status with user email, and quick-add to lists/tags
+- [x] Concentric circles SVG/PNG icons and favicon created (outer ring, middle ring, center dot)
+- [x] Update origin allowlists (`circles.mhntwrkdan.dev`, `localhost:4321`), manifest v3, and packaging
+- [x] Gate: add-to-list, capture, reconnect, offline replay verified end-to-end; full Turbo typecheck (0 errors across 6 packages) and API tests passing (17/17)
 
 ## Phase 6 — Cutover rehearsal
 

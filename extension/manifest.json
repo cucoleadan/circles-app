@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "StackedHQ Companion",
+  "name": "Circles Companion",
   "version": "0.2.3",
-  "description": "Connects your Substack session to StackedHQ and adds people to your lists.",
+  "description": "Connects your Substack session to Circles CRM and adds people to your lists.",
   "permissions": ["cookies", "storage", "alarms"],
   "host_permissions": [
     "https://*.substack.com/*",
@@ -12,12 +12,24 @@
     "https://stackedhq.chillital.com/*",
     "http://localhost:5173/*"
   ],
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_popup": "popup/popup.html"
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png",
+      "128": "icons/icon-128.png"
+    }
   },
   "content_scripts": [
     {

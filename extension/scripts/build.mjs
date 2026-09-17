@@ -23,6 +23,7 @@ async function copyStatic() {
   await cp(path.join(projectRoot, "manifest.json"), path.join(outdir, "manifest.json"));
   await cp(path.join(projectRoot, "src/popup/popup.html"), path.join(outdir, "popup/popup.html"));
   await cp(path.join(projectRoot, "src/popup/popup.css"), path.join(outdir, "popup/popup.css"));
+  await cp(path.join(projectRoot, "icons"), path.join(outdir, "icons"), { recursive: true });
 }
 
 async function fullBuild() {

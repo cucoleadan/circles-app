@@ -26,8 +26,13 @@ const tagsInput = byId<HTMLInputElement>("tags-input");
 const addBtn = byId<HTMLButtonElement>("add-btn");
 const actionText = byId<HTMLParagraphElement>("action-text");
 const extensionVersion = byId<HTMLSpanElement>("extension-version");
+const openAppBtn = document.getElementById("open-app-btn") as HTMLButtonElement | null;
 
 extensionVersion.textContent = `v${chrome.runtime.getManifest().version}`;
+
+openAppBtn?.addEventListener("click", () => {
+  void chrome.tabs.create({ url: "https://circles.mhntwrkdan.dev" });
+});
 
 let profile: DetectedProfile | null = null;
 let lists: { id: string; name: string }[] = [];
@@ -35,12 +40,15 @@ let flow: FlowState = { phase: "idle" };
 let appPublicationUrl: string | null = null;
 
 async function send(request: Record<string, unknown>): Promise<BackgroundResponse> {
-  try { return (await chrome.runtime.sendMessage(request)) as BackgroundResponse; }
-  catch { return { ok: false, message: "Extension restarted. Reopen the popup and retry." }; }
+  try {
+    return (await chrome.runtime.sendMessage(request)) as BackgroundResponse;
+  } catch {
+    return { ok: false, message: "Extension restarted. Reopen the popup and retry." };
+  }
 }
 
-function setDot(dot: HTMLElement, state: "unknown" | "ok" | "bad") {
-  dot.className = `dot${state === "ok" ? " ok" : state === "bad" ? " bad" : ""}`;
+function setDot(dot: HTMLElement, state: "unknown" | "ok" | "bad" | "warn") {
+  dot.className = `dot${state === "ok" ? " ok" : state === "bad" ? " bad" : state === "warn" ? " warn" : ""}`;
 }
 
 function flowLabel(state: FlowState): string {
@@ -52,7 +60,7 @@ function flowLabel(state: FlowState): string {
     case "sending":
       return "Encrypting and sending your session…";
     case "done":
-      return "Connected to StackedHQ.";
+      return "Connected to Circles.";
     case "failed":
       return state.message;
     case "idle":
@@ -112,14 +120,11 @@ function renderFlow() {
 
 function renderProfile() {
   if (profile) {
-    profileLine.textContent = `Adding @${profile.handle}${profile.name ? ` (${profile.name})` : ""}`;
-    profileLine.className = "hint";
+    profileLine.innerHTML = `Viewing <strong class="profile-badge">@${profile.handle}</strong>${profile.name ? ` <span class="profile-name">(${profile.name})</span>` : ""}`;
     handleInput.value = profile.handle;
     handleInput.disabled = true;
-    addBtn.disabled = true;
   } else {
-    profileLine.textContent = "Open a profile on substack.com, or type a handle.";
-    profileLine.className = "hint";
+    profileLine.textContent = "Browse to any Substack profile to auto-detect.";
     handleInput.value = "";
     handleInput.disabled = false;
   }
@@ -131,7 +136,7 @@ function renderLists() {
   if (lists.length === 0) {
     const empty = document.createElement("div");
     empty.className = "list-empty";
-    empty.textContent = "No lists yet. Create lists in the StackedHQ app.";
+    empty.textContent = "No custom lists yet. Create lists in Circles.";
     listsContainer.append(empty);
     return;
   }
@@ -154,8 +159,14 @@ function updateAddButton() {
   const hasHandle = handle.length > 0;
   const checked = [...listsContainer.querySelectorAll<HTMLInputElement>("input:checked")];
   addBtn.disabled = !hasHandle;
-  addBtn.textContent =
-    checked.length === 0 ? "Add to CRM" : `Add to ${checked.length} list${checked.length === 1 ? "" : "s"}`;
+  const labelText = checked.length === 0 ? "Add to Circles" : `Add to ${checked.length} list${checked.length === 1 ? "" : "s"}`;
+  addBtn.innerHTML = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19"></line>
+      <line x1="5" y1="12" x2="19" y2="12"></line>
+    </svg>
+    <span>${labelText}</span>
+  `;
 }
 
 function selectedListIds(): string[] {
@@ -172,22 +183,30 @@ function parseTags(): string[] {
     .slice(0, 8);
 }
 
-function renderAppStatus(state: "connected" | "none" | "needsAuth" | "unreachable", profile: string | null) {
+function renderAppStatus(
+  state: "connected" | "none" | "needsAuth" | "unreachable",
+  profileName: string | null,
+  userEmail: string | null = null,
+) {
   switch (state) {
     case "connected":
-      appText.textContent = profile ? `Connected · ${profile}` : "Connected";
+      appText.textContent = userEmail
+        ? `${userEmail}`
+        : profileName
+        ? `${profileName}`
+        : "Connected";
       setDot(appDot, "ok");
       break;
     case "none":
-      appText.textContent = "No connection";
-      setDot(appDot, "bad");
+      appText.textContent = "No Substack linked";
+      setDot(appDot, "warn");
       break;
     case "needsAuth":
-      appText.textContent = "Log in to the app first";
+      appText.textContent = "Log in to Circles first";
       setDot(appDot, "bad");
       break;
     case "unreachable":
-      appText.textContent = "Open the app in a tab";
+      appText.textContent = "Open Circles in a tab";
       setDot(appDot, "bad");
       break;
   }
@@ -203,7 +222,8 @@ async function refreshStatus() {
   substackText.textContent = status.substackLoggedIn
     ? "Logged in"
     : "Not logged in";
-  renderAppStatus(status.appState ?? "unreachable", status.appProfile ?? null);
+  
+  renderAppStatus(status.appState ?? "unreachable", status.appProfile ?? null, status.appUserEmail ?? null);
 
   const profileResult = await send({ type: "GET_CURRENT_PROFILE" });
   profile = profileResult.profile ?? null;
@@ -215,13 +235,13 @@ async function refreshStatus() {
   } else {
     lists = [];
     actionText.textContent = listsResult.message ?? "Could not load lists.";
-    actionText.className = "hint warn";
+    actionText.className = "action-feedback warn";
     if (listsResult.needsAuth) {
-      profileLine.textContent =
-        "Log in to https://stackedhq.chillital.com first, then reopen this popup.";
-      profileLine.className = "hint bad";
-    } else if (listsResult.message?.includes("Open the StackedHQ app")) {
-      profileLine.textContent = "Open https://stackedhq.chillital.com/app in a tab to enable adding people.";
+      profileLine.textContent = "Log in to Circles first, then reopen this popup.";
+      profileLine.className = "profile-line hint bad";
+    } else if (listsResult.message?.includes("Open")) {
+      profileLine.textContent = "Open Circles in a tab to enable adding people.";
+      profileLine.className = "profile-line hint warn";
     }
   }
   renderLists();
@@ -260,8 +280,8 @@ addBtn.addEventListener("click", async () => {
   const handle = handleInput.value.trim();
   if (!handle) return;
   addBtn.disabled = true;
-  actionText.className = "hint warn";
-  actionText.textContent = "Adding…";
+  actionText.className = "action-feedback hint warn";
+  actionText.textContent = "Saving to Circles…";
   const result = await send({
     type: "ADD_TO_LISTS",
     name,
@@ -269,10 +289,17 @@ addBtn.addEventListener("click", async () => {
     lists: selectedListIds(),
     tags: parseTags(),
   });
-  actionText.textContent = result.message ?? (result.ok ? "Added." : "Failed.");
-  actionText.className = `hint ${result.ok ? "ok" : "bad"}`;
+  const isOk = result.ok && result.submit?.ok !== false;
+  actionText.textContent = isOk ? "✓ Saved to Circles CRM" : (result.message ?? "Failed to save.");
+  actionText.className = `action-feedback ${isOk ? "ok" : "bad"}`;
   addBtn.disabled = false;
   updateAddButton();
+  if (isOk) {
+    tagsInput.value = "";
+    setTimeout(() => {
+      actionText.textContent = "";
+    }, 4000);
+  }
 });
 
 handleInput.addEventListener("input", updateAddButton);

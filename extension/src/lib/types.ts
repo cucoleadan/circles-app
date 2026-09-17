@@ -39,6 +39,7 @@ export type AppState = {
   lists: CompanionList[];
   handles?: string[];
   members?: CompanionMember[];
+  user?: { id: string; email: string };
 };
 
 export type DetectedProfile = {
@@ -81,6 +82,7 @@ export type BackgroundResponse = {
   substackLoggedIn?: boolean;
   appState?: "connected" | "none" | "needsAuth" | "unreachable";
   appProfile?: string | null;
+  appUserEmail?: string | null;
   appPublicationUrl?: string | null;
   alreadyInCrm?: boolean;
   inCrm?: boolean;

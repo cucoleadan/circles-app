@@ -2,72 +2,128 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Circles Companion</title>
+    <link rel="icon" type="image/svg+xml" href="../icons/icon.svg" />
     <link rel="stylesheet" href="popup.css" />
   </head>
   <body>
-    <header>
-      <h1>StackedHQ Companion</h1>
-    </header>
-
-    <section class="status-grid">
-      <div class="status-row">
-        <span id="substack-dot" class="dot"></span>
-        <div>
-          <p class="label">Substack session</p>
-          <p id="substack-text" class="value">Checking…</p>
+    <div class="popup-container">
+      <!-- Header -->
+      <header class="header">
+        <div class="brand">
+          <svg class="brand-icon" viewBox="0 0 48 48" width="20" height="20" aria-hidden="true">
+            <circle cx="24" cy="24" r="19" fill="none" stroke="currentColor" stroke-width="3" stroke-opacity="0.35" />
+            <circle cx="24" cy="24" r="11.5" fill="none" stroke="currentColor" stroke-width="3" stroke-opacity="0.75" />
+            <circle cx="24" cy="24" r="4.5" fill="currentColor" />
+          </svg>
+          <span class="brand-title">Circles</span>
+          <span class="badge-tag">Companion</span>
         </div>
-      </div>
-      <div class="status-row">
-        <span id="app-dot" class="dot"></span>
-        <div>
-          <p class="label">StackedHQ connection</p>
-          <p id="app-text" class="value">Checking…</p>
+        <div class="header-actions">
+          <button id="open-app-btn" class="icon-button" title="Open Circles Workspace">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
         </div>
+      </header>
+
+      <!-- Status Section -->
+      <section class="section status-card">
+        <div class="status-row">
+          <div class="status-meta">
+            <span class="status-label">Substack</span>
+          </div>
+          <div class="status-indicator">
+            <span id="substack-dot" class="dot"></span>
+            <span id="substack-text" class="status-value">Checking…</span>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <div class="status-meta">
+            <span class="status-label">Circles CRM</span>
+          </div>
+          <div class="status-indicator">
+            <span id="app-dot" class="dot"></span>
+            <span id="app-text" class="status-value">Checking…</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Connection Flow Actions -->
+      <div id="connect-container" class="connect-container">
+        <button id="connect-btn" class="btn btn-secondary btn-sm">Connect Substack account</button>
+        <p id="flow-text" class="hint"></p>
       </div>
-    </section>
 
-    <button id="connect-btn" class="primary">Connect Substack account</button>
-    <p id="flow-text" class="hint"></p>
-
-    <section id="ask-section" class="ask hidden">
-      <label>
-        Publication URL
+      <section id="ask-section" class="ask hidden">
+        <label class="field-label" for="pub-input">Publication URL</label>
         <input
           id="pub-input"
+          class="input"
           type="url"
-          placeholder="https://your-publication.substack.com"
+          placeholder="https://your-pub.substack.com"
           spellcheck="false"
         />
-      </label>
-      <p id="pub-error" class="hint bad hidden"></p>
-      <div class="ask-actions">
-        <button id="pub-skip-btn" class="secondary">Skip</button>
-        <button id="pub-submit-btn" class="primary">Connect</button>
-      </div>
-    </section>
+        <p id="pub-error" class="hint bad hidden"></p>
+        <div class="ask-actions">
+          <button id="pub-skip-btn" class="btn btn-ghost btn-sm">Skip</button>
+          <button id="pub-submit-btn" class="btn btn-primary btn-sm">Connect</button>
+        </div>
+      </section>
 
-    <hr />
+      <!-- Add to CRM Section -->
+      <section id="add-section" class="section main-card">
+        <div class="card-header">
+          <h2 class="card-title">Add to Circles</h2>
+          <span id="extension-version" class="version-tag"></span>
+        </div>
 
-    <section id="add-section">
-      <h2>Add to lists</h2>
-      <p id="profile-line" class="hint">Open a profile on substack.com to enable this.</p>
-      <label>
-        Handle
-        <input id="handle-input" type="text" placeholder="handle" spellcheck="false" />
-      </label>
-      <div id="lists-container" class="lists"></div>
-      <label>
-        Tags
-        <input id="tags-input" type="text" placeholder="tag1, tag2" spellcheck="false" />
-      </label>
-      <button id="add-btn" class="secondary" disabled>Add to selected lists</button>
-      <p id="action-text" class="hint"></p>
-    </section>
+        <div id="profile-container" class="profile-box">
+          <div class="profile-avatar">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+              <circle cx="12" cy="7" r="4"></circle>
+            </svg>
+          </div>
+          <div class="profile-info">
+            <p id="profile-line" class="profile-line">Open a profile on substack.com to enable this.</p>
+          </div>
+        </div>
 
-    <footer class="popup-footer">
-      <span>StackedHQ Companion</span>
-      <span id="extension-version"></span>
-    </footer>
+        <div class="form-group">
+          <label class="field-label" for="handle-input">Substack Handle</label>
+          <div class="input-prefix-wrapper">
+            <span class="input-prefix">@</span>
+            <input id="handle-input" class="input input-with-prefix" type="text" placeholder="username" spellcheck="false" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label">Add to Lists</label>
+          <div id="lists-container" class="lists-group"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="field-label" for="tags-input">Tags</label>
+          <input id="tags-input" class="input" type="text" placeholder="vip, writer, subscriber" spellcheck="false" />
+        </div>
+
+        <button id="add-btn" class="btn btn-primary btn-block" disabled>
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <span>Add to CRM</span>
+        </button>
+
+        <p id="action-text" class="action-feedback"></p>
+      </section>
+    </div>
 
     <script src="popup.js"></script>
   </body>

@@ -346,12 +346,14 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
       if (appHandles) crmHandles = appHandles;
       let appState: "connected" | "none" | "needsAuth" | "unreachable" = "unreachable";
       let appProfile: string | null = null;
+      let appUserEmail: string | null = null;
       if (app.ok && app.appState) {
         appState = app.appState.connection ? "connected" : "none";
         appProfile =
           app.appState.connection?.profile.name ??
           app.appState.connection?.profile.handle ??
           null;
+        appUserEmail = app.appState.user?.email ?? null;
       } else if (app.needsAuth) {
         appState = "needsAuth";
       }
@@ -361,6 +363,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
         substackLoggedIn,
         appState,
         appProfile,
+        appUserEmail,
         appPublicationUrl: app.ok && app.appState ? app.appState.connection?.publicationUrl ?? null : null,
       };
     }

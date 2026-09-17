@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import { Hono } from "hono"
 import {
   createSubstackClient,
@@ -10,14 +10,16 @@ import {
 import { auth } from "../auth.js"
 import {
   addListMember,
+  attachTag,
   createPerson,
+  createTag,
   getOrCreateAppUser,
   listLists,
   normalizeHandle,
 } from "../db/repositories.js"
 import { withTenant } from "../db/tenant.js"
 
-export const ext = new Hono<{ Variables: { appUser: string } }>()
+export const ext = new Hono<{ Variables: { appUser: string; userEmail: string } }>()
 
 // Authenticate via session cookie forwarded from browser
 ext.use("*", async (c, next) => {
@@ -29,6 +31,7 @@ ext.use("*", async (c, next) => {
     )
   }
   c.set("appUser", await getOrCreateAppUser(session.user.id))
+  c.set("userEmail", session.user.email)
   await next()
 })
 
@@ -87,6 +90,10 @@ ext.get("/companion", async (c) => {
     return c.json({
       ok: true,
       appState: {
+        user: {
+          id: userId,
+          email: c.get("userEmail"),
+        },
         connection,
         lists: lists.map((l) => ({ id: l.id, name: l.name, description: null })),
         handles,
@@ -119,38 +126,92 @@ ext.post("/activity", async (c) => {
     const ownerHandle = conn?.profile_handle ?? null
     const ownerId = conn?.profile_id ?? null
 
-    if (payload?.kind === "conversation") {
-      const stats = await ingestConversationReplies(client, {
-        userId,
-        connectionId,
-        ownerHandle,
-        ownerId,
-        conversation: payload,
-        source: "extension",
-      })
-      return c.json({ ok: true, captured: stats.processedItems, ...stats })
+    // Reject cross-account queued data if expectedConnectionId does not match
+    if (
+      payload?.expectedConnectionId &&
+      connectionId &&
+      payload.expectedConnectionId !== connectionId
+    ) {
+      return c.json(
+        {
+          ok: false,
+          rejected: true,
+          message: "Connection mismatch. Queued data belongs to a different or revoked connection.",
+        },
+        409
+      )
     }
 
-    const items: ActivityItemInput[] = Array.isArray(payload?.activityItems)
-      ? payload.activityItems
-      : Array.isArray(payload)
-      ? payload
-      : []
+    // Compute deterministic dedupe key for idempotent replay safety
+    const rawBatch = typeof payload === "object" ? JSON.stringify(payload) : String(payload)
+    const dedupeKey = createHash("sha256")
+      .update(`${userId}:${connectionId ?? "none"}:${rawBatch}`)
+      .digest("hex")
 
-    const stats = await ingestActivityBatch(client, {
-      userId,
-      connectionId,
-      ownerHandle,
-      ownerId,
-      items,
-      source: "extension",
-    })
+    // Check if this batch has already been processed
+    const existingBatch = await client.query(
+      "select id, status from ingestion_batches where user_id = $1 and dedupe_key = $2",
+      [userId, dedupeKey]
+    )
+    if (existingBatch.rows[0]?.status === "processed") {
+      return c.json({ ok: true, deduplicated: true, captured: 0, message: "Batch already ingested" })
+    }
 
-    return c.json({ ok: true, captured: stats.processedItems, ...stats })
+    const batchId = existingBatch.rows[0]?.id ?? randomUUID()
+    if (!existingBatch.rows[0]) {
+      await client.query(
+        `insert into ingestion_batches (id, user_id, source, dedupe_key, payload, status, received_at)
+         values ($1, $2, 'extension', $3, $4, 'received', now())
+         on conflict (user_id, dedupe_key) do nothing`,
+        [batchId, userId, dedupeKey, JSON.stringify(payload)]
+      )
+    }
+
+    try {
+      let stats: any
+      if (payload?.kind === "conversation") {
+        stats = await ingestConversationReplies(client, {
+          userId,
+          connectionId,
+          ownerHandle,
+          ownerId,
+          conversation: payload,
+          source: "extension",
+        })
+      } else {
+        const items: ActivityItemInput[] = Array.isArray(payload?.activityItems)
+          ? payload.activityItems
+          : Array.isArray(payload)
+          ? payload
+          : []
+
+        stats = await ingestActivityBatch(client, {
+          userId,
+          connectionId,
+          ownerHandle,
+          ownerId,
+          items,
+          source: "extension",
+        })
+      }
+
+      await client.query(
+        "update ingestion_batches set status = 'processed', processed_at = now() where id = $1 and user_id = $2",
+        [batchId, userId]
+      )
+
+      return c.json({ ok: true, captured: stats.processedItems, ...stats })
+    } catch (error: any) {
+      await client.query(
+        "update ingestion_batches set status = 'failed', error = $3 where id = $1 and user_id = $2",
+        [batchId, userId, String(error?.message || error)]
+      )
+      throw error
+    }
   })
 })
 
-// POST /app/community - Extension quick-add contact and lists
+// POST /app/community - Extension quick-add contact, lists, and tags
 ext.post("/community", async (c) => {
   const userId = c.get("appUser")
   const form = await c.req.formData()
@@ -162,6 +223,14 @@ ext.post("/community", async (c) => {
   const name = String(form.get("name") || "").trim()
   const handle = String(form.get("handle") || "").trim().replace(/^@/, "")
   const lists = form.getAll("lists").map(String)
+  const tags = form
+    .getAll("tags")
+    .flatMap((t) =>
+      String(t)
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter((tag) => tag.length > 0 && tag.length <= 32)
+    )
 
   if (!name || !handle) {
     return c.json({ ok: false, message: "Name and handle are required" }, 400)
@@ -188,6 +257,19 @@ ext.post("/community", async (c) => {
       if (listId) {
         await addListMember(client, userId, listId, personId)
       }
+    }
+
+    for (const tagName of tags) {
+      const existingTag = await client.query(
+        "select id from tags where user_id = $1 and normalized_name = lower($2) limit 1",
+        [userId, tagName]
+      )
+      let tagId = existingTag.rows[0]?.id
+      if (!tagId) {
+        const createdTag = await createTag(client, userId, tagName)
+        tagId = createdTag.id
+      }
+      await attachTag(client, userId, tagId, personId)
     }
 
     return c.json({

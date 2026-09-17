@@ -22,6 +22,7 @@ const allowedOrigins = new Set([
   appUrl,
   "http://localhost:4321",
   "http://127.0.0.1:4321",
+  "https://circles.mhntwrkdan.dev",
 ])
 const writeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
 

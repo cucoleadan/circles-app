@@ -1,3 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 36 36">
-  <path fill="#000" d="M22.25 4h-8.5a1 1 0 0 0-.96.73l-5.54 19.4a.5.5 0 0 0 .62.62l5.05-1.44a1 1 0 0 0 .67-.55L18 14l4.41 8.76a1 1 0 0 0 .67.55l5.05 1.44a.5.5 0 0 0 .62-.62l-5.54-19.4a1 1 0 0 0-.96-.73Z"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
+  <defs>
+    <linearGradient id="circleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#fb923c" />
+      <stop offset="100%" stop-color="#ea580c" />
+    </linearGradient>
+  </defs>
+  <rect width="48" height="48" rx="12" fill="#09090b" />
+  <rect width="46" height="46" x="1" y="1" rx="11" fill="none" stroke="#27272a" stroke-width="1.5" />
+  <circle cx="24" cy="24" r="17" fill="none" stroke="url(#circleGrad)" stroke-width="2.2" stroke-opacity="0.95" />
+  <circle cx="24" cy="24" r="10.5" fill="none" stroke="url(#circleGrad)" stroke-width="2.2" stroke-opacity="0.85" />
+  <circle cx="24" cy="24" r="3.8" fill="url(#circleGrad)" />
 </svg>
