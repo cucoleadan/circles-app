@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react"
 import {
   ArrowUpRight,
   CircleDot,
@@ -106,7 +106,7 @@ function ContactEditor({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault()
     setSaving(true)
     setError("")
