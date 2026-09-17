@@ -3,6 +3,7 @@ import { createSubstackClient } from "../src/substack.js"
 import {
   ingestActivityBatch,
   ingestConversationReplies,
+  normalizeActivityPage,
   type ActivityItemInput,
   type ConversationInput,
 } from "../src/ingestion.js"
@@ -27,6 +28,33 @@ describe("Substack client factory", () => {
 })
 
 describe("In-memory mock ingestion unit tests", () => {
+  test("normalizes activity lookup arrays and expands individual senders", () => {
+    const items = normalizeActivityPage({
+      activityItems: [{
+        id: "activity-1",
+        type: "reaction",
+        recent_sender_ids: ["10", "11"],
+        target_comment_id: "99",
+        updated_at: "2026-09-17T12:00:00Z",
+      }],
+      users: [
+        { id: 10, name: "Alice", handle: "alice" },
+        { id: 11, user: { id: 11, name: "Bob", handle: "bob" } },
+      ],
+      comments: [{ id: 99, body: "Owned note", user: { id: 1, handle: "owner" } }],
+      posts: [],
+    })
+
+    expect(items).toHaveLength(2)
+    expect(items.map((item) => item.actor?.handle)).toEqual(["alice", "bob"])
+    expect(items.map((item) => item.externalId)).toEqual([
+      "activity-1:sender:10",
+      "activity-1:sender:11",
+    ])
+    expect(items[0]?.targetAuthor?.handle).toBe("owner")
+    expect(items[0]?.created_at).toBe("2026-09-17T12:00:00Z")
+  })
+
   function createMockClient() {
     const people = new Map<string, any>()
     const interactions: any[] = []
@@ -268,5 +296,31 @@ describe("In-memory mock ingestion unit tests", () => {
     const ownerInteraction = interactions.find((i) => i.external_id === "comment-c-2")
     expect(ownerInteraction.direction).toBe("outbound")
     expect(ownerInteraction.action_type).toBe("reply")
+    expect(ownerInteraction.person_id).toBe(charlieInteraction.person_id)
+  })
+
+  test("attributes an outbound action to its target author", async () => {
+    const { client, interactions, people } = createMockClient()
+    const stats = await ingestActivityBatch(client, {
+      userId: "user-1",
+      connectionId: "conn-1",
+      ownerHandle: "owner",
+      items: [{
+        kind: "outbound-action",
+        action: "like",
+        externalId: "outbound:like:note:123",
+        active: true,
+        occurredAt: "2026-09-17T12:00:00Z",
+        actor: { id: "owner-id", handle: "owner" },
+        targetKind: "note",
+        targetId: "123",
+        targetAuthor: { id: "target-id", handle: "dana", name: "Dana" },
+      }],
+    })
+
+    expect(stats.newInteractions).toBe(1)
+    expect(people.size).toBe(1)
+    expect(interactions[0].direction).toBe("outbound")
+    expect(interactions[0].person_id).toBe(Array.from(people.values())[0].id)
   })
 })

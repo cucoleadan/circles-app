@@ -1,5 +1,6 @@
 import { conversationTarget, normalizeConversationResponse } from "./lib/conversation-capture";
 import { activityPageEvidence } from "./lib/activity-pagination";
+import { captureOutboundAction } from "./lib/outbound-action";
 
 const ACTIVITY_PATH = "/api/v1/activity-feed-web";
 const MESSAGE_SOURCE = "circles-page-observer";
@@ -57,10 +58,47 @@ function observeResponse(response: Response): void {
   });
 }
 
+function publishOutboundAction(input: Parameters<typeof captureOutboundAction>[0]): void {
+  try {
+    const action = captureOutboundAction(input);
+    if (!action) return;
+    console.log(
+      `[Circles Activity] Captured outbound ${action.active ? action.action : `removed ${action.action}`} for ${action.targetKind} ${action.targetId}.`,
+    );
+    window.postMessage(
+      { source: MESSAGE_SOURCE, type: "OUTBOUND_ACTION", payload: action },
+      window.location.origin,
+    );
+  } catch (error) {
+    console.warn("[Circles Activity] Outbound action could not be captured.", error);
+  }
+}
+
 const originalFetch = window.fetch;
 window.fetch = async function circlesObservedFetch(...args) {
+  const [input, init] = args;
+  const requestUrl = typeof input === "string" || input instanceof URL ? String(input) : input.url;
+  const method = init?.method ?? (input instanceof Request ? input.method : "GET");
+  const bodyPromise = init?.body !== undefined
+    ? Promise.resolve(init.body)
+    : input instanceof Request && !["GET", "HEAD"].includes(method.toUpperCase())
+    ? input.clone().text().catch(() => undefined)
+    : Promise.resolve(undefined);
   const response = await originalFetch.apply(this, args);
   observeResponse(response);
+  if (response.ok) {
+    const [body, responsePayload] = await Promise.all([
+      bodyPromise,
+      response.clone().json().catch(() => undefined),
+    ]);
+    publishOutboundAction({
+      requestUrl,
+      method,
+      body,
+      response: responsePayload,
+      pageUrl: window.location.href,
+    });
+  }
   return response;
 };
 
@@ -78,17 +116,37 @@ XMLHttpRequest.prototype.open = function circlesObservedOpen(
     configurable: true,
     value: String(url),
   });
+  Object.defineProperty(this, "__circlesActivityMethod", {
+    configurable: true,
+    value: method,
+  });
   return originalOpen.call(this, method, url, asyncFlag, username, password);
 };
 
 XMLHttpRequest.prototype.send = function circlesObservedSend(body?: Document | XMLHttpRequestBodyInit | null) {
   this.addEventListener("load", () => {
-    const url = (this as XMLHttpRequest & { __circlesActivityUrl?: string }).__circlesActivityUrl;
-    if (!url || this.status < 200 || this.status >= 300 || !(isActivityResponse(url) || conversationTarget(new URL(url, window.location.href).href))) return;
+    const observed = this as XMLHttpRequest & { __circlesActivityUrl?: string; __circlesActivityMethod?: string };
+    const url = observed.__circlesActivityUrl;
+    if (!url || this.status < 200 || this.status >= 300) return;
     try {
-      publishPayload(this.responseType === "json" ? this.response : JSON.parse(this.responseText), "xhr", url);
+      const responsePayload = this.responseType === "json" ? this.response : JSON.parse(this.responseText);
+      if (isActivityResponse(url) || conversationTarget(new URL(url, window.location.href).href)) {
+        publishPayload(responsePayload, "xhr", url);
+      }
+      publishOutboundAction({
+        requestUrl: url,
+        method: observed.__circlesActivityMethod ?? "GET",
+        body,
+        response: responsePayload,
+        pageUrl: window.location.href,
+      });
     } catch {
-      // Non-JSON responses are irrelevant.
+      publishOutboundAction({
+        requestUrl: url,
+        method: observed.__circlesActivityMethod ?? "GET",
+        body,
+        pageUrl: window.location.href,
+      });
     }
   }, { once: true });
   return originalSend.call(this, body);

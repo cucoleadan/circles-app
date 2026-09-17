@@ -12,11 +12,17 @@ window.addEventListener("message", (event) => {
   } | null;
   if (
     message?.source !== MESSAGE_SOURCE ||
-    !["ACTIVITY_RESPONSE", "CONVERSATION_RESPONSE"].includes(message.type ?? "") ||
-    !(Array.isArray(message.payload?.activityItems) || (message.payload?.kind === "conversation" && Array.isArray(message.payload.comments)))
+    !["ACTIVITY_RESPONSE", "CONVERSATION_RESPONSE", "OUTBOUND_ACTION"].includes(message.type ?? "") ||
+    !(
+      Array.isArray(message.payload?.activityItems) ||
+      (message.payload?.kind === "conversation" && Array.isArray(message.payload.comments)) ||
+      message.payload?.kind === "outbound-action"
+    )
   ) return;
 
-  const items = message.payload!.activityItems ?? message.payload!.comments!;
+  const items = message.payload!.kind === "outbound-action"
+    ? [message.payload]
+    : message.payload!.activityItems ?? message.payload!.comments!;
   const batchKey = JSON.stringify(message.payload);
   if (observedActivityBatches.has(batchKey)) {
     console.log(`[Circles Activity] Skipped duplicate batch (${items.length} items).`);

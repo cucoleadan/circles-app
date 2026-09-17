@@ -5,7 +5,7 @@ Update this file as work completes. Last updated: 2026-09-17.
 
 ## Where we are
 
-**Phase 4 (Circles UI) is complete and verified (27/27 tests passing across core, worker, and api; full Turbo typecheck passing across 6 packages). Phase 5 (Extension) is next.**
+**Phases 0–5 are complete. The next priority is Phase 5.5: complete inbound and outbound Substack interaction history, including ongoing sync and resumable backfill. Infrastructure cutover validation follows after that product work.**
 
 What exists:
 
@@ -155,11 +155,41 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Update origin allowlists (`circles.mhntwrkdan.dev`, `localhost:4321`), manifest v3, and packaging
 - [x] Gate: add-to-list, capture, reconnect, offline replay verified end-to-end; full Turbo typecheck (0 errors across 6 packages) and API tests passing (17/17)
 
+## Phase 5.5 — Complete interaction history (next)
+
+- [ ] Build a source/coverage matrix for each interaction type: inbound and outbound
+      likes, restacks, restacks with notes, comments, replies, mentions, owned posts,
+      and owned notes. Report unsupported historical coverage honestly rather than
+      presenting a partial archive as complete.
+- [ ] Fix counterparty attribution so every confirmed outbound action is attached
+      to the person whose post, note, comment, or reply the account acted on; owner
+      actions must not be stored with a null person when the target author is known.
+- [ ] Capture future outbound actions from successful Substack requests in the
+      extension, including undo/remove actions, with durable local queueing,
+      deterministic IDs, account-generation checks, and replay-safe ingestion.
+- [ ] Expand the scheduled/manual sync beyond notification activity to include the
+      authenticated account's posts, notes, restacks, comments, replies, and any
+      upstream outbound-history streams proven to be available. Keep an independent
+      cursor/checkpoint and completeness state per stream.
+- [ ] Add a resumable full-history backfill with start, pause, resume, progress,
+      per-stream checkpoints, bounded retries, rate limiting, and explicit finish
+      reasons. Seed owned posts/notes and traverse their conversation history without
+      relabeling unrelated third-party discussion as a direct interaction.
+- [ ] Preserve raw evidence needed for reprocessing while normalizing confirmed
+      interactions into the existing `interactions` table with direction, action,
+      target, thread, counterparty, source, account generation, and event time.
+- [ ] Expose outbound history in the CRM: who the account interacted with, action-type
+      counts, first/last outbound interaction, conversation context, and filters that
+      distinguish engagement received from engagement given.
+- [ ] Gate: incremental sync and backfill deduplicate; interrupted backfills resume;
+      unlike/unrestack state is handled; outbound actions never inflate inbound
+      engagement scores; representative post and note threads reconcile to source.
+
 ## Phase 6 — Cutover rehearsal
 
-- [ ] Full D1 backup + Clerk identity export; inventory/reconciliation
-- [ ] Better Auth users from Clerk export; link to `app_users`; password hash policy
-- [ ] Scoped import + counts/checksums reconciliation; recompute summaries
+- [x] Full D1 migration completed; inventory and reconciliation completed
+- [x] Clerk identity migration retired as no longer required; Better Auth is authoritative
+- [x] Scoped import completed; counts reconciled and summaries recomputed
 - [ ] Backup restore test; measured read performance vs. targets; rollback rehearsal
 
 ## Phase 7 — Release

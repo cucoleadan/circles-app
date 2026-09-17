@@ -1,5 +1,6 @@
 import type { BackgroundResponse, BridgeRequest, BridgeResponse } from "./types";
 import { validateCapturedConversation } from "./conversation-capture";
+import type { CapturedOutboundAction } from "./outbound-action";
 
 const KEY = "pendingActivityV1";
 const CONNECTION_KEY = "activityConnectionId";
@@ -16,6 +17,29 @@ async function read(): Promise<State> {
   const stored = await chrome.storage.local.get(KEY);
   return (stored[KEY] as State | undefined) ?? { batches: [], delivered: [] };
 }
+function validateOutboundAction(value: unknown): CapturedOutboundAction | null {
+  const item = value as Partial<CapturedOutboundAction> | null;
+  const actions = new Set(["like", "restack", "comment", "reply"]);
+  const targetKinds = new Set(["note", "post", "comment"]);
+  if (
+    item?.kind !== "outbound-action" ||
+    !actions.has(String(item.action)) ||
+    typeof item.active !== "boolean" ||
+    typeof item.externalId !== "string" || item.externalId.length > 500 ||
+    typeof item.targetId !== "string" || item.targetId.length > 500 ||
+    !targetKinds.has(String(item.targetKind)) ||
+    typeof item.targetUrl !== "string" || item.targetUrl.length > 2_000 ||
+    typeof item.occurredAt !== "string" || !Number.isFinite(Date.parse(item.occurredAt))
+  ) return null;
+  if (item.targetAuthor !== null && (
+    typeof item.targetAuthor !== "object" ||
+    typeof item.targetAuthor.handle !== "string" ||
+    item.targetAuthor.handle.length > 200 ||
+    (item.targetAuthor.name !== null && typeof item.targetAuthor.name !== "string")
+  )) return null;
+  if (item.body !== null && (typeof item.body !== "string" || item.body.length > 100_000)) return null;
+  return item as CapturedOutboundAction;
+}
 export async function rememberActivityConnection(response: BridgeResponse): Promise<void> {
   if (response.ok && response.appState?.connection) {
     await chrome.storage.local.set({ [CONNECTION_KEY]: response.appState.connection.id });
@@ -25,9 +49,11 @@ export function enqueueActivity(payload: unknown): Promise<BackgroundResponse> {
   return exclusive(async () => {
     const items = (payload as { activityItems?: unknown } | null)?.activityItems;
     const conversation = (payload as { kind?: unknown } | null)?.kind === "conversation" ? validateCapturedConversation(payload) : null;
-    if (!conversation && !Array.isArray(items)) return { ok: false, message: "Invalid capture batch." };
+    const outboundAction = (payload as { kind?: unknown } | null)?.kind === "outbound-action" ? validateOutboundAction(payload) : null;
+    if (!conversation && !outboundAction && !Array.isArray(items)) return { ok: false, message: "Invalid capture batch." };
     if (conversation) payload = conversation;
-    const captured = conversation ? conversation.comments.length : (items as unknown[]).length;
+    if (outboundAction) payload = outboundAction;
+    const captured = conversation ? conversation.comments.length : outboundAction ? 1 : (items as unknown[]).length;
     const serialized = JSON.stringify(payload);
     if (new TextEncoder().encode(serialized).length > 2_000_000) return { ok: false, message: "Activity batch exceeds capture size limit." };
     const stored = await chrome.storage.local.get(CONNECTION_KEY);

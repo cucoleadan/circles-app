@@ -24,6 +24,9 @@ export interface Person {
   interactionCount: number
   conversationCount: number
   engagementScore: number
+  inboundInteractionCount: number
+  outboundInteractionCount: number
+  outboundEngagementScore: number
   firstInteractedAt: string | null
   lastInteractionAt: string | null
   lastInboundAt: string | null

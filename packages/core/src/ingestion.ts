@@ -10,14 +10,28 @@ export interface IngestionStats {
   touchedPeople: number
 }
 
+export interface InteractionAuthorInput {
+  id?: string | number | null
+  name?: string | null
+  handle?: string | null
+  photo_url?: string | null
+  avatarUrl?: string | null
+}
+
 export interface ActivityItemInput {
   id?: string | number
+  external_id?: string
+  externalId?: string
   item_key?: string
   type?: string
   action?: string
   kind?: string
   created_at?: string | number
   createdAt?: string | number
+  updated_at?: string | number
+  occurredAt?: string | number
+  active?: boolean
+  body?: string | null
   comment_body?: string | null
   commentBody?: string | null
   comment_id?: string | number | null
@@ -26,17 +40,16 @@ export interface ActivityItemInput {
   rootCommentId?: string | number | null
   target_kind?: string | null
   targetKind?: string | null
+  target_id?: string | number | null
+  targetId?: string | number | null
   target_title?: string | null
   targetTitle?: string | null
   target_url?: string | null
   targetUrl?: string | null
-  actor?: {
-    id?: string | number | null
-    name?: string | null
-    handle?: string | null
-    photo_url?: string | null
-    avatarUrl?: string | null
-  } | null
+  actor?: InteractionAuthorInput | null
+  target_author?: InteractionAuthorInput | null
+  targetAuthor?: InteractionAuthorInput | null
+  target?: { author?: InteractionAuthorInput | null; user?: InteractionAuthorInput | null } | null
   actor_name?: string | null
   actorName?: string | null
   actor_handle?: string | null
@@ -79,6 +92,137 @@ export interface ConversationInput {
 
 const normalizeHandle = (handle: string) =>
   handle.trim().replace(/^@/, "").toLowerCase()
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value !== null && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null
+}
+
+function authorFromUnknown(value: unknown): InteractionAuthorInput | null {
+  const record = asRecord(value)
+  if (!record) return null
+  const source = asRecord(record.user) ?? asRecord(record.author) ?? record
+  const handle = source.handle ?? source.username ?? source.author_handle
+  if (!handle && source.id === undefined && !source.name) return null
+  return {
+    id: source.id ?? source.user_id ?? null,
+    name: source.name ?? source.author_name ?? null,
+    handle: handle ?? null,
+    photo_url: source.photo_url ?? null,
+    avatarUrl: source.avatarUrl ?? source.photoUrl ?? null,
+  }
+}
+
+function targetAuthorFromItem(item: ActivityItemInput): InteractionAuthorInput | null {
+  if (item.target_author) return item.target_author
+  if (item.targetAuthor) return item.targetAuthor
+  const raw = item as Record<string, unknown>
+  return (
+    authorFromUnknown(item.target?.author) ??
+    authorFromUnknown(item.target?.user) ??
+    authorFromUnknown(raw.target_comment) ??
+    authorFromUnknown(raw.targetComment) ??
+    authorFromUnknown(raw.parent_comment) ??
+    authorFromUnknown(raw.parentComment) ??
+    authorFromUnknown(raw.post) ??
+    authorFromUnknown(raw.note)
+  )
+}
+
+function activityId(value: unknown): string | null {
+  return typeof value === "string" || typeof value === "number" ? String(value) : null
+}
+
+function indexActivityValues(value: unknown): Map<string, Record<string, any>> {
+  const result = new Map<string, Record<string, any>>()
+  if (!Array.isArray(value)) return result
+  for (const entry of value) {
+    const item = asRecord(entry)
+    const id = activityId(item?.id)
+    if (item && id) result.set(id, item)
+  }
+  return result
+}
+
+function activityBody(value: Record<string, any> | null): string | null {
+  if (!value) return null
+  for (const candidate of [value.body, value.body_text, value.text]) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim()
+  }
+  const parts: string[] = []
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) return node.forEach(visit)
+    const item = asRecord(node)
+    if (!item) return
+    if (item.type === "text" && typeof item.text === "string") parts.push(item.text)
+    visit(item.content)
+  }
+  visit(value.body_json)
+  return parts.join(" ").trim() || null
+}
+
+/** Resolves the activity feed's ID references before its lookup arrays are discarded. */
+export function normalizeActivityPage(value: unknown): ActivityItemInput[] {
+  if (Array.isArray(value)) return value as ActivityItemInput[]
+  const page = asRecord(value)
+  if (!page || !Array.isArray(page.activityItems)) return []
+  const users = indexActivityValues(page.users)
+  const comments = indexActivityValues(page.comments)
+  const posts = indexActivityValues(page.posts)
+  const normalized: ActivityItemInput[] = []
+
+  for (const entry of page.activityItems.slice(0, 500)) {
+    const raw = asRecord(entry)
+    if (!raw) continue
+    const baseId = activityId(raw.id) ?? activityId(raw.item_key)
+    if (!baseId) continue
+    const commentId = activityId(raw.comment_id)
+    const ownComment = commentId ? comments.get(commentId) ?? null : null
+    const targetCommentId = activityId(raw.target_comment_id)
+    const targetComment = targetCommentId ? comments.get(targetCommentId) ?? null : null
+    const postId = activityId(raw.target_post_id)
+    const post = postId ? posts.get(postId) ?? null : null
+    const ownCommentAuthor = authorFromUnknown(ownComment)
+    const targetCommentAuthor = authorFromUnknown(targetComment)
+    const postAuthor = authorFromUnknown(post)
+    const ancestorPath = typeof ownComment?.ancestor_path === "string"
+      ? ownComment.ancestor_path.split(".").filter(Boolean)
+      : []
+    const rootCommentId = ancestorPath[0] ?? (commentId && targetCommentId ? targetCommentId : null)
+    const targetKind = targetComment
+      ? typeof targetComment.ancestor_path === "string" && targetComment.ancestor_path.trim() ? "comment" : "note"
+      : post ? "post" : raw.target_kind ?? null
+    const kind = String(raw.type ?? raw.kind ?? "activity")
+    const senderIds = Array.isArray(raw.recent_sender_ids)
+      ? [...new Set(raw.recent_sender_ids.map(activityId).filter((id): id is string => Boolean(id)))]
+      : []
+    const isSingleAuthorComment = /comment|reply|restack_quote/.test(kind) && Boolean(commentId) && !/like|reaction/.test(kind)
+    const actors = isSingleAuthorComment || senderIds.length === 0
+      ? [ownCommentAuthor ?? authorFromUnknown(raw.actor)]
+      : senderIds.map((id) => authorFromUnknown(users.get(id))).filter((item): item is InteractionAuthorInput => Boolean(item))
+
+    for (const [index, actor] of actors.entries()) {
+      normalized.push({
+        ...raw,
+        externalId: actors.length > 1 ? `${baseId}:sender:${senderIds[index] ?? index}` : baseId,
+        kind,
+        updated_at: raw.updated_at,
+        created_at: raw.created_at ?? raw.updated_at,
+        actor,
+        commentId,
+        commentBody: activityBody(ownComment),
+        rootCommentId,
+        targetKind,
+        targetId: targetCommentId ?? postId ?? rootCommentId,
+        targetTitle: typeof post?.title === "string" ? post.title : null,
+        targetUrl: typeof post?.canonical_url === "string" ? post.canonical_url : typeof post?.url === "string" ? post.url : null,
+        targetAuthor: targetCommentAuthor ?? postAuthor,
+      })
+    }
+  }
+  return normalized
+}
 
 function parseTimestamp(val: unknown): string {
   if (typeof val === "number") {
@@ -153,12 +297,15 @@ export async function ensurePerson(
 
 export async function refreshPersonStats(client: PoolLike, personId: string) {
   await client.query(
-    `insert into relationship_stats
+     `insert into relationship_stats
         (person_id, user_id, interaction_count, conversation_count,
          first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
-         last_conversation_at, drift_status, engagement_score, updated_at)
+         last_conversation_at, drift_status, engagement_score,
+         inbound_interaction_count, outbound_interaction_count,
+         outbound_engagement_score, updated_at)
      select i.person_id, i.user_id, count(*),
-        count(distinct i.thread_root_id) filter (where i.thread_root_id is not null),
+        count(distinct i.thread_root_id) filter
+          (where i.thread_root_id is not null and i.action_type in ('comment', 'reply')),
         min(i.occurred_at), max(i.occurred_at),
         max(i.occurred_at) filter (where i.direction = 'inbound'),
         max(i.occurred_at) filter (where i.direction = 'outbound'),
@@ -171,16 +318,29 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         end,
         coalesce(sum(
           case
-            when i.action_type = 'like' then 1
-            when i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
-            when i.action_type = 'restack' then 3
-            when i.action_type in ('comment', 'reply') then 3
-            else 1
+            when i.direction = 'inbound' and i.action_type = 'like' then 1
+            when i.direction = 'inbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+            when i.direction = 'inbound' and i.action_type = 'restack' then 3
+            when i.direction = 'inbound' and i.action_type in ('comment', 'reply') then 3
+            when i.direction = 'inbound' then 1
+            else 0
+          end
+        ), 0)::int,
+        count(*) filter (where i.direction = 'inbound')::int,
+        count(*) filter (where i.direction = 'outbound')::int,
+        coalesce(sum(
+          case
+            when i.direction = 'outbound' and i.action_type = 'like' then 1
+            when i.direction = 'outbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+            when i.direction = 'outbound' and i.action_type = 'restack' then 3
+            when i.direction = 'outbound' and i.action_type in ('comment', 'reply') then 3
+            when i.direction = 'outbound' then 1
+            else 0
           end
         ), 0)::int,
         now()
       from interactions i
-      where i.person_id = $1
+      where i.person_id = $1 and i.removed_at is null
       group by i.person_id, i.user_id
      on conflict (person_id) do update
       set interaction_count = excluded.interaction_count,
@@ -192,7 +352,23 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         last_conversation_at = excluded.last_conversation_at,
         drift_status = excluded.drift_status,
         engagement_score = excluded.engagement_score,
+        inbound_interaction_count = excluded.inbound_interaction_count,
+        outbound_interaction_count = excluded.outbound_interaction_count,
+        outbound_engagement_score = excluded.outbound_engagement_score,
         updated_at = now()`,
+    [personId]
+  )
+  await client.query(
+    `update relationship_stats
+     set interaction_count = 0, conversation_count = 0, engagement_score = 0,
+         inbound_interaction_count = 0, outbound_interaction_count = 0,
+         outbound_engagement_score = 0, first_interacted_at = null,
+         last_interaction_at = null, last_inbound_at = null, last_outbound_at = null,
+         last_conversation_at = null, drift_status = 'new', updated_at = now()
+     where person_id = $1
+       and not exists (
+         select 1 from interactions where person_id = $1 and removed_at is null
+       )`,
     [personId]
   )
 }
@@ -234,33 +410,53 @@ export async function ingestActivityBatch(
     const actorId = item.actor?.id
     const normalizedActor = actorHandle ? normalizeHandle(actorHandle) : null
 
-    const isOwner =
+    const isOwner = item.kind === "outbound-action" ||
       (normalizedOwnerHandle && normalizedActor === normalizedOwnerHandle) ||
       (normalizedOwnerId && actorId && String(actorId) === normalizedOwnerId)
 
-    const personId = isOwner
-      ? null
-      : await ensurePerson(client, userId, personCache, {
-          handle: actorHandle,
-          name: actorName,
-          id: actorId,
-        })
+    const targetAuthor = targetAuthorFromItem(item)
+    const counterparty = isOwner
+      ? targetAuthor
+      : { handle: actorHandle, name: actorName, id: actorId }
+    const personId = counterparty
+      ? await ensurePerson(client, userId, personCache, counterparty)
+      : null
 
     if (personId) touchedPersonIds.add(personId)
 
-    const actionKind = item.kind || item.type || item.action || "other"
-    const body = item.comment_body || item.commentBody || null
+    const actionKind = item.kind === "outbound-action"
+      ? item.action || "other"
+      : item.kind || item.type || item.action || "other"
+    const body = item.body || item.comment_body || item.commentBody || null
     const actionType = classifyAction(actionKind, body)
     const direction = isOwner ? "outbound" : "inbound"
-    const occurredAt = parseTimestamp(item.created_at || item.createdAt)
+    const occurredAt = parseTimestamp(item.occurredAt || item.created_at || item.createdAt || item.updated_at)
 
     const externalId =
-      String(item.id || item.item_key || item.comment_id || item.commentId || randomUUID())
+      String(item.external_id || item.externalId || item.id || item.item_key || item.comment_id || item.commentId || randomUUID())
 
-    const targetType = (item.target_kind || item.targetKind || "post") as "post" | "note"
+    const targetType = item.target_kind || item.targetKind || "post"
     const threadKind = targetType === "note" ? "note" : "post"
-    const threadRootId =
-      item.root_comment_id || item.rootCommentId ? String(item.root_comment_id || item.rootCommentId) : null
+    const targetId = item.target_id || item.targetId || item.root_comment_id || item.rootCommentId
+    const threadRootId = targetId ? String(targetId) : null
+
+    if (item.active === false) {
+      const removed = await client.query(
+        `update interactions
+         set removed_at = coalesce(removed_at, now()), metadata = $4
+         where user_id = $1 and external_id = $2
+           and (($3::text is null and connection_id is null) or connection_id = $3)
+         returning person_id`,
+        [userId, externalId, connectionId ?? null, JSON.stringify(item)]
+      )
+      const removedPersonId = removed.rows[0]?.person_id as string | undefined
+      if (removedPersonId) touchedPersonIds.add(removedPersonId)
+      continue
+    }
+
+    // Raw capture evidence remains in ingestion_batches even when Substack does
+    // not expose enough identity to attach the action to a CRM person.
+    if (!personId) continue
 
     const inserted = await client.query(
       `insert into interactions
@@ -280,7 +476,7 @@ export async function ingestActivityBatch(
         direction,
         actionType,
         targetType,
-        threadRootId,
+        targetId ? String(targetId) : null,
         item.target_title || item.targetTitle || null,
         item.target_url || item.targetUrl || null,
         threadKind,
@@ -291,7 +487,28 @@ export async function ingestActivityBatch(
       ]
     )
 
-    if (inserted.rows[0]) newInteractions++
+    if (inserted.rows[0]) {
+      newInteractions++
+    } else {
+      await client.query(
+        `update interactions
+         set removed_at = null, person_id = $4, direction = $5,
+             action_type = $6, body = $7, occurred_at = $8, metadata = $9
+         where user_id = $1 and external_id = $2
+           and (($3::text is null and connection_id is null) or connection_id = $3)`,
+        [
+          userId,
+          externalId,
+          connectionId ?? null,
+          personId,
+          direction,
+          actionType,
+          body,
+          occurredAt,
+          JSON.stringify(item),
+        ]
+      )
+    }
   }
 
   // Refresh all touched people stats
@@ -344,24 +561,41 @@ export async function ingestConversationReplies(
   const threadKind = targetType
   const threadRootId = String(conversation.targetId)
 
-  async function traverse(comment: ConversationCommentInput, parentId: string | null) {
+  const commentAuthor = (comment: ConversationCommentInput | NonNullable<ConversationInput["rootAuthor"]>): InteractionAuthorInput => {
+    const raw = comment as Record<string, unknown>
+    return {
+      id: (raw.author_id ?? raw.authorId ?? raw.id) as string | number | null | undefined,
+      name: (raw.author_name ?? raw.authorName ?? raw.name) as string | null | undefined,
+      handle: (raw.author_handle ?? raw.authorHandle ?? raw.handle) as string | null | undefined,
+    }
+  }
+  const authorIsOwner = (author: InteractionAuthorInput | null): boolean => {
+    if (!author) return false
+    const normalized = author.handle ? normalizeHandle(author.handle) : null
+    return Boolean(
+      (normalizedOwnerHandle && normalized === normalizedOwnerHandle) ||
+      (normalizedOwnerId && author.id && String(author.id) === normalizedOwnerId)
+    )
+  }
+  const rootAuthor = conversation.rootAuthor ? commentAuthor(conversation.rootAuthor) : null
+  const rootIsOwner = authorIsOwner(rootAuthor)
+
+  async function traverse(
+    comment: ConversationCommentInput,
+    parentId: string | null,
+    parentAuthor: InteractionAuthorInput | null,
+  ) {
     processedItems++
-    const rawHandle = comment.author_handle || comment.authorHandle
-    const rawName = comment.author_name || comment.authorName || rawHandle
-    const rawId = comment.author_id || comment.authorId
-    const normalizedActor = rawHandle ? normalizeHandle(rawHandle) : null
-
-    const isOwner =
-      (normalizedOwnerHandle && normalizedActor === normalizedOwnerHandle) ||
-      (normalizedOwnerId && rawId && String(rawId) === normalizedOwnerId)
-
-    const personId = isOwner
-      ? null
-      : await ensurePerson(client, userId, personCache, {
-          handle: rawHandle,
-          name: rawName,
-          id: rawId,
-        })
+    const actor = commentAuthor(comment)
+    const isOwner = authorIsOwner(actor)
+    const directInbound = !isOwner && (
+      authorIsOwner(parentAuthor) ||
+      (!parentId && (rootIsOwner || rootAuthor === null))
+    )
+    const counterparty = isOwner ? (parentAuthor ?? rootAuthor) : directInbound ? actor : null
+    const personId = counterparty && !authorIsOwner(counterparty)
+      ? await ensurePerson(client, userId, personCache, counterparty)
+      : null
 
     if (personId) touchedPersonIds.add(personId)
 
@@ -369,45 +603,47 @@ export async function ingestConversationReplies(
     const externalId = `comment-${comment.id}`
     const direction = isOwner ? "outbound" : "inbound"
 
-    const inserted = await client.query(
-      `insert into interactions
-          (id, user_id, connection_id, person_id, external_id, source, direction,
-           action_type, target_type, target_id, target_url,
-           thread_kind, thread_root_id, body, occurred_at, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-       on conflict do nothing
-       returning id`,
-      [
-        randomUUID(),
-        userId,
-        connectionId ?? null,
-        personId,
-        externalId,
-        source,
-        direction,
-        parentId ? "reply" : "comment",
-        targetType,
-        threadRootId,
-        conversation.sourceUrl ?? null,
-        threadKind,
-        threadRootId,
-        comment.body ?? null,
-        occurredAt,
-        JSON.stringify(comment),
-      ]
-    )
+    if (personId) {
+      const inserted = await client.query(
+        `insert into interactions
+            (id, user_id, connection_id, person_id, external_id, source, direction,
+             action_type, target_type, target_id, target_url,
+             thread_kind, thread_root_id, body, occurred_at, metadata)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         on conflict do nothing
+         returning id`,
+        [
+          randomUUID(),
+          userId,
+          connectionId ?? null,
+          personId,
+          externalId,
+          source,
+          direction,
+          parentId ? "reply" : "comment",
+          targetType,
+          parentId ?? threadRootId,
+          conversation.sourceUrl ?? null,
+          threadKind,
+          threadRootId,
+          comment.body ?? null,
+          occurredAt,
+          JSON.stringify({ ...comment, directInteraction: true }),
+        ]
+      )
 
-    if (inserted.rows[0]) newInteractions++
+      if (inserted.rows[0]) newInteractions++
+    }
 
     if (Array.isArray(comment.children)) {
       for (const child of comment.children) {
-        await traverse(child, String(comment.id))
+        await traverse(child, String(comment.id), actor)
       }
     }
   }
 
   for (const comment of conversation.comments) {
-    await traverse(comment, null)
+    await traverse(comment, null, null)
   }
 
   for (const pid of touchedPersonIds) {

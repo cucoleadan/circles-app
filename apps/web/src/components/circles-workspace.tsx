@@ -34,6 +34,7 @@ import type {
 import { AddContactDialog } from "./add-contact-dialog"
 import { CirclesSidebar } from "./circles-sidebar"
 import { ContactDrawer } from "./contact-drawer"
+import { HistoryBackfill } from "./history-backfill"
 
 // Backwards compatibility type for initial Astro SSR imports
 export type Contact = Person
@@ -329,6 +330,7 @@ export function CirclesWorkspace({
 
           {/* Actions */}
           <div className="flex items-center gap-2">
+            <HistoryBackfill />
             <Button
               variant="outline"
               size="sm"
@@ -553,6 +555,12 @@ export function CirclesWorkspace({
                           <span className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-2 py-0.5 font-medium">
                             <Clock className="size-2.5 text-stone-400" />
                             {person.interactionCount} actions
+                          </span>
+                          <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
+                            {person.inboundInteractionCount ?? 0} received
+                          </span>
+                          <span className="inline-flex items-center rounded-md bg-sky-50 px-2 py-0.5 font-medium text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
+                            {person.outboundInteractionCount ?? 0} given
                           </span>
                           {(person.conversationCount ?? 0) > 0 && (
                             <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 px-2 py-0.5 font-medium">

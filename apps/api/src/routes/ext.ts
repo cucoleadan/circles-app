@@ -4,6 +4,7 @@ import {
   createSubstackClient,
   ingestActivityBatch,
   ingestConversationReplies,
+  normalizeActivityPage,
   type ActivityItemInput,
 } from "@workspace/core"
 
@@ -20,6 +21,32 @@ import {
 import { withTenant } from "../db/tenant.js"
 
 export const ext = new Hono<{ Variables: { appUser: string; userEmail: string } }>()
+
+function substackAuthor(value: unknown): { id?: string; handle: string; name?: string | null } | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const data = value as Record<string, any>
+  const nested = [
+    data.user,
+    data.author,
+    data.comment?.user,
+    data.comment?.author,
+    data.item?.comment?.user,
+    data.post?.user,
+    data.post?.author,
+  ]
+  for (const candidate of nested) {
+    if (!candidate || typeof candidate !== "object") continue
+    const handle = candidate.handle ?? candidate.username
+    if (typeof handle === "string" && handle.trim()) {
+      return {
+        id: candidate.id === undefined ? undefined : String(candidate.id),
+        handle: handle.trim().replace(/^@/, ""),
+        name: typeof candidate.name === "string" ? candidate.name : null,
+      }
+    }
+  }
+  return null
+}
 
 // Authenticate via session cookie forwarded from browser
 ext.use("*", async (c, next) => {
@@ -115,7 +142,7 @@ ext.post("/activity", async (c) => {
 
   return withTenant({ appUserId: userId }, async (client) => {
     const connRes = await client.query(
-      `select id, profile_id, profile_handle
+      `select id, profile_id, profile_handle, ciphertext, publication_url
        from substack_connections
        where user_id = $1 and status = 'active'
        order by generation desc limit 1`,
@@ -140,6 +167,29 @@ ext.post("/activity", async (c) => {
         },
         409
       )
+    }
+
+    // Mutation responses often omit the target identity. Resolve it from the
+    // authenticated reader API so outbound actions attach to the actual person,
+    // including replies made from the owner's own post/Note page.
+    if (
+      payload?.kind === "outbound-action" &&
+      (payload.targetKind === "comment" || !payload?.targetAuthor?.handle) &&
+      conn?.ciphertext
+    ) {
+      try {
+        const sdk = createSubstackClient({
+          sessionToken: conn.ciphertext,
+          publicationUrl: conn.publication_url,
+        })
+        const target = payload.targetKind === "post"
+          ? await sdk.getPost(payload.targetId)
+          : await sdk.getComment(payload.targetId)
+        const author = substackAuthor(target)
+        if (author) payload.targetAuthor = author
+      } catch (error) {
+        console.warn("Could not resolve outbound Substack target author:", error)
+      }
     }
 
     // Compute deterministic dedupe key for idempotent replay safety
@@ -179,11 +229,9 @@ ext.post("/activity", async (c) => {
           source: "extension",
         })
       } else {
-        const items: ActivityItemInput[] = Array.isArray(payload?.activityItems)
-          ? payload.activityItems
-          : Array.isArray(payload)
-          ? payload
-          : []
+        const items: ActivityItemInput[] = payload?.kind === "outbound-action"
+          ? [payload]
+          : normalizeActivityPage(payload)
 
         stats = await ingestActivityBatch(client, {
           userId,

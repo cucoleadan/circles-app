@@ -403,7 +403,13 @@ v1.get("/imports", async (c) => {
     const res = await client.query(
       `select id, connection_id as "connectionId", status, started_at as "startedAt",
               cutoff, pages, items, new_interactions as "newInteractions",
-              new_people as "newPeople", finish_reason as "finishReason", error
+              new_people as "newPeople", finish_reason as "finishReason", error,
+              coalesce((select json_agg(json_build_object(
+                'stream', s.stream, 'status', s.status, 'pages', s.pages,
+                'items', s.items, 'newInteractions', s.new_interactions,
+                'newPeople', s.new_people, 'completeness', s.completeness,
+                'finishReason', s.finish_reason, 'error', s.error
+              ) order by s.stream) from import_run_streams s where s.import_run_id = import_runs.id), '[]') as streams
        from import_runs
        where user_id = $1
        order by started_at desc`,
@@ -418,6 +424,7 @@ v1.post("/imports", async (c) => {
   const appUser = c.get("appUser")
   const body = await c.req.json().catch(() => ({}))
   const months = typeof body.months === "number" && body.months > 0 ? body.months : 3
+  const full = body.full === true
 
   const result = await withTenant({ appUserId: appUser }, async (client) => {
     const connRes = await client.query(
@@ -430,18 +437,33 @@ v1.post("/imports", async (c) => {
     const importRunId = crypto.randomUUID()
     await client.query(
       `insert into import_runs (id, user_id, connection_id, status, cutoff)
-       values ($1, $2, $3, 'running', now() - ($4 || ' months')::interval)`,
-      [importRunId, appUser, connId, months]
+       values ($1, $2, $3, 'running', case when $4::boolean then '1970-01-01'::timestamptz else now() - ($5 || ' months')::interval end)`,
+      [importRunId, appUser, connId, full, months]
     )
 
-    const job = await client.query(
+    await client.query(
+      `insert into import_run_streams
+          (import_run_id, user_id, connection_id, stream, status, completeness, finish_reason)
+       values
+          ($1, $2, $3, 'activity', 'running', 'partial', null),
+          ($1, $2, $3, 'owned_notes', 'running', 'partial', null),
+          ($1, $2, $3, 'owned_posts', 'running', 'partial', null),
+          ($1, $2, $3, 'outbound_actions', 'unavailable', 'unavailable', 'extension_capture_only')`,
+      [importRunId, appUser, connId],
+    )
+
+    const jobs = await client.query(
       `insert into jobs (type, payload, status, run_at)
-       values ('import:history', json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text), 'pending', now())
+       select 'import:history',
+              json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
+              'pending', now()
+       from unnest(array['activity', 'owned_notes', 'owned_posts']) as stream
        returning id`,
-      [appUser, connId, importRunId]
+      [appUser, connId, importRunId],
     )
 
-    return { importRunId, jobId: job.rows[0].id }
+    const jobIds = jobs.rows.map((row) => row.id)
+    return { importRunId, jobId: jobIds[0], jobIds }
   })
 
   if ("error" in result) return c.json(result, 400)
@@ -456,7 +478,12 @@ v1.post("/imports/:id/pause", async (c) => {
       "update import_runs set status = 'paused' where id = $1 and user_id = $2 and status = 'running' returning id",
       [importId, appUser]
     )
-    return !!res.rows[0]
+    if (!res.rows[0]) return false
+    await client.query(
+      "update import_run_streams set status = 'paused', updated_at = now() where import_run_id = $1 and status = 'running'",
+      [importId],
+    )
+    return true
   })
   if (!updated) return c.json({ error: "Import run not found or cannot be paused" }, 400)
   return c.json({ paused: true })
@@ -473,16 +500,23 @@ v1.post("/imports/:id/resume", async (c) => {
     const connId = res.rows[0]?.connection_id as string | undefined
     if (!connId) return { error: "Import run not found or cannot be resumed" }
 
+    const streams = await client.query(
+      `update import_run_streams set status = 'running', updated_at = now()
+       where import_run_id = $1 and status = 'paused' returning stream`,
+      [importId],
+    )
     const job = await client.query(
       `insert into jobs (type, payload, status, run_at)
-       values ('import:history', json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text), 'pending', now())
+       select 'import:history',
+              json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
+              'pending', now()
+       from unnest($4::text[]) as stream
        returning id`,
-      [appUser, connId, importId]
+      [appUser, connId, importId, streams.rows.map((row) => row.stream)],
     )
-    return { jobId: job.rows[0].id }
+    const jobIds = job.rows.map((row) => row.id)
+    return { jobId: jobIds[0], jobIds }
   })
   if ("error" in result) return c.json(result, 400)
-  return c.json({ resumed: true, jobId: result.jobId })
+  return c.json({ resumed: true, jobId: result.jobId, jobIds: result.jobIds })
 })
-
-

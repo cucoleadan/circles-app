@@ -294,7 +294,7 @@ export function ContactDrawer({
           </div>
 
           {/* Engagement Score & Activity Banner */}
-          <div className="mt-4 grid grid-cols-4 gap-2 rounded-xl border border-stone-200/80 bg-stone-50 p-2.5 text-center dark:border-stone-800 dark:bg-stone-900">
+          <div className="mt-4 grid grid-cols-5 gap-2 rounded-xl border border-stone-200/80 bg-stone-50 p-2.5 text-center dark:border-stone-800 dark:bg-stone-900">
             <div className="flex flex-col">
               <span className="text-[11px] font-medium text-stone-500 flex items-center justify-center gap-1">
                 <Sparkles className="size-3 text-amber-500" /> Score
@@ -304,9 +304,15 @@ export function ContactDrawer({
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-stone-500">Actions</span>
+              <span className="text-[11px] font-medium text-stone-500">Received</span>
               <span className="text-lg font-bold text-stone-800 dark:text-stone-200 mt-0.5">
-                {person.interactionCount}
+                {person.inboundInteractionCount ?? 0}
+              </span>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-[11px] font-medium text-stone-500">Given</span>
+              <span className="text-lg font-bold text-sky-700 dark:text-sky-300 mt-0.5">
+                {person.outboundInteractionCount ?? 0}
               </span>
             </div>
             <div className="flex flex-col">

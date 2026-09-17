@@ -15,6 +15,9 @@ const personColumns = `p.id, p.name, p.handle, p.notes,
 const personStatsColumns = `coalesce(s.interaction_count, 0) as "interactionCount",
     coalesce(s.conversation_count, 0) as "conversationCount",
     coalesce(s.engagement_score, 0) as "engagementScore",
+    coalesce(s.inbound_interaction_count, 0) as "inboundInteractionCount",
+    coalesce(s.outbound_interaction_count, 0) as "outboundInteractionCount",
+    coalesce(s.outbound_engagement_score, 0) as "outboundEngagementScore",
     s.first_interacted_at as "firstInteractedAt",
     s.last_interaction_at as "lastInteractionAt",
     s.last_inbound_at as "lastInboundAt",
@@ -54,6 +57,9 @@ export interface PersonWithStats extends Person {
   interactionCount: number
   conversationCount: number
   engagementScore: number
+  inboundInteractionCount: number
+  outboundInteractionCount: number
+  outboundEngagementScore: number
   firstInteractedAt: string | null
   lastInteractionAt: string | null
   lastInboundAt: string | null
@@ -452,7 +458,7 @@ export async function personInteractions(
 ): Promise<InteractionPage> {
   const limit = Math.min(Math.max(options.limit ?? 50, 1), 100)
   const params: unknown[] = [personId]
-  let where = "person_id = $1"
+  let where = "person_id = $1 and removed_at is null"
   if (options.cursor) {
     const cursor = decodeCursor(options.cursor)
     if (!cursor) throw new Error("Invalid cursor")
@@ -481,12 +487,15 @@ export async function personInteractions(
 /** Rebuilds the per-person totals so overview reads never scan interactions. */
 export async function refreshPersonStats(client: PoolLike, personId: string) {
   await client.query(
-    `insert into relationship_stats
+     `insert into relationship_stats
         (person_id, user_id, interaction_count, conversation_count,
          first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
-         last_conversation_at, drift_status, engagement_score, updated_at)
+         last_conversation_at, drift_status, engagement_score,
+         inbound_interaction_count, outbound_interaction_count,
+         outbound_engagement_score, updated_at)
      select i.person_id, i.user_id, count(*),
-        count(distinct i.thread_root_id) filter (where i.thread_root_id is not null),
+        count(distinct i.thread_root_id) filter
+          (where i.thread_root_id is not null and i.action_type in ('comment', 'reply')),
         min(i.occurred_at), max(i.occurred_at),
         max(i.occurred_at) filter (where i.direction = 'inbound'),
         max(i.occurred_at) filter (where i.direction = 'outbound'),
@@ -499,16 +508,29 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         end,
         coalesce(sum(
           case
-            when i.action_type = 'like' then 1
-            when i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
-            when i.action_type = 'restack' then 3
-            when i.action_type in ('comment', 'reply') then 3
-            else 1
+            when i.direction = 'inbound' and i.action_type = 'like' then 1
+            when i.direction = 'inbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+            when i.direction = 'inbound' and i.action_type = 'restack' then 3
+            when i.direction = 'inbound' and i.action_type in ('comment', 'reply') then 3
+            when i.direction = 'inbound' then 1
+            else 0
+          end
+        ), 0)::int,
+        count(*) filter (where i.direction = 'inbound')::int,
+        count(*) filter (where i.direction = 'outbound')::int,
+        coalesce(sum(
+          case
+            when i.direction = 'outbound' and i.action_type = 'like' then 1
+            when i.direction = 'outbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
+            when i.direction = 'outbound' and i.action_type = 'restack' then 3
+            when i.direction = 'outbound' and i.action_type in ('comment', 'reply') then 3
+            when i.direction = 'outbound' then 1
+            else 0
           end
         ), 0)::int,
         now()
       from interactions i
-      where i.person_id = $1
+      where i.person_id = $1 and i.removed_at is null
       group by i.person_id, i.user_id
      on conflict (person_id) do update
       set interaction_count = excluded.interaction_count,
@@ -520,7 +542,23 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         last_conversation_at = excluded.last_conversation_at,
         drift_status = excluded.drift_status,
         engagement_score = excluded.engagement_score,
+        inbound_interaction_count = excluded.inbound_interaction_count,
+        outbound_interaction_count = excluded.outbound_interaction_count,
+        outbound_engagement_score = excluded.outbound_engagement_score,
         updated_at = now()`,
+    [personId]
+  )
+  await client.query(
+    `update relationship_stats
+     set interaction_count = 0, conversation_count = 0, engagement_score = 0,
+         inbound_interaction_count = 0, outbound_interaction_count = 0,
+         outbound_engagement_score = 0, first_interacted_at = null,
+         last_interaction_at = null, last_inbound_at = null, last_outbound_at = null,
+         last_conversation_at = null, drift_status = 'new', updated_at = now()
+     where person_id = $1
+       and not exists (
+         select 1 from interactions where person_id = $1 and removed_at is null
+       )`,
     [personId]
   )
 }
@@ -695,7 +733,7 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
       `select drift_status as status, count(*)::int as count
          from relationship_stats group by drift_status`
     ),
-    client.query("select count(*)::int as count from interactions"),
+    client.query("select count(*)::int as count from interactions where removed_at is null"),
   ])
   const byStatus: Record<string, number> = {}
   for (const row of people.rows) byStatus[row.status ?? "new"] = row.count

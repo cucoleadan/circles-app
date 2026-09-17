@@ -440,16 +440,18 @@ describe("interactions", () => {
     )
 
     expect(stats.processedItems).toBe(3)
-    expect(stats.newInteractions).toBe(3)
+    expect(stats.newInteractions).toBe(2)
 
     const people = await withTenant({ appUserId: userA }, (client) =>
       listPeople(client, { search: "carol" })
     )
     expect(people).toHaveLength(1)
     const carol = people[0]
-    expect(carol.interactionCount).toBe(2) // 2 comments from Carol (owner reply is outbound, not on Carol)
+    expect(carol.interactionCount).toBe(2) // Carol's direct comment + owner's reply to Carol
     expect(carol.conversationCount).toBe(1) // 1 thread root
-    expect(carol.engagementScore).toBe(6) // 3 + 3 = 6
+    expect(carol.engagementScore).toBe(3) // inbound engagement only; outbound is tracked separately
+    expect(carol.inboundInteractionCount).toBe(1)
+    expect(carol.outboundInteractionCount).toBe(1)
   })
 
   let signedCookieA = ""
@@ -840,7 +842,7 @@ describe("interactions", () => {
       listPeople(client, { sort: "engagement" })
     )
     expect(sorted.map((p) => p.name)).toEqual(["Alice", "Bob", "Charlie"])
-    expect(sorted[0].engagementScore).toBe(6)
+    expect(sorted[0].engagementScore).toBe(3)
     expect(sorted[1].engagementScore).toBe(1)
     expect(sorted[2].engagementScore).toBe(0)
 
@@ -856,4 +858,3 @@ describe("interactions", () => {
     expect(apiBody.people[0].name).toBe("Alice")
   })
 })
-
