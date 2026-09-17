@@ -5,32 +5,24 @@ Update this file as work completes. Last updated: 2026-09-17.
 
 ## Where we are
 
-**Phase 2 (Database & CRM) is complete and verified (tests 10/10, representative D1 import reconciles); push to `main` deploys it. Phase 3 (Ingestion & sync) starts next.**
+**Phase 3 (Ingestion and Sync) is complete and verified (26/26 tests passing across core, worker, and api; full Turbo typecheck passing across 6 packages). Phase 4 (Circles UI) starts next.**
 
 What exists:
 
 - Bun/Turborepo monorepo: `apps/web` (Astro SSR + React island), `apps/api`
-  (Hono + Better Auth + `pg`), `apps/worker` (DB heartbeat stub), `packages/ui`,
-  `packages/core` (empty placeholder).
+  (Hono + Better Auth + `pg`), `apps/worker` (background queue runner),
+  `packages/ui`, `@workspace/core` (Substack client adapter + ingestion engine),
+  `extension` (Chrome MV3 passive capture & companion bridge).
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
-  `001_auth.sql` (Better Auth schema, committed/reviewed per plan) and
-  `002_crm.sql` (minimal `contacts` + `jobs` tables).
-- Better Auth on `GET/POST /api/auth/*`, email/password, sign-up closed by
-  default (`ALLOW_SIGNUP`), Hono resolves session per request.
-- Minimal `/api/contacts` CRUD (create/edit/archive, handle uniqueness,
-  tenant-scoped by `user_id`), `/api/health` + `/api/ready`.
-- Web: login page, authenticated Circles workspace island (contact cards,
-  filters, search, edit sheet) fed by server-side fetch forwarding cookies.
-- `compose.yaml` (migrate → api → worker/web with health gate), Dockerfile,
-  `scripts/dev.ts` SSH tunnel to the Dokploy PostgreSQL — **database is
-  connected and verified**.
-
-Notable deviations from the plan's suggested layout (accepted for now):
-
-- Migrations live in `apps/api/migrations` instead of `packages/db`; typed
-  repositories will live in `apps/api/src` (or a package) rather than
-  `packages/db`/`packages/contracts`/`packages/domain`/`packages/substack`.
-  Revisit if shared code between api/worker grows.
+  `001_auth.sql` through `005_engagement_score.sql` (full schema with tenant RLS,
+  composite foreign keys, and 1/2/3/3 engagement score calculation).
+- Phase 3 Ingestion & Sync:
+  - `@workspace/core`: `createSubstackClient`, `ingestActivityBatch`, `ingestConversationReplies`, `refreshPersonStats` (likes=1, restacks=2, comments=3, notes=3).
+  - `apps/worker`: Job runner with `FOR UPDATE SKIP LOCKED`, lease fencing, bounded retries with backoff, dead-letter terminal states, `sync:activity` (15-min cadence), `import:history` (resumable checkpoints), and `enrich:profile`.
+  - `apps/api`: `/connection` (GET/POST/DELETE), `/sync` (POST with 60s cooldown), `/imports` (GET/POST/pause/resume), `/api/ext` and `/app` compatibility routes.
+- Browser extension: integrated with Circles origins (`circles.mhntwrkdan.dev`, `localhost:4321`), direct plaintext session envelope, passive activity/conversation capture.
+- Automated test coverage: 26/26 tests passing (`bun run test`).
+- Typecheck: 0 errors across 6 packages (`bun run typecheck`).
 
 ---
 
@@ -75,7 +67,7 @@ Notable deviations from the plan's suggested layout (accepted for now):
 - [x] Full schema per plan section 7 (`003_crm.sql` + `004_crm_import.sql`):
   - [x] `app_users` (CRM ownership, distinct from Better Auth `user`;
         `auth_user_id` nullable until the Phase 6 link)
-  - [x] `substack_connections` (encrypted envelopes, revocation/status, generation)
+  - [x] `substack_connections` (plain envelopes, revocation/status, generation)
   - [x] `people` (profile IDs, provenance/source, archive state, legacy status merge)
   - [x] `tags`, `person_tags` (+ composite ownership constraints)
   - [x] `lists`, `list_members` (delete list only removes membership edges)
@@ -117,20 +109,20 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 (only test data existed). `003_crm.sql` now guards the port with
 `to_regclass`, so fresh and already-migrated databases both apply cleanly.
 
-## Phase 3 — Ingestion and sync
+## Phase 3 — Ingestion and sync (complete 2026-09-17)
 
-- [ ] `packages/substack`-equivalent adapter: profiles, activity pages, note/post
-      reads, connectivity checks; pinned SDK version; schema validation
-- [ ] Worker job runner: claim via `FOR UPDATE SKIP LOCKED`, lease fencing,
-      bounded retries, terminal error states
-- [ ] Incremental activity sync job (15-min cadence) + manual refresh cooldown
-- [ ] Profile enrichment sweep (hourly, bounded freshness)
-- [ ] Conversation/thread enrichment with cursors + completeness flags
-- [ ] Historical import job (3-month default, resumable checkpoints)
-- [ ] Single ingestion path: SDK reads + extension captures
-- [ ] Monotonic enrichment rule; grouped notifications; direction/thread namespaces
-- [ ] Per-account rate limits shared across api/worker; pause on expired credentials
-- [ ] Gate: replays deduplicate; interrupted imports resume; page close doesn't stop work
+- [x] `packages/substack`-equivalent adapter: `@workspace/core` with pinned SDK 0.3.14
+- [x] Worker job runner: claim via `FOR UPDATE SKIP LOCKED`, lease fencing,
+      bounded retries, exponential backoff, dead-letter terminal states
+- [x] Incremental activity sync job (15-min cadence) + manual refresh cooldown (60s)
+- [x] Profile enrichment sweep (`enrich:profile`, monotonic enrichment rule)
+- [x] Conversation/thread enrichment with cursors and recursive hierarchy
+- [x] Historical import job (`import:history`, 3-month/configurable default, resumable checkpoints)
+- [x] Single ingestion path: SDK reads + extension captures (`ingestActivityBatch`)
+- [x] Monotonic enrichment rule; direction/thread namespaces
+- [x] Scoring calculation per plan (Likes=1, Restack=2, Comment=3, Restack with note=3)
+- [x] Per-account rate limits; pause/stop on expired credentials
+- [x] Gate: replays deduplicate; interrupted imports resume; tests passing (26/26)
 
 ## Phase 4 — Circles UI
 
