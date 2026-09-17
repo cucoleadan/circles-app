@@ -441,15 +441,23 @@ describe("interactions", () => {
     expect(carol.engagementScore).toBe(6) // 3 + 3 = 6
   })
 
-  test("GET /companion returns lists and handles for connected user", async () => {
-    // create session for authA
+  let signedCookieA = ""
+
+  beforeAll(async () => {
+    const { makeSignature } = await import("better-auth/crypto")
+    const token = "test-token-a"
+    const sig = await makeSignature(token, process.env.BETTER_AUTH_SECRET!)
+    signedCookieA = `better-auth.session_token=${encodeURIComponent(token)}.${sig}`
+
     await migrate.query(
       `insert into session (id, "userId", token, "expiresAt", "createdAt", "updatedAt") values
-         ('sess-a', $1, 'test-token-a', now() + interval '1 day', now(), now())
+         ('sess-a', $1, $2, now() + interval '1 day', now(), now())
        on conflict (id) do nothing`,
-      [authA]
+      [authA, token]
     )
+  })
 
+  test("GET /companion returns lists and handles for connected user", async () => {
     const list = await withTenant({ appUserId: userA }, (client) =>
       createList(client, userA, "VIPs")
     )
@@ -463,7 +471,7 @@ describe("interactions", () => {
     const res = await ext.fetch(
       new Request("http://localhost:3000/companion", {
         headers: {
-          cookie: "better-auth.session_token=test-token-a",
+          cookie: signedCookieA,
         },
       })
     )
@@ -486,7 +494,7 @@ describe("interactions", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          cookie: "better-auth.session_token=test-token-a",
+          cookie: signedCookieA,
         },
         body: JSON.stringify({
           activityItems: [
@@ -531,7 +539,7 @@ describe("interactions", () => {
       new Request("http://localhost:3000/community", {
         method: "POST",
         headers: {
-          cookie: "better-auth.session_token=test-token-a",
+          cookie: signedCookieA,
         },
         body: form,
       })
