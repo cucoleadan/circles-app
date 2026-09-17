@@ -567,6 +567,70 @@ describe("interactions", () => {
     expect(frank[0].handle).toBe("frank")
   })
 
+  test("POST /person (JSON) adds person to CRM, lists and creates tags", async () => {
+    const list = await withTenant({ appUserId: userA }, (client) =>
+      createList(client, userA, "VIPs")
+    )
+
+    const res = await ext.fetch(
+      new Request("http://localhost:3000/person", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({
+          name: "Grace Hopper",
+          handle: "@grace",
+          lists: [list.id],
+          tags: ["pioneer", "compiler"],
+        }),
+      })
+    )
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.ok).toBe(true)
+
+    const grace = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "grace", listId: list.id })
+    )
+    expect(grace).toHaveLength(1)
+    expect(grace[0].handle).toBe("grace")
+  })
+
+  test("POST /connect (JSON) connects Substack session and /install updates user", async () => {
+    const connectRes = await ext.fetch(
+      new Request("http://localhost:3000/connect", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({
+          sessionToken: "test-extension-direct-json-session",
+          publicationUrl: "https://testpub.substack.com",
+        }),
+      })
+    )
+    expect(connectRes.status).toBe(200)
+    const connectBody = (await connectRes.json()) as any
+    expect(connectBody.ok).toBe(true)
+
+    const installRes = await ext.fetch(
+      new Request("http://localhost:3000/install", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({}),
+      })
+    )
+    expect(installRes.status).toBe(200)
+    const installBody = (await installRes.json()) as any
+    expect(installBody.ok).toBe(true)
+  })
+
   test("connection, sync with cooldown, and import runs lifecycle via v1 API", async () => {
     // 1. POST /connection
     const connRes = await v1.fetch(

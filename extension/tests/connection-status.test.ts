@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { recoveredFlow } from "../src/lib/connection-status";
 import type { FlowState } from "../src/lib/types";
 
-const stale: FlowState = { phase: "failed", flowId: "old", message: "Reload the StackedHQ tab once to activate the updated extension." };
+const stale: FlowState = { phase: "failed", flowId: "old", message: "Reload the Circles tab once to activate the updated extension." };
 describe("recovered connection status", () => {
   it("clears the stale reload error when the live app is connected", () => {
     expect(recoveredFlow(stale, true, false)).toEqual({ phase: "idle" });

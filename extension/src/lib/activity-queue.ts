@@ -32,7 +32,7 @@ export function enqueueActivity(payload: unknown): Promise<BackgroundResponse> {
     if (new TextEncoder().encode(serialized).length > 2_000_000) return { ok: false, message: "Activity batch exceeds capture size limit." };
     const stored = await chrome.storage.local.get(CONNECTION_KEY);
     const connectionId = stored[CONNECTION_KEY] as string | undefined;
-    if (!connectionId) return { ok: false, message: "Open your connected StackedHQ app once to enable durable capture." };
+    if (!connectionId) return { ok: false, message: "Open your connected Circles app once to enable durable capture." };
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(connectionId + serialized));
     const id = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
     const state = await read();
@@ -40,8 +40,8 @@ export function enqueueActivity(payload: unknown): Promise<BackgroundResponse> {
     if (!state.batches.some((batch) => batch.id === id)) {
       state.batches.push({ id, connectionId, payload, attempts: 0, retryAt: 0 });
       if (state.batches.length > 100 || new TextEncoder().encode(JSON.stringify(state)).length > 4_000_000) {
-        console.warn("[StackedHQ Activity] Queue full; existing pending data preserved.");
-        return { ok: false, message: "Capture queue full. Open StackedHQ to deliver pending data." };
+        console.warn("[Circles Activity] Queue full; existing pending data preserved.");
+        return { ok: false, message: "Capture queue full. Open Circles to deliver pending data." };
       }
       await chrome.storage.local.set({ [KEY]: state });
     }
@@ -56,18 +56,18 @@ export function drainActivity(bridge: (request: BridgeRequest) => Promise<Bridge
     const connection = app.ok ? app.appState?.connection : null;
     if (!connection) return;
     await rememberActivityConnection(app);
-    // Keep each batch scoped to its original StackedHQ connection.
+    // Keep each batch scoped to its original Circles connection.
     const due = state.batches.filter((batch) => batch.connectionId === connection.id && batch.retryAt <= Date.now()).slice(0, 5);
     for (const batch of due) {
       const result = await bridge({ type: "POST_ACTIVITY_BATCH", payload: { ...(batch.payload as object), expectedConnectionId: batch.connectionId } }).catch(() => ({ ok: false } as BridgeResponse));
       if (result.ok) {
         state.batches = state.batches.filter((pending) => pending.id !== batch.id);
         state.delivered = [...state.delivered, batch.id].slice(-100);
-        console.log(`[StackedHQ Activity] Delivered queued batch: ${result.captured ?? 0} items; ${result.newInteractions ?? 0} new interactions, ${result.enrichedInteractions ?? 0} enriched, ${result.newPeople ?? 0} new people; ${state.batches.length} pending.`);
+        console.log(`[Circles Activity] Delivered queued batch: ${result.captured ?? 0} items; ${result.newInteractions ?? 0} new interactions, ${result.enrichedInteractions ?? 0} enriched, ${result.newPeople ?? 0} new people; ${state.batches.length} pending.`);
       } else {
         batch.attempts++;
         batch.retryAt = Date.now() + Math.min(30, 2 ** Math.min(batch.attempts, 5)) * 60_000;
-        console.warn("[StackedHQ Activity] Delivery failed; batch retained for paced retry.");
+        console.warn("[Circles Activity] Delivery failed; batch retained for paced retry.");
       }
       await chrome.storage.local.set({ [KEY]: state });
       if (!result.ok) break;

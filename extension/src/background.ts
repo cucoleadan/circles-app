@@ -5,7 +5,6 @@ import {
   CONNECT_FLOW_TIMEOUT_MS,
   CONNECT_POLL_INTERVAL_MS,
 } from "./lib/constants";
-import { encryptConnectionCredential } from "./lib/crypto";
 import { getSubstackSessionValue, hasSubstackSession } from "./lib/cookies";
 import { detectProfileFromTab } from "./lib/detect";
 import { requestViaBridge, requestConnectBridge, isAppOriginUrl } from "./lib/app-bridge";
@@ -15,7 +14,6 @@ import type {
   BackgroundResponse,
   BridgeRequest,
   BridgeResponse,
-  ConnectionEnvelope,
   ExternalRequest,
   FlowState,
   PopupRequest,
@@ -290,17 +288,9 @@ async function performConnectFlow(options?: {
 
   await setFlow({ phase: "sending", flowId });
 
-  const envelope: ConnectionEnvelope = {
-    version: 1,
-    keyId: "plain",
-    wrappedKey: "plain",
-    iv: "plain",
-    ciphertext: credential,
-  };
-
   const result = await requestConnectBridge({
     type: "POST_CONNECT",
-    envelope,
+    sessionToken: credential,
     publicationUrl,
   });
   if (!result.ok || result.submit?.ok === false) {
@@ -373,7 +363,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
       return { ok: true, flow: await runConnectFlow() };
     case "APP_PAGE_LOADED":
       await clearAppStateCache();
-      void drainActivity(requestViaBridge).catch((error) => console.warn("[StackedHQ Activity] Queue retry failed.", error));
+      void drainActivity(requestViaBridge).catch((error) => console.warn("[Circles Activity] Queue retry failed.", error));
       void maybeAutoConnect(true);
       return { ok: true };
     case "SUBMIT_PUBLICATION_URL": {
@@ -425,7 +415,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
       const inCrm = crmHandles?.has(normalized) ?? false;
       const memberLists = crmMembers?.get(normalized)?.lists ?? [];
       if (inCrm) {
-        console.log(`[StackedHQ Background] @${normalized} is in CRM with lists:`, memberLists);
+        console.log(`[Circles Background] @${normalized} is in CRM with lists:`, memberLists);
       }
       return { ok: true, inCrm, memberLists };
     }
@@ -445,7 +435,7 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
     case "CAPTURE_ACTIVITY_BATCH": {
       await requestAppState();
       const queued = await enqueueActivity(request.payload);
-      if (queued.ok) void drainActivity(requestViaBridge).catch((error) => console.warn("[StackedHQ Activity] Delivery interrupted; pending data retained.", error));
+      if (queued.ok) void drainActivity(requestViaBridge).catch((error) => console.warn("[Circles Activity] Delivery interrupted; pending data retained.", error));
       return queued;
     }
     case "ADD_TO_LISTS": {
@@ -503,16 +493,16 @@ chrome.runtime.onMessageExternal.addListener(
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ACTIVITY_RETRY_ALARM) {
-    void drainActivity(requestViaBridge).catch((error) => console.warn("[StackedHQ Activity] Queue retry interrupted.", error));
+    void drainActivity(requestViaBridge).catch((error) => console.warn("[Circles Activity] Queue retry interrupted.", error));
   }
 });
 
 // Alarms may disappear on browser restart. Restore the periodic wake-up on worker start.
 void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" })
-  .catch((error) => console.warn("[StackedHQ Activity] Could not restrict capture storage access.", error));
+  .catch((error) => console.warn("[Circles Activity] Could not restrict capture storage access.", error));
 void chrome.alarms.get(ACTIVITY_RETRY_ALARM).then((alarm) => {
   if (!alarm) return chrome.alarms.create(ACTIVITY_RETRY_ALARM, { periodInMinutes: 1 });
-}).catch((error) => console.warn("[StackedHQ Activity] Could not schedule retries.", error));
+}).catch((error) => console.warn("[Circles Activity] Could not schedule retries.", error));
 
 async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
@@ -530,7 +520,7 @@ async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
 chrome.runtime.onInstalled.addListener((details) => {
   if (details.reason !== "install") return;
   void chrome.tabs
-    .create({ url: `${APP_ORIGINS[0]}/app/companion?installed=1` })
+    .create({ url: `${APP_ORIGINS[0]}` })
     .then(async (tab) => {
       if (!tab.id) return;
       await waitForTabLoad(tab.id, 20_000);

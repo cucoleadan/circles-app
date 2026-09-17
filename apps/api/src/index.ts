@@ -32,7 +32,9 @@ app.use("*", async (c, next) => {
     !c.req.path.startsWith("/api/auth")
   ) {
     const origin = c.req.header("origin")
-    const isExtension = c.req.header("x-stackedhq-extension") === "v1"
+    const isExtension =
+      c.req.header("x-circles-extension") === "v1" ||
+      c.req.header("x-stackedhq-extension") === "v1"
     if (origin && !allowedOrigins.has(origin) && !isExtension)
       return c.json({ error: "Forbidden origin" }, 403)
   }

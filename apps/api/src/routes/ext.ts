@@ -211,26 +211,39 @@ ext.post("/activity", async (c) => {
   })
 })
 
-// POST /app/community - Extension quick-add contact, lists, and tags
-ext.post("/community", async (c) => {
+// Handler for adding contact to CRM with lists & tags (accepts JSON or FormData)
+async function handleCreatePerson(c: any) {
   const userId = c.get("appUser")
-  const form = await c.req.formData()
-  const intent = form.get("intent")
-  if (intent !== "createPerson") {
-    return c.json({ ok: false, message: "Unsupported intent" }, 400)
-  }
+  let name = ""
+  let handle = ""
+  let lists: string[] = []
+  let tags: string[] = []
 
-  const name = String(form.get("name") || "").trim()
-  const handle = String(form.get("handle") || "").trim().replace(/^@/, "")
-  const lists = form.getAll("lists").map(String)
-  const tags = form
-    .getAll("tags")
-    .flatMap((t) =>
-      String(t)
-        .split(",")
-        .map((tag) => tag.trim())
-        .filter((tag) => tag.length > 0 && tag.length <= 32)
-    )
+  const contentType = c.req.header("content-type") || ""
+  if (contentType.includes("application/json")) {
+    const body = await c.req.json().catch(() => ({}))
+    name = String(body.name || "").trim()
+    handle = String(body.handle || "").trim().replace(/^@/, "")
+    lists = Array.isArray(body.lists) ? body.lists.map(String) : []
+    tags = Array.isArray(body.tags)
+      ? body.tags.map(String)
+      : typeof body.tags === "string"
+      ? body.tags.split(",").map((s: string) => s.trim())
+      : []
+  } else {
+    const form = await c.req.formData()
+    name = String(form.get("name") || "").trim()
+    handle = String(form.get("handle") || "").trim().replace(/^@/, "")
+    lists = form.getAll("lists").map(String)
+    tags = form
+      .getAll("tags")
+      .flatMap((t: any) =>
+        String(t)
+          .split(",")
+          .map((tag: string) => tag.trim())
+          .filter((tag: string) => tag.length > 0 && tag.length <= 32)
+      )
+  }
 
   if (!name || !handle) {
     return c.json({ ok: false, message: "Name and handle are required" }, 400)
@@ -260,6 +273,7 @@ ext.post("/community", async (c) => {
     }
 
     for (const tagName of tags) {
+      if (!tagName) continue
       const existingTag = await client.query(
         "select id from tags where user_id = $1 and normalized_name = lower($2) limit 1",
         [userId, tagName]
@@ -277,27 +291,36 @@ ext.post("/community", async (c) => {
       submit: { ok: true, message: "Saved to CRM." },
     })
   })
-})
+}
 
-// POST /app/settings - Connect Substack session (plaintext, bare-bones)
-ext.post("/settings", async (c) => {
+ext.post("/person", handleCreatePerson)
+ext.post("/community", handleCreatePerson)
+
+// Handler for connecting Substack session (accepts JSON or FormData)
+async function handleConnect(c: any) {
   const userId = c.get("appUser")
-  const form = await c.req.formData()
-  const intent = form.get("intent")
-  if (intent !== "connect") {
-    return c.json({ ok: false, message: "Unsupported intent" }, 400)
-  }
-
-  const envelopeRaw = form.get("envelope")
-  const publicationUrl = String(form.get("publicationUrl") || "").trim() || null
-
   let sessionToken = ""
-  if (typeof envelopeRaw === "string") {
-    try {
-      const parsed = JSON.parse(envelopeRaw)
-      sessionToken = parsed.ciphertext || parsed.sessionToken || ""
-    } catch {
-      sessionToken = envelopeRaw
+  let publicationUrl: string | null = null
+
+  const contentType = c.req.header("content-type") || ""
+  if (contentType.includes("application/json")) {
+    const body = await c.req.json().catch(() => ({}))
+    sessionToken = String(body.sessionToken || body.ciphertext || "").trim()
+    publicationUrl = body.publicationUrl ? String(body.publicationUrl).trim() : null
+  } else {
+    const form = await c.req.formData()
+    const envelopeRaw = form.get("envelope")
+    publicationUrl = String(form.get("publicationUrl") || "").trim() || null
+
+    if (typeof envelopeRaw === "string") {
+      try {
+        const parsed = JSON.parse(envelopeRaw)
+        sessionToken = parsed.ciphertext || parsed.sessionToken || ""
+      } catch {
+        sessionToken = envelopeRaw
+      }
+    } else {
+      sessionToken = String(form.get("sessionToken") || "")
     }
   }
 
@@ -325,14 +348,12 @@ ext.post("/settings", async (c) => {
   }
 
   return withTenant({ appUserId: userId }, async (client) => {
-    // Get next generation
     const genRes = await client.query(
       "select coalesce(max(generation), 0) + 1 as next_gen from substack_connections where user_id = $1",
       [userId]
     )
     const nextGen = genRes.rows[0]?.next_gen ?? 1
 
-    // Mark previous active connections as revoked
     await client.query(
       "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status = 'active'",
       [userId]
@@ -357,7 +378,6 @@ ext.post("/settings", async (c) => {
       ]
     )
 
-    // Also initialize sync_state
     await client.query(
       `insert into sync_state (connection_id, user_id, status, next_run_at)
        values ($1, $2, 'idle', now())
@@ -368,18 +388,29 @@ ext.post("/settings", async (c) => {
     return c.json({
       ok: true,
       submit: { ok: true, message: "Connected Substack successfully." },
+      profile: {
+        id: profileId,
+        name: profileName,
+        handle: profileHandle,
+      },
     })
   })
-})
+}
 
-// POST /app/companion - Track extension install
-ext.post("/companion", async (c) => {
+ext.post("/connect", handleConnect)
+ext.post("/settings", handleConnect)
+
+// Handler for extension installation ping
+async function handleInstall(c: any) {
   const userId = c.get("appUser")
   return withTenant({ appUserId: userId }, async (client) => {
     await client.query(
       "update app_users set extension_installed_at = now(), updated_at = now() where id = $1",
       [userId]
     )
-    return c.json({ ok: true, submit: { ok: true } })
+    return c.json({ ok: true, submit: { ok: true, message: "Extension registered." } })
   })
-})
+}
+
+ext.post("/install", handleInstall)
+ext.post("/companion", handleInstall)

@@ -67,10 +67,11 @@ function generateCirclesIcon(size) {
         continue;
       }
 
-      // Background color: zinc-950 #09090b
-      let r = 9;
-      let g = 9;
-      let b = 11;
+      // Border factor for subtle crisp edge around the white icon
+      const isBorder = distBox > -1.2 && distBox <= 0;
+      let r = isBorder ? 228 : 255;
+      let g = isBorder ? 228 : 255;
+      let b = isBorder ? 231 : 255;
       let a = boxAlpha;
 
       const dist = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
@@ -91,7 +92,7 @@ function generateCirclesIcon(size) {
       // Middle ring
       const midDist = Math.abs(dist - rMiddle);
       const midCov = Math.min(1, Math.max(0, (strokeW / 2 + 0.5) - midDist));
-      if (midCov > 0) circleCov = Math.max(circleCov, midCov * 0.85);
+      if (midCov > 0) circleCov = Math.max(circleCov, midCov * 0.9);
 
       // Outer ring
       const outDist = Math.abs(dist - rOuter);
@@ -141,3 +142,9 @@ for (const size of [16, 32, 48, 128]) {
   writeFileSync(outPath, png);
   console.log(`Generated ${outPath} (${size}x${size})`);
 }
+
+// Also write favicon.png for apps/web
+const favicon32 = generateCirclesIcon(32);
+const faviconPath = path.resolve(__dirname, "../../apps/web/public/favicon.png");
+writeFileSync(faviconPath, favicon32);
+console.log(`Generated ${faviconPath}`);

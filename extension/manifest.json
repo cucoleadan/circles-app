@@ -8,9 +8,7 @@
     "https://*.substack.com/*",
     "https://circles.mhntwrkdan.dev/*",
     "http://localhost:4321/*",
-    "http://127.0.0.1:4321/*",
-    "https://stackedhq.chillital.com/*",
-    "http://localhost:5173/*"
+    "http://127.0.0.1:4321/*"
   ],
   "icons": {
     "16": "icons/icon-16.png",
@@ -47,9 +45,7 @@
       "matches": [
         "https://circles.mhntwrkdan.dev/*",
         "http://localhost:4321/*",
-        "http://127.0.0.1:4321/*",
-        "https://stackedhq.chillital.com/*",
-        "http://localhost:5173/*"
+        "http://127.0.0.1:4321/*"
       ],
       "js": ["content.js"],
       "run_at": "document_idle"
@@ -64,9 +60,7 @@
     "matches": [
       "https://circles.mhntwrkdan.dev/*",
       "http://localhost:4321/*",
-      "http://127.0.0.1:4321/*",
-      "https://stackedhq.chillital.com/*",
-      "http://localhost:5173/*"
+      "http://127.0.0.1:4321/*"
     ]
   }
 }

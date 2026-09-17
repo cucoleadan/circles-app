@@ -10,7 +10,7 @@ if (!vi.unstubAllGlobals) {
   vi.unstubAllGlobals = () => {};
 }
 
-const url = "https://stackedhq.chillital.com/app/settings";
+const url = "https://circles.mhntwrkdan.dev/app/settings";
 const query = vi.fn();
 const sendMessage = vi.fn();
 const create = vi.fn();
@@ -26,7 +26,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe("app bridge", () => {
   it("checks exact origins rather than URL prefixes", () => {
     expect(isAppOriginUrl(url)).toBe(true);
-    expect(isAppOriginUrl("https://stackedhq.chillital.com.evil.test/app")).toBe(false);
+    expect(isAppOriginUrl("https://circles.mhntwrkdan.dev.evil.test/app")).toBe(false);
     expect(isAppOriginUrl("http://localhost:51730/app")).toBe(false);
     expect(isAppOriginUrl("invalid")).toBe(false);
   });

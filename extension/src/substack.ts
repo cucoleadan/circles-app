@@ -1,4 +1,4 @@
-const ADD_BTN_MARKER = "data-stackedhq-crm";
+const ADD_BTN_MARKER = "data-circles-crm";
 
 const USER_PLUS_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><line x1="19" x2="19" y1="8" y2="14"></line><line x1="22" x2="16" y1="11" y2="11"></line></svg>';
@@ -7,34 +7,35 @@ const CHECK_ICON =
   '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>';
 
 const STYLES = `
-.stackedhq-add-btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;font-size:12px;font-weight:600;line-height:1;color:#fff;background:#0d9488;border:1px solid rgba(255,255,255,.2);border-radius:999px;cursor:pointer;white-space:nowrap;transition:all .15s ease;vertical-align:middle;box-sizing:border-box;}
-.stackedhq-add-btn:hover{background:#0f766e;color:#fff;}
-.stackedhq-add-btn:disabled{opacity:.65;cursor:default;}
-.stackedhq-add-btn.done{background:#059669;border-color:rgba(255,255,255,.25);cursor:pointer;}
-.stackedhq-add-btn.done:hover{background:#047857;}
-.stackedhq-add-btn.error{background:#dc2626;border-color:rgba(255,255,255,.2);}
-.stackedhq-modal-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.45);backdrop-filter:blur(2px);}
-.stackedhq-modal{width:320px;max-width:calc(100vw - 32px);background:#fff;color:#191919;border-radius:12px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:system-ui,-apple-system,sans-serif;}
-.stackedhq-modal-title{margin:0 0 4px;font-size:14px;font-weight:600;}
-.stackedhq-modal-sub{margin:0 0 12px;font-size:12px;color:#6b7280;}
-.stackedhq-modal-lists{display:grid;gap:4px;max-height:180px;overflow-y:auto;margin-bottom:12px;}
-.stackedhq-modal-list{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid #e5e7eb;border-radius:8px;font-size:13px;cursor:pointer;}
-.stackedhq-modal-list input{accent-color:#0d9488;margin:0;}
-.stackedhq-modal-list.empty{justify-content:center;color:#6b7280;border-style:dashed;cursor:default;}
-.stackedhq-modal-error{margin:0 0 8px;font-size:12px;color:#dc2626;}
-.stackedhq-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
-.stackedhq-modal-btn{border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;}
-.stackedhq-modal-cancel{background:#f3f4f6;color:#374151;}
-.stackedhq-modal-cancel:hover{background:#e5e7eb;}
-.stackedhq-modal-add{background:#0d9488;color:#fff;}
-.stackedhq-modal-add:hover{background:#0f766e;}
-.stackedhq-modal-add:disabled{opacity:.6;cursor:default;}
+.circles-add-btn{display:inline-flex;align-items:center;gap:5px;height:26px;padding:0 10px;font-size:12px;font-weight:600;line-height:1;color:#fff;background:#ea580c;border:1px solid rgba(255,255,255,.2);border-radius:999px;cursor:pointer;white-space:nowrap;transition:all .15s ease;vertical-align:middle;box-sizing:border-box;}
+.circles-add-btn:hover{background:#c2410c;color:#fff;}
+.circles-add-btn:disabled{opacity:.65;cursor:default;}
+.circles-add-btn.done{background:#059669;border-color:rgba(255,255,255,.25);cursor:pointer;}
+.circles-add-btn.done:hover{background:#047857;}
+.circles-add-btn.error{background:#dc2626;border-color:rgba(255,255,255,.2);}
+.circles-modal-overlay{position:fixed;inset:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);backdrop-filter:blur(3px);}
+.circles-modal{width:320px;max-width:calc(100vw - 32px);background:#18181b;color:#f4f4f5;border:1px solid #27272a;border-radius:12px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);font-family:system-ui,-apple-system,sans-serif;}
+.circles-modal-title{margin:0 0 4px;font-size:14px;font-weight:600;color:#f4f4f5;}
+.circles-modal-sub{margin:0 0 12px;font-size:12px;color:#a1a1aa;}
+.circles-modal-lists{display:grid;gap:5px;max-height:180px;overflow-y:auto;margin-bottom:12px;}
+.circles-modal-list{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#09090b;border:1px solid #27272a;border-radius:8px;font-size:13px;cursor:pointer;color:#f4f4f5;}
+.circles-modal-list:hover{background:#27272a;}
+.circles-modal-list input{accent-color:#ea580c;margin:0;}
+.circles-modal-list.empty{justify-content:center;color:#71717a;border-style:dashed;cursor:default;}
+.circles-modal-error{margin:0 0 8px;font-size:12px;color:#f43f5e;}
+.circles-modal-actions{display:flex;justify-content:flex-end;gap:8px;}
+.circles-modal-btn{border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;}
+.circles-modal-cancel{background:#27272a;color:#d4d4d8;}
+.circles-modal-cancel:hover{background:#3f3f46;}
+.circles-modal-add{background:#ea580c;color:#fff;}
+.circles-modal-add:hover{background:#c2410c;}
+.circles-modal-add:disabled{opacity:.5;cursor:default;}
 `;
 
 function injectStyles() {
-  if (document.getElementById("stackedhq-add-styles")) return;
+  if (document.getElementById("circles-add-styles")) return;
   const style = document.createElement("style");
-  style.id = "stackedhq-add-styles";
+  style.id = "circles-add-styles";
   style.textContent = STYLES;
   (document.head ?? document.documentElement).append(style);
 }
@@ -118,7 +119,7 @@ async function checkCrmStatus(button: HTMLButtonElement, handle: string) {
       ? `On list(s): ${lists.map((l) => l.name).join(", ")}. Click to manage.`
       : "In Community. Click to add to lists.";
     console.log(
-      `%c[StackedHQ Companion] Recognized CRM contact: @${handle}`,
+      `%c[Circles Companion] Recognized CRM contact: @${handle}`,
       "color: #10b981; font-weight: bold;",
       lists,
     );
@@ -144,18 +145,18 @@ async function getLists(): Promise<ListsResult> {
       return {
         lists: [],
         error: record.needsAuth
-          ? "Log in to StackedHQ first, then try again."
-          : record.message ?? "Could not load your lists. Open StackedHQ and try again.",
+          ? "Log in to Circles first, then try again."
+          : record.message ?? "Could not load your lists. Open Circles and try again.",
       };
     }
   } catch {
     // fall through to a generic error
   }
-  return { lists: [], error: "Could not reach StackedHQ. Open the app and try again." };
+  return { lists: [], error: "Could not reach Circles. Open the app and try again." };
 }
 
 function closeListModal() {
-  document.querySelector(".stackedhq-modal-overlay")?.remove();
+  document.querySelector(".circles-modal-overlay")?.remove();
 }
 
 function openListModal(
@@ -167,27 +168,27 @@ function openListModal(
   closeListModal();
 
   const overlay = document.createElement("div");
-  overlay.className = "stackedhq-modal-overlay";
+  overlay.className = "circles-modal-overlay";
   overlay.addEventListener("click", (event) => {
     if (event.target === overlay) closeListModal();
   });
 
   const modal = document.createElement("div");
-  modal.className = "stackedhq-modal";
+  modal.className = "circles-modal";
 
   const title = document.createElement("p");
-  title.className = "stackedhq-modal-title";
+  title.className = "circles-modal-title";
   title.textContent = `Add @${info.handle} to lists`;
 
   const sub = document.createElement("p");
-  sub.className = "stackedhq-modal-sub";
+  sub.className = "circles-modal-sub";
   sub.textContent =
     info.name && info.name !== info.handle
       ? info.name
       : "Select one or more lists for this contact.";
 
   const listsBox = document.createElement("div");
-  listsBox.className = "stackedhq-modal-lists";
+  listsBox.className = "circles-modal-lists";
 
   let assignedListIds = new Set<string>();
   if (button.dataset.memberLists) {
@@ -203,7 +204,7 @@ function openListModal(
     listsBox.style.display = "none";
   } else if (lists.length === 0) {
     const empty = document.createElement("div");
-    empty.className = "stackedhq-modal-list empty";
+    empty.className = "circles-modal-list empty";
     empty.textContent = "No lists yet — you can add without one.";
     listsBox.append(empty);
   } else {
@@ -215,7 +216,7 @@ function openListModal(
     };
     for (const list of lists) {
       const label = document.createElement("label");
-      label.className = "stackedhq-modal-list";
+      label.className = "circles-modal-list";
       const checkbox = document.createElement("input");
       checkbox.type = "checkbox";
       checkbox.value = list.id;
@@ -229,7 +230,7 @@ function openListModal(
   }
 
   const errorEl = document.createElement("p");
-  errorEl.className = "stackedhq-modal-error";
+  errorEl.className = "circles-modal-error";
   if (error) {
     errorEl.textContent = error;
   } else {
@@ -237,17 +238,17 @@ function openListModal(
   }
 
   const actions = document.createElement("div");
-  actions.className = "stackedhq-modal-actions";
+  actions.className = "circles-modal-actions";
 
   const cancel = document.createElement("button");
   cancel.type = "button";
-  cancel.className = "stackedhq-modal-btn stackedhq-modal-cancel";
+  cancel.className = "circles-modal-btn circles-modal-cancel";
   cancel.textContent = "Cancel";
   cancel.addEventListener("click", closeListModal);
 
   const add = document.createElement("button");
   add.type = "button";
-  add.className = "stackedhq-modal-btn stackedhq-modal-add";
+  add.className = "circles-modal-btn circles-modal-add";
   add.textContent = lists.length === 0 ? "Add contact" : "Save to lists";
   add.disabled = Boolean(error);
   add.addEventListener("click", async () => {
@@ -298,14 +299,14 @@ async function submitAdd(
       ? `On list(s): ${memberLists.map((l) => l.name).join(", ")}. Click to manage.`
       : "In Community. Click to add to lists.";
     console.log(
-      `%c[StackedHQ Companion] ✅ Added @${info.handle} (${info.name}) to CRM:`,
+      `%c[Circles Companion] ✅ Added @${info.handle} (${info.name}) to CRM:`,
       "color: #10b981; font-weight: bold;",
       memberLists,
     );
     return;
   }
 
-  const message = response?.message ?? "Could not add. Open StackedHQ first.";
+  const message = response?.message ?? "Could not add. Open Circles first.";
   button.title = message;
   setButtonState(button, "error", "Failed");
   setTimeout(() => {
@@ -337,7 +338,7 @@ function processNote(note: Element) {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "stackedhq-add-btn";
+  button.className = "circles-add-btn";
   button.setAttribute(ADD_BTN_MARKER, "true");
   button.innerHTML = `${USER_PLUS_ICON}Add to list`;
   button.addEventListener("click", () => addPerson(button, info));
@@ -363,7 +364,7 @@ function processSavedOrFeedPost(card: Element) {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "stackedhq-add-btn";
+  button.className = "circles-add-btn";
   button.setAttribute(ADD_BTN_MARKER, "post");
   button.style.margin = "4px 6px";
   button.innerHTML = `${USER_PLUS_ICON}Add to list`;
@@ -433,7 +434,7 @@ function processProfilePage() {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "stackedhq-add-btn";
+  button.className = "circles-add-btn";
   button.style.marginLeft = "12px";
   button.setAttribute(ADD_BTN_MARKER, "profile");
   button.dataset.handle = info.handle;
@@ -460,7 +461,7 @@ function processSinglePostPage() {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "stackedhq-add-btn";
+  button.className = "circles-add-btn";
   button.setAttribute(ADD_BTN_MARKER, "article-header");
   button.style.marginLeft = "10px";
   button.innerHTML = `${USER_PLUS_ICON}Add to list`;
@@ -481,10 +482,10 @@ function observePage() {
 }
 
 console.log(
-  `%c[StackedHQ Companion] Active on Substack (%c${window.location.pathname}%c)`,
-  "color: #0d9488; font-weight: bold;",
+  `%c[Circles Companion] Active on Substack (%c${window.location.pathname}%c)`,
+  "color: #ea580c; font-weight: bold;",
   "color: #0284c7;",
-  "color: #0d9488; font-weight: bold;",
+  "color: #ea580c; font-weight: bold;",
 );
 
 injectStyles();

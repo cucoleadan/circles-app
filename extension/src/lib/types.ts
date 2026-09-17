@@ -1,11 +1,3 @@
-export type ConnectionEnvelope = {
-  version: 1;
-  keyId: string;
-  wrappedKey: string;
-  iv: string;
-  ciphertext: string;
-};
-
 export type ConnectionProfile = {
   id: string | number | null;
   name: string | null;
@@ -34,7 +26,6 @@ export type CompanionMember = {
 };
 
 export type AppState = {
-  encryption: { publicKeyPem: string; keyId: string } | null;
   connection: ConnectionSummary | null;
   lists: CompanionList[];
   handles?: string[];
@@ -98,7 +89,7 @@ export type BackgroundResponse = {
 export type BridgeRequest =
   | { type: "BRIDGE_PING" }
   | { type: "GET_APP_STATE" }
-  | { type: "POST_CONNECT"; envelope: ConnectionEnvelope; publicationUrl: string | null }
+  | { type: "POST_CONNECT"; sessionToken: string; publicationUrl: string | null }
   | { type: "POST_INSTALL" }
   | { type: "POST_ACTIVITY_BATCH"; payload: unknown }
   | { type: "POST_CREATE_PERSON"; name: string; handle: string; lists: string[]; tags: string[] };
