@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "build": "turbo build",
-    "dev": "turbo dev",
+    "dev": "bun scripts/dev.ts",
+    "dev:check": "bun scripts/dev.ts --check",
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck"

@@ -10,6 +10,16 @@
     "lint": { "dependsOn": ["^lint"] },
     "format": { "dependsOn": ["^format"] },
     "typecheck": { "dependsOn": ["^typecheck"] },
-    "dev": { "cache": false, "persistent": true }
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "env": [
+        "DATABASE_URL",
+        "APP_URL",
+        "BETTER_AUTH_SECRET",
+        "ALLOW_SIGNUP",
+        "API_INTERNAL_URL"
+      ]
+    }
   }
 }
