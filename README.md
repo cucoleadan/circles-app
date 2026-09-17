@@ -10,8 +10,14 @@ Minimal Bun monorepo for the Circles CRM rebuild.
 
 ## Local development
 
-Copy `.env.example` to `.env`, then run `bun install`, `bun --cwd apps/api run dev`, and `bun --cwd apps/web run dev`.
+`bun run dev` opens the SSH tunnel to the private Dokploy PostgreSQL and
+starts the API, worker, and web app. `bun run dev:check` only verifies the
+database connection.
 
 ## Deployment
 
-Dokploy builds `compose.yaml`. Route the public domain to `web:4321` and the same domain with path `/api` to `api:3000`.
+Dokploy builds `compose.yaml` from the git remote. Public ingress is a
+Cloudflare Tunnel: route the hostname's `/api/*` paths to `api:3000` and
+everything else to `web:4321` on the shared Docker network. See
+`docs/operations.md` for the tunnel config, required environment variables,
+database roles, password recovery, and the post-deploy smoke test.

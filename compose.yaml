@@ -3,20 +3,22 @@ name: circles
 x-backend: &backend
   build: .
   image: circles-app
-  environment:
-    DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
-    APP_URL: ${APP_URL:?APP_URL is required}
-    BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
-    ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
   networks:
     - dokploy-network
   restart: unless-stopped
+  environment: &backend-env
+    NODE_ENV: production
 
 services:
   migrate:
     <<: *backend
     command: bun apps/api/dist/migrate.js
     restart: "no"
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+      MIGRATE_DB_PASSWORD: ${MIGRATE_DB_PASSWORD:?MIGRATE_DB_PASSWORD is required}
 
   api:
     <<: *backend
@@ -30,6 +32,14 @@ services:
       interval: 15s
       timeout: 5s
       retries: 5
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      APP_URL: ${APP_URL:?APP_URL is required}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET is required}
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
 
   worker:
     <<: *backend
@@ -37,15 +47,15 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+    environment:
+      <<: *backend-env
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
 
   web:
     build: .
     image: circles-app
     command: bun apps/web/dist/server/entry.mjs
-    environment:
-      HOST: 0.0.0.0
-      PORT: 4321
-      API_INTERNAL_URL: http://api:3000
     expose: ["4321"]
     networks:
       - dokploy-network
@@ -53,6 +63,11 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 4321
+      API_INTERNAL_URL: ${API_INTERNAL_URL:-http://api:3000}
 
 networks:
   dokploy-network:

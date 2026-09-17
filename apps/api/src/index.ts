@@ -7,6 +7,27 @@ import { db } from "./db.js"
 
 const app = new Hono()
 
+const appUrl = process.env.APP_URL ?? "http://localhost:4321"
+const allowedOrigins = new Set([
+  appUrl,
+  "http://localhost:4321",
+  "http://127.0.0.1:4321",
+])
+const writeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
+
+app.use("*", async (c, next) => {
+  if (
+    writeMethods.has(c.req.method) &&
+    !c.req.path.startsWith("/api/auth")
+  ) {
+    const origin = c.req.header("origin")
+    if (origin && !allowedOrigins.has(origin))
+      return c.json({ error: "Forbidden origin" }, 403)
+  }
+  await next()
+  c.res.headers.set("Cache-Control", "no-store")
+})
+
 app.get("/api/health", (c) => c.json({ status: "ok" }))
 app.get("/api/ready", async (c) => {
   await db.query("select 1")

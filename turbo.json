@@ -15,6 +15,9 @@
       "persistent": true,
       "env": [
         "DATABASE_URL",
+        "APP_DB_PASSWORD",
+        "MIGRATE_DB_PASSWORD",
+        "DATABASE_POOL_SIZE",
         "APP_URL",
         "BETTER_AUTH_SECRET",
         "ALLOW_SIGNUP",

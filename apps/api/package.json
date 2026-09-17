@@ -6,6 +6,7 @@
     "build": "tsc",
     "start": "bun dist/index.js",
     "migrate": "bun dist/migrate.js",
+    "reset-password": "bun dist/reset-password.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

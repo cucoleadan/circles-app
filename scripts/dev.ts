@@ -2,11 +2,12 @@ import { connect } from "node:net"
 
 const sshHost = process.env.CIRCLES_SSH_HOST ?? "home"
 const localDatabasePort = Number(process.env.CIRCLES_DB_PORT ?? 5433)
-const databaseService = "circles-postgres-wgemxn"
+const remoteDatabasePort = 15432
+const databaseProxy = "circles-dev-db-proxy"
 const databaseEnvFile = "/home/dan/.config/dokploy/circles-db.env"
 
 let tunnel: Bun.Subprocess | undefined
-let apps: Bun.Subprocess | undefined
+let apps: Bun.Subprocess[] = []
 let stopping = false
 
 async function remote(command: string) {
@@ -49,16 +50,41 @@ async function waitForTunnel() {
   throw new Error("The database tunnel did not become ready.")
 }
 
+async function verifyDatabase(databaseUrl: string) {
+  const { Client } = await import("pg")
+  const client = new Client({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 5_000,
+  })
+  try {
+    await client.connect()
+    await client.query("select 1")
+  } finally {
+    await client.end()
+  }
+}
+
+function killTree(child: Bun.Subprocess | undefined) {
+  if (!child || child.exitCode !== null) return
+  if (process.platform === "win32") {
+    Bun.spawn(["taskkill", "/PID", String(child.pid), "/T", "/F"], {
+      stdout: "ignore",
+      stderr: "ignore",
+      windowsHide: true,
+    })
+  } else {
+    child.kill("SIGTERM")
+  }
+}
+
 function stop(exitCode: number) {
   if (stopping) return
   stopping = true
-  apps?.kill("SIGTERM")
-  tunnel?.kill("SIGTERM")
+  for (const app of apps) killTree(app)
+  killTree(tunnel)
   setTimeout(() => {
-    apps?.kill("SIGKILL")
-    tunnel?.kill("SIGKILL")
     process.exit(exitCode)
-  }, 1_000)
+  }, 300)
 }
 
 process.on("SIGINT", () => stop(130))
@@ -72,22 +98,7 @@ try {
   }
 
   console.log("Connecting to the private Circles database…")
-
-  const containerId = (
-    await remote(
-      `docker ps --filter name=${databaseService} --format '{{.ID}}'`
-    )
-  )
-    .split(/\r?\n/)
-    .find(Boolean)
-  if (!containerId || !/^[a-f0-9]+$/i.test(containerId))
-    throw new Error("The Circles PostgreSQL container is not running.")
-
-  const databaseIp = await remote(
-    `docker inspect ${containerId} --format '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}'`
-  )
-  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(databaseIp))
-    throw new Error("Could not resolve the private PostgreSQL address.")
+  await remote(`docker start ${databaseProxy}`)
 
   const remoteDatabaseUrl = (
     await remote(`sed -n 's/^DATABASE_URL=//p' ${databaseEnvFile}`)
@@ -103,34 +114,55 @@ try {
       "ExitOnForwardFailure=yes",
       "-N",
       "-L",
-      `${localDatabasePort}:${databaseIp}:5432`,
+      `${localDatabasePort}:127.0.0.1:${remoteDatabasePort}`,
       sshHost,
     ],
     { stdin: "ignore", stdout: "inherit", stderr: "inherit", windowsHide: true }
   )
   await waitForTunnel()
+  await verifyDatabase(databaseUrl.toString())
   console.log(`Database tunnel ready on localhost:${localDatabasePort}.`)
 
   if (process.argv.includes("--check")) {
     console.log("Development connection check passed.")
     stop(0)
   } else {
-    apps = Bun.spawn([process.execPath, "x", "turbo", "dev", "--ui=stream"], {
-      cwd: import.meta.dir + "/..",
-      env: {
-        ...process.env,
-        DATABASE_URL: databaseUrl.toString(),
-        APP_URL: "http://localhost:4321",
-        API_INTERNAL_URL: "http://localhost:3000",
-        BETTER_AUTH_SECRET: crypto.randomUUID() + crypto.randomUUID(),
-        ALLOW_SIGNUP: "false",
-      },
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-      windowsHide: false,
-    })
-    stop(await apps.exited)
+    const root = import.meta.dir + "/.."
+    const env = {
+      ...process.env,
+      DATABASE_URL: databaseUrl.toString(),
+      APP_URL: "http://localhost:4321",
+      API_INTERNAL_URL: "http://localhost:3000",
+      BETTER_AUTH_SECRET: crypto.randomUUID() + crypto.randomUUID(),
+      ALLOW_SIGNUP: "false",
+      ASTRO_DEV_BACKGROUND: "0",
+    }
+    const spawn = (command: string[], cwd: string) =>
+      Bun.spawn(command, {
+        cwd,
+        env,
+        stdin: "ignore",
+        stdout: "inherit",
+        stderr: "inherit",
+        windowsHide: false,
+      })
+
+    console.log("Starting API, worker, and web app…")
+    apps = [
+      spawn(
+        [process.execPath, "x", "tsx", "watch", "src/index.ts"],
+        `${root}/apps/api`
+      ),
+      spawn(
+        [process.execPath, "x", "tsx", "watch", "src/index.ts"],
+        `${root}/apps/worker`
+      ),
+      spawn(
+        [process.execPath, "x", "astro", "dev", "--ignore-lock"],
+        `${root}/apps/web`
+      ),
+    ]
+    stop(await Promise.race(apps.map((app) => app.exited)))
   }
 } catch (error) {
   console.error(

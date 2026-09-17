@@ -11,6 +11,10 @@ export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
   database: db,
   trustedOrigins: [publicUrl],
+  session: {
+    expiresIn: 60 * 60 * 24 * 30,
+    updateAge: 60 * 60 * 24,
+  },
   emailAndPassword: {
     enabled: true,
     disableSignUp: process.env.ALLOW_SIGNUP !== "true",
