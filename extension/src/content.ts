@@ -1,3 +1,4 @@
+import { parseCompanionResponse } from "./lib/companion-response";
 import type { BridgeRequest, BridgeResponse } from "./lib/types";
 
 const ORIGIN = window.location.origin;
@@ -30,8 +31,7 @@ async function getAppState(): Promise<BridgeResponse> {
     if (!response.ok) {
       return { ok: false, message: `Circles returned ${response.status}.` };
     }
-    const appState = (await response.json()) as BridgeResponse["appState"];
-    return { ok: true, appState };
+    return parseCompanionResponse(await response.json());
   } catch (error) {
     console.warn("[Circles Companion Bridge] Error connecting to Circles:", error);
     return { ok: false, message: "Could not reach Circles." };
