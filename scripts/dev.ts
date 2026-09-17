@@ -133,7 +133,9 @@ try {
       DATABASE_URL: databaseUrl.toString(),
       APP_URL: "http://localhost:4321",
       API_INTERNAL_URL: "http://localhost:3000",
-      BETTER_AUTH_SECRET: crypto.randomUUID() + crypto.randomUUID(),
+      BETTER_AUTH_SECRET:
+        process.env.BETTER_AUTH_SECRET ??
+        crypto.randomUUID() + crypto.randomUUID(),
       ALLOW_SIGNUP: "false",
       ASTRO_DEV_BACKGROUND: "0",
     }

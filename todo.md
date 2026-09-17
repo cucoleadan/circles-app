@@ -62,9 +62,11 @@ Notable deviations from the plan's suggested layout (accepted for now):
 - [x] Hardening: `Cache-Control: no-store` on `/api` responses; origin check on
       cookie-authenticated writes (403 verified); Better Auth handles `/api/auth` origins
 - [x] Docs updated for Cloudflare Tunnel ingress (no Traefik)
-- [ ] Deploy via Dokploy git remote and run the smoke test in `docs/operations.md`
-      (sign-in through tunnel, SSR→API cookie, `/api/ready`, 403 cross-origin,
-      DB private-only, restart persistence) — closes the Phase 1 gate
+- [x] Deployed via Dokploy (git remote, compose env managed through the Dokploy API)
+      and smoke-tested live through the Cloudflare Tunnel: `/api/ready` + `/api/health`
+      OK with `no-store`, cross-origin write 403, sign-in through the tunnel sets a
+      Better Auth session and the authed SSR page renders, no DB ports published
+      (only the 127.0.0.1-bound dev proxy) — Phase 1 gate closed 2026-09-17
 - [ ] Backup role/policy deferred to Phase 6 (Dokploy scheduled backups are interim)
 
 ## Phase 2 — Database and CRM (current phase — in progress)
