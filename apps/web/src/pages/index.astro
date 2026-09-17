@@ -8,7 +8,10 @@ const response = await fetch(`${apiUrl}/api/contacts`, {
 })
 
 if (response.status === 401) return Astro.redirect("/login")
-if (!response.ok) throw new Error("The API is unavailable")
+if (!response.ok) {
+  const errorText = await response.text().catch(() => "")
+  throw new Error(`The API returned ${response.status}: ${errorText || "Unavailable"}`)
+}
 
 const { contacts } = (await response.json()) as { contacts: Contact[] }
 ---
