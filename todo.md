@@ -5,7 +5,7 @@ Update this file as work completes. Last updated: 2026-09-17.
 
 ## Where we are
 
-**Phases 0–5 are complete. The next priority is Phase 5.5: complete inbound and outbound Substack interaction history, including ongoing sync and resumable backfill. Infrastructure cutover validation follows after that product work.**
+**Phases 0–5 are complete. Phase 5.5 is implemented with documented upstream coverage limits; the remaining Phase 5.5 work is live reconciliation and richer per-action analytics. The next infrastructure priority is the Phase 6 backup/rollback rehearsal.**
 
 What exists:
 
@@ -14,8 +14,9 @@ What exists:
   `packages/ui`, `@workspace/core` (Substack client adapter + ingestion engine),
   `extension` (Chrome MV3 passive capture & companion bridge).
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
-  `001_auth.sql` through `005_engagement_score.sql` (full schema with tenant RLS,
-  composite foreign keys, and 1/2/3/3 engagement score calculation).
+  `001_auth.sql` through `006_complete_interaction_history.sql` (full schema with
+  tenant RLS, composite foreign keys, per-stream sync/import state, owned-content
+  evidence, and separate inbound/outbound engagement calculation).
 - D1 Live Data Imported & Reconciled: 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined rows.
 - Phase 4 Circles UI:
   - Responsive workspace: search, engagement sort, active metric cards ribbon, sync triggers.
@@ -27,7 +28,8 @@ What exists:
   - Accessible card triggers and explicit "Details" button with keyboard navigation (`Enter`/`Space`).
   - Base theme: global `cursor: pointer` on all buttons, links, roles, tabs, and interactive elements.
   - URL-addressable navigation (`?view=`, `?sort=`, `?person=`).
-- Automated test coverage: 27/27 tests passing (`bun run test`).
+- Targeted automated coverage: 34/34 tests passing (19 API/database, 12
+  ingestion/worker, 3 extension outbound-capture tests).
 - Typecheck: 0 errors across 6 packages (`bun run typecheck`).
 
 ---
@@ -155,35 +157,57 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Update origin allowlists (`circles.mhntwrkdan.dev`, `localhost:4321`), manifest v3, and packaging
 - [x] Gate: add-to-list, capture, reconnect, offline replay verified end-to-end; full Turbo typecheck (0 errors across 6 packages) and API tests passing (17/17)
 
-## Phase 5.5 — Complete interaction history (next)
+## Phase 5.5 — Complete interaction history (implemented; live gate pending)
 
-- [ ] Build a source/coverage matrix for each interaction type: inbound and outbound
+- [x] Build a source/coverage matrix for each interaction type: inbound and outbound
       likes, restacks, restacks with notes, comments, replies, mentions, owned posts,
       and owned notes. Report unsupported historical coverage honestly rather than
       presenting a partial archive as complete.
-- [ ] Fix counterparty attribution so every confirmed outbound action is attached
+- [x] Fix counterparty attribution so every confirmed outbound action is attached
       to the person whose post, note, comment, or reply the account acted on; owner
       actions must not be stored with a null person when the target author is known.
-- [ ] Capture future outbound actions from successful Substack requests in the
+- [x] Capture future outbound actions from successful Substack requests in the
       extension, including undo/remove actions, with durable local queueing,
       deterministic IDs, account-generation checks, and replay-safe ingestion.
-- [ ] Expand the scheduled/manual sync beyond notification activity to include the
+- [x] Expand the scheduled/manual sync beyond notification activity to include the
       authenticated account's posts, notes, restacks, comments, replies, and any
       upstream outbound-history streams proven to be available. Keep an independent
       cursor/checkpoint and completeness state per stream.
-- [ ] Add a resumable full-history backfill with start, pause, resume, progress,
+- [x] Add a resumable full-history backfill with start, pause, resume, progress,
       per-stream checkpoints, bounded retries, rate limiting, and explicit finish
       reasons. Seed owned posts/notes and traverse their conversation history without
       relabeling unrelated third-party discussion as a direct interaction.
-- [ ] Preserve raw evidence needed for reprocessing while normalizing confirmed
+- [x] Preserve raw evidence needed for reprocessing while normalizing confirmed
       interactions into the existing `interactions` table with direction, action,
       target, thread, counterparty, source, account generation, and event time.
 - [ ] Expose outbound history in the CRM: who the account interacted with, action-type
       counts, first/last outbound interaction, conversation context, and filters that
       distinguish engagement received from engagement given.
+      Received/given totals, timestamps, timeline context, and inbound/outbound filters
+      are complete; a grouped per-action count breakdown is still pending.
 - [ ] Gate: incremental sync and backfill deduplicate; interrupted backfills resume;
       unlike/unrestack state is handled; outbound actions never inflate inbound
       engagement scores; representative post and note threads reconcile to source.
+      Automated dedupe, attribution, score separation, migration, queue, and API tests
+      pass. Live post/Note source reconciliation and a real unlike/unrestack smoke test
+      remain before closing the gate.
+
+### Phase 5.5 source coverage matrix
+
+| Interaction/content | Historical backfill | Ongoing coverage | Notes |
+| --- | --- | --- | --- |
+| Owned Notes | Complete via profile Notes pagination | Scheduled sync | Raw Note payload retained |
+| Owned posts | Complete via profile posts | Scheduled sync | Raw post/thread payload retained |
+| Comments/replies on owned content | Complete where Substack returns the thread | Scheduled sync | Owner replies attach to the replied-to person; unrelated third-party branches are excluded |
+| Inbound likes, mentions, restacks, and quote-restacks | Activity-history dependent | Latest activity sync | Identity is complete only for events retained and returned by Substack |
+| Outbound replies/comments on owned content | Recovered from owned thread trees | Thread sync plus extension capture | Counterparty is the parent/root author |
+| Outbound replies/comments elsewhere | Partial when represented in retained activity/conversations | Extension capture | Substack exposes no proven global authored-comment archive |
+| Outbound likes/unlikes | Unavailable globally | Extension capture from v0.2.5 onward | Stable IDs make unlike remove the active interaction |
+| Outbound restacks/unrestacks, including restacks with text | Unavailable globally | Extension capture from v0.2.5 onward | Stable IDs make unrestack remove the active interaction |
+| Individual historical restacker identities on owned content | Activity-history dependent | Activity sync | Note/post aggregate counters do not identify every historical person |
+
+The History panel labels the unavailable outbound-history stream explicitly instead
+of presenting the resulting archive as complete.
 
 ## Phase 6 — Cutover rehearsal
 
