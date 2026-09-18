@@ -24,8 +24,10 @@ What exists:
 - D1 Live Data Imported & Reconciled: 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined rows.
 - Phase 4 Circles UI:
   - Responsive workspace: search, engagement sort, active metric cards ribbon, sync triggers.
-  - Views: All, Conversations, Inbound, Outbound, Opportunities, No History.
-  - Sidebar: view navigation, list management (create, member counts), tag filters.
+  - Views & Queues: All, Needs Your Reply, Ball in Their Court (with 7-day cutoff), Priority to Engage, Mutual Circle, Conversations, Inbound, Outbound, Opportunities, No History.
+  - Priority to Engage queue with user-customizable adaptive thresholds (unreciprocated supporters, recent restackers, drifting advocates).
+  - User Settings (`app_users.settings` JSONB column via Migration `012_user_settings.sql`) and slide-over Settings UI for customizing queue criteria and scoring parameters.
+  - Sidebar: view navigation with informative interactive hover tooltips for directories, list management (create, member counts), tag filters, Queue Settings launcher, and Badge & Scoring Guide drawer.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
   - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), Substack external links, cursor pagination.
   - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.

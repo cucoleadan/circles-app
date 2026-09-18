@@ -87,6 +87,7 @@ export type PeopleView =
   | "needs-reply"
   | "awaiting-response"
   | "mutual"
+  | "priority"
   | "conversations"
   | "inbound"
   | "outbound"
@@ -100,6 +101,20 @@ export type PeopleSort =
   | "name"
   | "inbound"
   | "outbound"
+  | "priority"
 
 export type DateRangePreset = "all" | "7d" | "14d" | "30d" | "90d"
+
+export interface PriorityQueueSettings {
+  minInbound: number
+  maxOutbound: number
+  minRestacks: number
+  driftingMinDays: number
+  driftingMaxDays: number
+  vipScoreThreshold: number
+}
+
+export interface UserSettings {
+  priorityQueue: PriorityQueueSettings
+}
 

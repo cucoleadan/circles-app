@@ -38,6 +38,36 @@ export interface ReciprocityInfo {
   icon: string
 }
 
+export function getPriorityReason(person: Person): { label: string; icon: string } | null {
+  const inbound = person.inboundInteractionCount ?? 0
+  const outbound = person.outboundInteractionCount ?? 0
+  const restacks = person.restackCount ?? 0
+  const score = person.engagementScore ?? 0
+
+  if (
+    restacks > 0 &&
+    (!person.lastOutboundAt || (person.lastInboundAt && person.lastOutboundAt < person.lastInboundAt))
+  ) {
+    return {
+      label: `Restacked ${restacks > 1 ? `${restacks} notes` : "your note"} (no touch back)`,
+      icon: "🔁",
+    }
+  }
+  if (inbound >= 2 && outbound <= 1) {
+    return {
+      label: `Unreciprocated supporter (${inbound} received · ${outbound} given)`,
+      icon: "❤️",
+    }
+  }
+  if (score >= 12 && (person.driftStatus === "drifting" || person.driftStatus === "cold")) {
+    return {
+      label: `Top supporter drifting (${score} pts · inactive)`,
+      icon: "✨",
+    }
+  }
+  return null
+}
+
 export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
   const inbound = person.inboundInteractionCount ?? 0
   const outbound = person.outboundInteractionCount ?? 0
@@ -150,13 +180,16 @@ export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
 export function ContactCard({
   person,
   onSelect,
+  currentView,
 }: {
   person: Person
   onSelect: (id: string) => void
+  currentView?: string
 }) {
   const hasEngagement = (person.engagementScore ?? 0) > 0
   const isHighAdvocate = (person.engagementScore ?? 0) >= 30
   const reciprocity = getReciprocityBadge(person)
+  const priorityReason = getPriorityReason(person)
 
   return (
     <div
@@ -238,6 +271,16 @@ export function ContactCard({
               <span className="opacity-60 text-[9.5px] font-normal">
                 • {reciprocity.sublabel}
               </span>
+            </span>
+          </div>
+        )}
+
+        {/* Priority Reason Highlight */}
+        {priorityReason && currentView === "priority" && (
+          <div className="mt-2 flex items-center">
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-orange-50 border border-orange-200 dark:bg-orange-950/40 dark:border-orange-900/50 px-2 py-0.5 text-[10.5px] font-medium text-[#c43e22] dark:text-orange-300">
+              <span>{priorityReason.icon}</span>
+              <span>{priorityReason.label}</span>
             </span>
           </div>
         )}

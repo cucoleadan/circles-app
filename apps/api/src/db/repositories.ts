@@ -115,6 +115,63 @@ export async function getOrCreateAppUser(authUserId: string): Promise<string> {
   })
 }
 
+// ---------------------------------------------------------------- user settings
+
+export interface PriorityQueueSettings {
+  minInbound: number
+  maxOutbound: number
+  minRestacks: number
+  driftingMinDays: number
+  driftingMaxDays: number
+  vipScoreThreshold: number
+}
+
+export interface UserSettings {
+  priorityQueue: PriorityQueueSettings
+}
+
+export const defaultUserSettings: UserSettings = {
+  priorityQueue: {
+    minInbound: 2,
+    maxOutbound: 1,
+    minRestacks: 1,
+    driftingMinDays: 21,
+    driftingMaxDays: 90,
+    vipScoreThreshold: 12,
+  },
+}
+
+export async function getUserSettings(client: PoolLike): Promise<UserSettings> {
+  const res = await client.query(
+    `select settings from app_users where id = current_setting('app.user_id', true)`
+  )
+  const stored = res.rows[0]?.settings ?? {}
+  return {
+    priorityQueue: {
+      ...defaultUserSettings.priorityQueue,
+      ...(stored.priorityQueue ?? {}),
+    },
+  }
+}
+
+export async function updateUserSettings(
+  client: PoolLike,
+  patch: Partial<UserSettings>
+): Promise<UserSettings> {
+  const current = await getUserSettings(client)
+  const updated: UserSettings = {
+    priorityQueue: {
+      ...current.priorityQueue,
+      ...(patch.priorityQueue ?? {}),
+    },
+  }
+  await client.query(
+    `update app_users set settings = $1, updated_at = now() where id = current_setting('app.user_id', true)`,
+    [JSON.stringify(updated)]
+  )
+  return updated
+}
+
 // ------------------------------------------------------------------- people
 
 export type PeopleView =
@@ -122,6 +179,7 @@ export type PeopleView =
   | "needs-reply"
   | "awaiting-response"
   | "mutual"
+  | "priority"
   | "conversations"
   | "inbound"
   | "outbound"
@@ -135,6 +193,7 @@ export type PeopleSort =
   | "name"
   | "inbound"
   | "outbound"
+  | "priority"
 
 export async function listPeople(
   client: PoolLike,
@@ -191,6 +250,27 @@ export async function listPeople(
     conditions.push(
       "(coalesce(s.inbound_interaction_count, 0) > 0 and coalesce(s.outbound_interaction_count, 0) > 0)"
     )
+  } else if (options.view === "priority") {
+    const settings = await getUserSettings(client)
+    const q = settings.priorityQueue
+    params.push(q.minInbound)
+    const pMinInbound = params.length
+    params.push(q.maxOutbound)
+    const pMaxOutbound = params.length
+    params.push(q.minRestacks)
+    const pMinRestacks = params.length
+    params.push(q.driftingMinDays)
+    const pDriftMin = params.length
+    params.push(q.driftingMaxDays)
+    const pDriftMax = params.length
+    params.push(q.vipScoreThreshold)
+    const pVipScore = params.length
+
+    conditions.push(
+      `((coalesce(s.inbound_interaction_count, 0) >= $${pMinInbound} and coalesce(s.outbound_interaction_count, 0) <= $${pMaxOutbound})
+        or (coalesce(act_counts."restackCount", 0) >= $${pMinRestacks} and (s.last_outbound_at is null or s.last_outbound_at < s.last_inbound_at))
+        or (coalesce(s.engagement_score, 0) >= $${pVipScore} and s.last_interaction_at < now() - ($${pDriftMin} || ' days')::interval and s.last_interaction_at >= now() - ($${pDriftMax} || ' days')::interval))`
+    )
   } else if (options.view === "inbound") {
     conditions.push("s.last_inbound_at is not null")
   } else if (options.view === "outbound") {
@@ -207,6 +287,7 @@ export async function listPeople(
     options.view === "conversations" ? "s.last_conversation_at" :
     options.view === "needs-reply" ? "act_counts.\"lastInboundCommentAt\"" :
     options.view === "awaiting-response" ? "act_counts.\"lastOutboundCommentAt\"" :
+    options.view === "priority" ? "s.last_inbound_at" :
     options.view === "inbound" ? "s.last_inbound_at" :
     options.view === "outbound" ? "s.last_outbound_at" :
     "s.last_interaction_at"
@@ -224,6 +305,7 @@ export async function listPeople(
     options.view === "conversations" ? "recent_conversation" :
     options.view === "needs-reply" ? "needs_reply" :
     options.view === "awaiting-response" ? "awaiting_response" :
+    options.view === "priority" ? "priority" :
     options.view === "inbound" ? "inbound" :
     options.view === "outbound" ? "outbound" :
     options.view === "opportunities" ? "engagement" :
@@ -237,6 +319,8 @@ export async function listPeople(
     orderBy = "act_counts.\"lastInboundCommentAt\" desc nulls last, lower(p.name)"
   } else if (sort === "awaiting_response" || options.view === "awaiting-response") {
     orderBy = "act_counts.\"lastOutboundCommentAt\" desc nulls last, lower(p.name)"
+  } else if (sort === "priority" || options.view === "priority") {
+    orderBy = "(coalesce(s.inbound_interaction_count, 0) - coalesce(s.outbound_interaction_count, 0)) desc, coalesce(s.engagement_score, 0) desc, s.last_inbound_at desc nulls last, lower(p.name)"
   } else if (sort === "recent_interaction") {
     orderBy = "s.last_interaction_at desc nulls last, lower(p.name)"
   } else if (sort === "inbound") {

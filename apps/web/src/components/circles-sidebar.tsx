@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Send,
+  Settings,
   Sparkles,
   Users,
 } from "lucide-react"
@@ -25,6 +26,12 @@ import {
 import type { CirclesOverview, ListRecord, PeopleView, TagRecord } from "../lib/types"
 
 const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
+  {
+    id: "priority",
+    label: "Priority to Engage",
+    icon: Sparkles,
+    desc: "Priority to Engage: Top unreciprocated supporters, recent restackers, and drifting advocates based on your rules.",
+  },
   {
     id: "needs-reply",
     label: "Needs Your Reply",
@@ -96,6 +103,7 @@ export function CirclesSidebar({
   overview,
   onCreateList,
   onOpenBadgeGuide,
+  onOpenSettings,
 }: {
   currentView: PeopleView
   onViewChange: (view: PeopleView) => void
@@ -108,6 +116,7 @@ export function CirclesSidebar({
   overview: CirclesOverview | null
   onCreateList: (name: string) => Promise<void>
   onOpenBadgeGuide?: () => void
+  onOpenSettings?: () => void
 }) {
   const [isCreatingList, setIsCreatingList] = useState(false)
   const [newListName, setNewListName] = useState("")
@@ -386,9 +395,26 @@ export function CirclesSidebar({
         </div>
       )}
 
-      {/* Guide & Documentation */}
-      {onOpenBadgeGuide && (
-        <div className="pt-2 border-t border-stone-200/80 dark:border-stone-800">
+      {/* Footer Utilities: Guide & Settings */}
+      <div className="pt-2 border-t border-stone-200/80 dark:border-stone-800 space-y-0.5">
+        {onOpenSettings && (
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            title="Configure Queue Criteria & Adaptive Thresholds"
+            className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-stone-800 transition-colors group cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <Settings className="size-4 text-stone-400 group-hover:text-[#f15a3a] shrink-0 transition-colors" />
+              <span>Queue Settings</span>
+            </div>
+            <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md">
+              Rules
+            </span>
+          </button>
+        )}
+
+        {onOpenBadgeGuide && (
           <button
             type="button"
             onClick={onOpenBadgeGuide}
@@ -403,8 +429,8 @@ export function CirclesSidebar({
               Docs
             </span>
           </button>
-        </div>
-      )}
+        )}
+      </div>
     </aside>
   )
 }

@@ -7,6 +7,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Settings,
   SlidersHorizontal,
   Users,
 } from "lucide-react"
@@ -36,6 +37,7 @@ import { CirclesSidebar } from "./circles-sidebar"
 import { ContactCard } from "./contact-card"
 import { ContactDrawer } from "./contact-drawer"
 import { HistoryBackfill } from "./history-backfill"
+import { SettingsDialog } from "./settings-dialog"
 
 // Backwards compatibility type for initial Astro SSR imports
 export type Contact = Person
@@ -88,8 +90,14 @@ export function CirclesWorkspace({
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null)
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isBadgeGuideOpen, setIsBadgeGuideOpen] = useState(false)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
   const [isSyncing, setIsSyncing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+
+  function refetchPeople() {
+    setRefreshKey((k) => k + 1)
+  }
 
   // Read URL query params on initial mount
   useEffect(() => {
@@ -192,7 +200,7 @@ export function CirclesWorkspace({
         setVisibleLimit(48)
       })
       .catch((err) => console.error("Error fetching people:", err))
-  }, [currentView, currentSort, selectedListId, selectedTagId, search, dateRange])
+  }, [currentView, currentSort, selectedListId, selectedTagId, search, dateRange, refreshKey])
 
   // Sync Substack activity
   async function triggerSync() {
@@ -287,6 +295,8 @@ export function CirclesWorkspace({
       return `Tag: ${tag?.name ?? "Custom Tag"}`
     }
     switch (currentView) {
+      case "priority":
+        return "Priority to Engage"
       case "needs-reply":
         return "Needs Your Reply"
       case "awaiting-response":
@@ -420,6 +430,7 @@ export function CirclesWorkspace({
             overview={overview}
             onCreateList={handleCreateList}
             onOpenBadgeGuide={() => setIsBadgeGuideOpen(true)}
+            onOpenSettings={() => setIsSettingsOpen(true)}
           />
 
           {/* Cards Section */}
@@ -427,9 +438,23 @@ export function CirclesWorkspace({
             {/* View Header & Sort Controls */}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-stone-200/80 dark:border-stone-800">
               <div>
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-100">
-                  {viewHeading}
-                </h2>
+                <div className="flex items-center gap-2.5">
+                  <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-100">
+                    {viewHeading}
+                  </h2>
+                  {currentView === "priority" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsSettingsOpen(true)}
+                      className="h-7 rounded-full text-xs font-medium border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-2xs hover:border-[#f15a3a]/50 text-stone-700 dark:text-stone-300"
+                      title="Adjust queue thresholds and rules"
+                    >
+                      <Settings className="size-3 mr-1 text-[#f15a3a]" />
+                      Queue Settings
+                    </Button>
+                  )}
+                </div>
                 <p className="text-xs text-stone-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
                   <span>
                     Showing {people.length} {people.length === 1 ? "person" : "people"}
@@ -545,6 +570,7 @@ export function CirclesWorkspace({
                     key={person.id}
                     person={person}
                     onSelect={handleSelectPerson}
+                    currentView={currentView}
                   />
                 ))}
               </div>
@@ -589,6 +615,13 @@ export function CirclesWorkspace({
       <BadgeGuideDrawer
         open={isBadgeGuideOpen}
         onOpenChange={setIsBadgeGuideOpen}
+      />
+
+      {/* Queue Criteria & Adaptive Thresholds Settings Dialog */}
+      <SettingsDialog
+        open={isSettingsOpen}
+        onOpenChange={setIsSettingsOpen}
+        onSaved={refetchPeople}
       />
     </main>
   )

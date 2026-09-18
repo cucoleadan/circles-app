@@ -16,6 +16,7 @@ import {
   detachTag,
   getOrCreateAppUser,
   getPerson,
+  getUserSettings,
   listLists,
   listPeople,
   listTags,
@@ -23,6 +24,7 @@ import {
   removeListMember,
   updateList,
   updatePerson,
+  updateUserSettings,
   updateTag,
 } from "../db/repositories.js"
 import { withTenant } from "../db/tenant.js"
@@ -55,6 +57,21 @@ const personInput = z.object({
 })
 
 v1.get("/me", (c) => c.json({ appUser: c.get("appUser") }))
+
+v1.get("/settings", async (c) => {
+  const settings = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+    getUserSettings(client)
+  )
+  return c.json({ settings })
+})
+
+v1.patch("/settings", async (c) => {
+  const body = await c.req.json().catch(() => ({}))
+  const settings = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+    updateUserSettings(client, body)
+  )
+  return c.json({ settings })
+})
 
 v1.get("/people", async (c) => {
   const people = await withTenant({ appUserId: c.get("appUser") }, (client) =>
