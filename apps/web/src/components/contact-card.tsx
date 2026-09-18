@@ -65,11 +65,20 @@ export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
   }
 
   if (lastOutboundComment > 0 && lastOutboundComment > lastInboundComment) {
+    const isWithinWeek = Date.now() - lastOutboundComment <= 7 * 24 * 60 * 60 * 1000
+    if (isWithinWeek) {
+      return {
+        label: "Ball in their court",
+        sublabel: "You commented last",
+        variant: "sky",
+        icon: "📤",
+      }
+    }
     return {
-      label: "Ball in their court",
-      sublabel: "You commented last",
-      variant: "sky",
-      icon: "📤",
+      label: "No reply (7d+)",
+      sublabel: "Engage on new note",
+      variant: "stone",
+      icon: "💬",
     }
   }
 

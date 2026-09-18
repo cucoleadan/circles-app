@@ -84,14 +84,14 @@ export function BadgeGuideDrawer({
                     <span>Ball in their court</span>
                   </span>
                   <span className="text-[11px] font-medium text-sky-700 dark:text-sky-400">
-                    You Commented Last
+                    Within 7 Days
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-sky-900/90 dark:text-sky-200/90 leading-relaxed">
-                  You reached out, commented, or replied to them most recently. The ball is in their court.
+                  You commented or replied to them within the last 7 days. The ball is in their hands.
                 </p>
                 <div className="mt-2 text-[11px] font-medium text-sky-800 dark:text-sky-300 bg-sky-100/60 dark:bg-sky-900/30 rounded-lg px-2.5 py-1">
-                  💡 <strong>Action:</strong> Avoid double-messaging too soon; give them space to reply.
+                  💡 <strong>Action:</strong> Give them space to respond. After 7 days without a reply, the queue moves on so you can engage naturally on their latest note instead of double-commenting.
                 </div>
               </div>
 

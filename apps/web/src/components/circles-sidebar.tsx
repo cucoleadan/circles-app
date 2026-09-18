@@ -17,6 +17,11 @@ import {
 
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 import type { CirclesOverview, ListRecord, PeopleView, TagRecord } from "../lib/types"
 
 const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
@@ -30,7 +35,7 @@ const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] 
     id: "awaiting-response",
     label: "Ball in Their Court",
     icon: Send,
-    desc: "Ball in Their Court: Contacts where you reached out or replied last; awaiting their response.",
+    desc: "Ball in Their Court: Contacts where you commented or replied within the last 7 days; waiting on them.",
   },
   {
     id: "mutual",
@@ -133,21 +138,30 @@ export function CirclesSidebar({
             const Icon = v.icon
             const isActive = currentView === v.id && !selectedListId && !selectedTagId
             return (
-              <button
+              <div
                 key={v.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   onListChange(null)
                   onTagChange(null)
                   onViewChange(v.id)
                 }}
-                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    onListChange(null)
+                    onTagChange(null)
+                    onViewChange(v.id)
+                  }
+                }}
+                className={`group w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
                   isActive
                     ? "bg-[#191817] text-white font-semibold shadow-xs"
                     : "text-stone-700 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
                 }`}
               >
-                <div className="flex items-center gap-2.5 truncate">
+                <div className="flex items-center gap-2.5 truncate min-w-0">
                   <Icon
                     className={`size-4 shrink-0 ${
                       isActive ? "text-[#f15a3a]" : "text-stone-400"
@@ -155,7 +169,30 @@ export function CirclesSidebar({
                   />
                   <span className="truncate">{v.label}</span>
                 </div>
-              </button>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={`p-0.5 rounded-full cursor-help transition-all ${
+                          isActive
+                            ? "text-stone-300 hover:text-white"
+                            : "text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 opacity-60 group-hover:opacity-100"
+                        }`}
+                        aria-label={`About ${v.label}`}
+                      >
+                        <HelpCircle className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" align="center" className="max-w-xs p-2.5">
+                      <p className="font-semibold text-xs text-white dark:text-stone-900">{v.label}</p>
+                      <p className="text-[11px] text-stone-300 dark:text-stone-600 mt-1 leading-relaxed">{v.desc}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
             )
           })}
         </div>
@@ -171,21 +208,30 @@ export function CirclesSidebar({
             const Icon = v.icon
             const isActive = currentView === v.id && !selectedListId && !selectedTagId
             return (
-              <button
+              <div
                 key={v.id}
-                type="button"
+                role="button"
+                tabIndex={0}
                 onClick={() => {
                   onListChange(null)
                   onTagChange(null)
                   onViewChange(v.id)
                 }}
-                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault()
+                    onListChange(null)
+                    onTagChange(null)
+                    onViewChange(v.id)
+                  }
+                }}
+                className={`group w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all cursor-pointer select-none ${
                   isActive
                     ? "bg-[#191817] text-white font-semibold shadow-xs"
                     : "text-stone-700 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
                 }`}
               >
-                <div className="flex items-center gap-2.5 truncate">
+                <div className="flex items-center gap-2.5 truncate min-w-0">
                   <Icon
                     className={`size-4 shrink-0 ${
                       isActive ? "text-[#f15a3a]" : "text-stone-400"
@@ -193,16 +239,39 @@ export function CirclesSidebar({
                   />
                   <span className="truncate">{v.label}</span>
                 </div>
-                {v.id === "all" && overview && (
-                  <span
-                    className={`text-[11px] px-1.5 py-0.2 rounded-full ${
-                      isActive ? "bg-white/20 text-white" : "text-stone-400"
-                    }`}
-                  >
-                    {overview.people}
-                  </span>
-                )}
-              </button>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {v.id === "all" && overview && (
+                    <span
+                      className={`text-[11px] px-1.5 py-0.2 rounded-full ${
+                        isActive ? "bg-white/20 text-white" : "text-stone-400"
+                      }`}
+                    >
+                      {overview.people}
+                    </span>
+                  )}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={(e) => e.stopPropagation()}
+                        className={`p-0.5 rounded-full cursor-help transition-all ${
+                          isActive
+                            ? "text-stone-300 hover:text-white"
+                            : "text-stone-400 hover:text-stone-800 dark:hover:text-stone-100 opacity-60 group-hover:opacity-100"
+                        }`}
+                        aria-label={`About ${v.label}`}
+                      >
+                        <HelpCircle className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" align="center" className="max-w-xs p-2.5">
+                      <p className="font-semibold text-xs text-white dark:text-stone-900">{v.label}</p>
+                      <p className="text-[11px] text-stone-300 dark:text-stone-600 mt-1 leading-relaxed">{v.desc}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+              </div>
             )
           })}
         </div>
@@ -251,6 +320,7 @@ export function CirclesSidebar({
               <button
                 key={l.id}
                 type="button"
+                title={`Filter by list: ${l.name} (${l.count} ${l.count === 1 ? "contact" : "contacts"})`}
                 onClick={() => {
                   onTagChange(null)
                   onListChange(isActive ? null : l.id)
@@ -288,6 +358,7 @@ export function CirclesSidebar({
                 <button
                   key={t.id}
                   type="button"
+                  title={`Filter by tag: ${t.name}`}
                   onClick={() => {
                     onListChange(null)
                     onTagChange(isActive ? null : t.id)
@@ -321,6 +392,7 @@ export function CirclesSidebar({
           <button
             type="button"
             onClick={onOpenBadgeGuide}
+            title="Badge & Scoring Guide: Learn how scores, reciprocity badges, and drift statuses are calculated"
             className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-stone-800 transition-colors group cursor-pointer"
           >
             <div className="flex items-center gap-2.5">

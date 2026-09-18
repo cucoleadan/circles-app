@@ -185,7 +185,7 @@ export async function listPeople(
     )
   } else if (options.view === "awaiting-response") {
     conditions.push(
-      "(act_counts.\"lastOutboundCommentAt\" is not null and (act_counts.\"lastInboundCommentAt\" is null or act_counts.\"lastOutboundCommentAt\" > act_counts.\"lastInboundCommentAt\"))"
+      "(act_counts.\"lastOutboundCommentAt\" is not null and act_counts.\"lastOutboundCommentAt\" >= now() - interval '7 days' and (act_counts.\"lastInboundCommentAt\" is null or act_counts.\"lastOutboundCommentAt\" > act_counts.\"lastInboundCommentAt\"))"
     )
   } else if (options.view === "mutual") {
     conditions.push(
