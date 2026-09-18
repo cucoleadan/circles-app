@@ -51,7 +51,14 @@ function bodyText(value: unknown): string | null {
 }
 
 function authorOf(raw: Record<string, any>): Record<string, any> {
-  return record(raw.user) ?? record(raw.author) ?? record(raw.user_profile) ?? {}
+  const nested = record(raw.user) ?? record(raw.author) ?? record(raw.user_profile)
+  if (nested) return nested
+  return {
+    id: raw.user_id ?? raw.author_id ?? null,
+    name: raw.name ?? raw.author_name ?? null,
+    handle: raw.handle ?? raw.username ?? raw.author_handle ?? null,
+    photo_url: raw.photo_url ?? raw.author_photo_url ?? null,
+  }
 }
 
 function normalizeComment(value: unknown): ConversationCommentInput | null {
@@ -62,15 +69,18 @@ function normalizeComment(value: unknown): ConversationCommentInput | null {
   if (!id) return null
   const author = authorOf(raw)
   const childrenRaw = raw.children ?? raw.child_comments ?? raw.replies
+  const ancestorPath = typeof raw.ancestor_path === "string"
+    ? raw.ancestor_path.split(".").map((part: string) => part.trim()).filter(Boolean)
+    : []
   return {
     id,
     body: firstString(raw.body, raw.body_text, raw.text) ?? bodyText(raw.body_json),
     createdAt: raw.created_at ?? raw.createdAt ?? raw.date,
-    authorId: firstString(author.id, raw.user_id, raw.author_id),
+    authorId: firstString(raw.user_id, raw.author_id, author.id),
     authorName: firstString(author.name, raw.author_name),
     authorHandle: firstString(author.handle, author.username, raw.author_handle),
     authorPhotoUrl: firstString(author.photo_url, author.avatar_url, raw.author_photo_url),
-    parentId: firstString(raw.parent_id, raw.parentId, raw.parent_comment_id),
+    parentId: firstString(raw.parent_id, raw.parentId, raw.parent_comment_id, ancestorPath.at(-1)),
     children: Array.isArray(childrenRaw)
       ? childrenRaw.map(normalizeComment).filter((item): item is ConversationCommentInput => Boolean(item))
       : [],
@@ -101,7 +111,7 @@ function buildCommentTree(values: unknown[]): ConversationCommentInput[] {
   return roots
 }
 
-function noteComments(result: any): ConversationCommentInput[] {
+export function noteComments(result: any): ConversationCommentInput[] {
   const values: unknown[] = []
   for (const page of Array.isArray(result?.replyPages) ? result.replyPages : []) {
     for (const branch of Array.isArray(page?.commentBranches) ? page.commentBranches : []) {
@@ -110,6 +120,48 @@ function noteComments(result: any): ConversationCommentInput[] {
     }
   }
   return buildCommentTree(values)
+}
+
+export async function replayOwnedNoteSnapshots(
+  client: PoolClient,
+  context: HistoryContext,
+  afterNoteId?: string | null,
+  limit = 10,
+): Promise<HistoryPageResult> {
+  const snapshots = await client.query(
+    `select n.note_id, n.payload, o.url
+     from note_replies_snapshots n
+     left join owned_content o
+       on o.connection_id = n.connection_id and o.kind = 'note' and o.external_id = n.note_id
+     where n.connection_id = $1 and ($2::text is null or n.note_id > $2)
+     order by n.note_id
+     limit $3`,
+    [context.connectionId, afterNoteId ?? null, limit],
+  )
+  let newInteractions = 0
+  let newPeople = 0
+  for (const row of snapshots.rows) {
+    const stats = await ingestConversationReplies(client, {
+      ...context,
+      conversation: {
+        targetType: "note",
+        targetId: row.note_id,
+        sourceUrl: row.url ?? null,
+        rootAuthor: { id: context.ownerId, handle: context.ownerHandle },
+        comments: noteComments(row.payload),
+      },
+    })
+    newInteractions += stats.newInteractions
+    newPeople += stats.newPeople
+  }
+  const nextCursor = snapshots.rows.at(-1)?.note_id ?? null
+  return {
+    items: snapshots.rows.length,
+    newInteractions,
+    newPeople,
+    nextCursor,
+    complete: snapshots.rows.length < limit,
+  }
 }
 
 function postComments(result: any): ConversationCommentInput[] {

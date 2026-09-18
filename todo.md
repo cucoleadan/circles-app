@@ -14,7 +14,7 @@ What exists:
   `packages/ui`, `@workspace/core` (Substack client adapter + ingestion engine),
   `extension` (Chrome MV3 passive capture & companion bridge).
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
-  `001_auth.sql` through `006_complete_interaction_history.sql` (full schema with
+  `001_auth.sql` through `007_profile_identity.sql` (full schema with
   tenant RLS, composite foreign keys, per-stream sync/import state, owned-content
   evidence, and separate inbound/outbound engagement calculation).
 - D1 Live Data Imported & Reconciled: 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined rows.
@@ -208,6 +208,10 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 
 The History panel labels the unavailable outbound-history stream explicitly instead
 of presenting the resulting archive as complete.
+
+Reply ingestion accepts Substack's handle-less `user_id` identity shape and creates
+or matches contacts by stable profile ID; a public handle is enrichment, not a
+prerequisite for preserving the relationship.
 
 ## Phase 6 — Cutover rehearsal
 

@@ -6,7 +6,7 @@ import {
   normalizeActivityPage,
   type ActivityItemInput,
 } from "@workspace/core"
-import { syncOwnedNotesPage, syncOwnedPosts } from "./history.js"
+import { replayOwnedNoteSnapshots, syncOwnedNotesPage, syncOwnedPosts } from "./history.js"
 
 type HistoryStream = "activity" | "owned_notes" | "owned_posts"
 
@@ -467,6 +467,31 @@ export async function processProfileEnrichment(
   })
 }
 
+export async function processStoredNoteReplay(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  afterNoteId?: string | null,
+) {
+  return withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select profile_id, profile_handle, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const conn = connection.rows[0]
+    if (!conn || conn.status !== "active") return { completed: true, nextCursor: null }
+    const result = await replayOwnedNoteSnapshots(client, {
+      userId,
+      connectionId,
+      ownerId: conn.profile_id,
+      ownerHandle: conn.profile_handle,
+      source: "import",
+    }, afterNoteId)
+    return { completed: result.complete, nextCursor: result.nextCursor }
+  })
+}
+
 export interface JobHandlers {
   onSync?: (client: PoolClient, userId: string, connectionId: string) => Promise<{ skipped: boolean }>
   onImport?: (client: PoolClient, userId: string, importRunId: string, stream?: HistoryStream) => Promise<{ completed: boolean }>
@@ -552,6 +577,20 @@ export async function claimAndRunJob(
           await handlers.onEnrich(client, userId, personId)
         } else {
           await processProfileEnrichment(client, userId, personId)
+        }
+      } else if (job.type === "reprocess:note-snapshots") {
+        const result = await processStoredNoteReplay(
+          client,
+          userId,
+          connectionId,
+          payload.afterNoteId ?? null,
+        )
+        if (!result.completed) {
+          await client.query(
+            `insert into jobs (type, payload, status, run_at)
+             values ('reprocess:note-snapshots', $1, 'pending', now() + interval '2 seconds')`,
+            [JSON.stringify({ ...payload, afterNoteId: result.nextCursor })],
+          )
         }
       } else {
         throw new Error(`Unknown job type: ${job.type}`)

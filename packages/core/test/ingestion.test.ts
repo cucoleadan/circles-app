@@ -70,10 +70,15 @@ describe("In-memory mock ingestion unit tests", () => {
           return { rows: [{ count }] }
         }
 
-        if (lower.includes("select id from people where user_id = $1 and normalized_handle = $2")) {
-          const [userId, normalized] = params
+        if (lower.includes("select id from people") && lower.includes("archived_at is null")) {
+          const [userId, profileId, normalized] = params.length === 3
+            ? params
+            : [params[0], null, params[1]]
           const found = Array.from(people.values()).find(
-            (p) => p.user_id === userId && p.normalized_handle === normalized && !p.archived_at
+            (p) => p.user_id === userId && !p.archived_at && (
+              (profileId && p.substack_profile_id === profileId) ||
+              (normalized && p.normalized_handle === normalized)
+            )
           )
           return { rows: found ? [{ id: found.id }] : [] }
         }
@@ -322,5 +327,24 @@ describe("In-memory mock ingestion unit tests", () => {
     expect(people.size).toBe(1)
     expect(interactions[0].direction).toBe("outbound")
     expect(interactions[0].person_id).toBe(Array.from(people.values())[0].id)
+  })
+
+  test("preserves a reply author identified only by Substack profile ID", async () => {
+    const { client, interactions, people } = createMockClient()
+    const stats = await ingestConversationReplies(client, {
+      userId: "user-1",
+      ownerId: "owner-id",
+      conversation: {
+        targetType: "note",
+        targetId: "note-1",
+        rootAuthor: { id: "owner-id", name: "Owner" },
+        comments: [{ id: "reply-1", authorId: "reader-42", authorName: "Handleless Reader", body: "Hello" }],
+      },
+    })
+
+    expect(stats.newInteractions).toBe(1)
+    expect(people.size).toBe(1)
+    expect(Array.from(people.values())[0].substack_profile_id).toBe("reader-42")
+    expect(interactions[0].direction).toBe("inbound")
   })
 })

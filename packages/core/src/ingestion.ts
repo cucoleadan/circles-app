@@ -255,29 +255,38 @@ export async function ensurePerson(
   author: { name?: string | null; handle?: string | null; id?: string | number | null }
 ): Promise<string | null> {
   const rawHandle = author.handle?.trim()
-  if (!rawHandle) return null
-  const handle = rawHandle.replace(/^@/, "")
-  const normalized = normalizeHandle(handle)
+  const handle = rawHandle ? rawHandle.replace(/^@/, "") : null
+  const normalized = handle ? normalizeHandle(handle) : null
+  const substackProfileId = author.id === undefined || author.id === null
+    ? null
+    : String(author.id)
+  if (!normalized && !substackProfileId) return null
+  const cacheKey = substackProfileId ? `profile:${substackProfileId}` : `handle:${normalized}`
 
-  const cached = personCache.get(normalized)
+  const cached = personCache.get(cacheKey)
   if (cached) return cached
 
-  // Check database
+  // Stable Substack profile IDs take precedence because reply payloads often
+  // omit handles entirely. Handle lookup remains the compatibility fallback.
   const found = await client.query(
-    "select id from people where user_id = $1 and normalized_handle = $2 and archived_at is null limit 1",
-    [userId, normalized]
+    `select id from people
+     where user_id = $1 and archived_at is null
+       and (($2::text is not null and substack_profile_id = $2)
+         or ($3::text is not null and normalized_handle = $3))
+     order by case when substack_profile_id = $2 then 0 else 1 end
+     limit 1`,
+    [userId, substackProfileId, normalized]
   )
   if (found.rows[0]) {
     const id = found.rows[0].id as string
-    personCache.set(normalized, id)
+    personCache.set(cacheKey, id)
     return id
   }
 
   // Create new person
   const newId = randomUUID()
-  const name = author.name?.trim() || handle
-  const substackProfileId = author.id ? String(author.id) : null
-  const profileUrl = `https://substack.com/@${encodeURIComponent(normalized)}`
+  const name = author.name?.trim() || handle || `Substack user ${substackProfileId}`
+  const profileUrl = normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null
 
   await client.query(
     `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, source)
@@ -287,11 +296,15 @@ export async function ensurePerson(
   )
 
   const check = await client.query(
-    "select id from people where user_id = $1 and normalized_handle = $2 and archived_at is null limit 1",
-    [userId, normalized]
+    `select id from people
+     where user_id = $1 and archived_at is null
+       and (($2::text is not null and substack_profile_id = $2)
+         or ($3::text is not null and normalized_handle = $3))
+     limit 1`,
+    [userId, substackProfileId, normalized]
   )
   const finalId = (check.rows[0]?.id as string) ?? newId
-  personCache.set(normalized, finalId)
+  personCache.set(cacheKey, finalId)
   return finalId
 }
 
@@ -633,6 +646,24 @@ export async function ingestConversationReplies(
       )
 
       if (inserted.rows[0]) newInteractions++
+      else {
+        await client.query(
+          `update interactions
+           set person_id = $4, source = $5, direction = $6, action_type = $7,
+               target_type = $8, target_id = $9, target_url = $10,
+               thread_kind = $11, thread_root_id = $12, body = $13,
+               occurred_at = $14, metadata = $15, removed_at = null
+           where user_id = $1 and external_id = $2
+             and (($3::text is null and connection_id is null) or connection_id = $3)`,
+          [
+            userId, externalId, connectionId ?? null, personId, source, direction,
+            parentId ? "reply" : "comment", targetType, parentId ?? threadRootId,
+            conversation.sourceUrl ?? null, threadKind, threadRootId,
+            comment.body ?? null, occurredAt,
+            JSON.stringify({ ...comment, directInteraction: true }),
+          ],
+        )
+      }
     }
 
     if (Array.isArray(comment.children)) {

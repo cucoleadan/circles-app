@@ -157,7 +157,9 @@ export function HistoryBackfill() {
                 </Button>
               </div>
 
-              {latest.streams.map((stream) => (
+              {latest.streams
+                .filter((stream) => stream.stream !== "outbound_actions")
+                .map((stream) => (
                 <div key={stream.stream} className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs font-semibold">{streamNames[stream.stream] ?? stream.stream}</p>
