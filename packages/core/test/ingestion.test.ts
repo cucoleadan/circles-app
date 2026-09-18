@@ -52,6 +52,8 @@ describe("In-memory mock ingestion unit tests", () => {
       "activity-1:sender:11",
     ])
     expect(items[0]?.targetAuthor?.handle).toBe("owner")
+    expect(items[0]?.targetBody).toBe("Owned note")
+    expect(items[0]?.targetUrl).toBe("https://substack.com/@owner/note/c-99")
     expect(items[0]?.created_at).toBe("2026-09-17T12:00:00Z")
   })
 
@@ -111,6 +113,7 @@ describe("In-memory mock ingestion unit tests", () => {
             targetId,
             targetTitle,
             targetUrl,
+            targetBody,
             threadKind,
             threadRootId,
             body,
@@ -135,6 +138,7 @@ describe("In-memory mock ingestion unit tests", () => {
               target_id: targetId,
               target_title: targetTitle,
               target_url: targetUrl,
+              target_body: targetBody,
               thread_kind: threadKind,
               thread_root_id: threadRootId,
               body,

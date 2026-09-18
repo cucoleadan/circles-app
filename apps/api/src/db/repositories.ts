@@ -362,6 +362,7 @@ export interface InteractionInput {
   targetType?: string | null
   targetId?: string | null
   targetTitle?: string | null
+  targetBody?: string | null
   targetUrl?: string | null
   threadKind?: "post" | "note" | null
   threadRootId?: string | null
@@ -381,6 +382,7 @@ export interface InteractionRow {
   targetType: string | null
   targetId: string | null
   targetTitle: string | null
+  targetBody: string | null
   targetUrl: string | null
   threadKind: string | null
   threadRootId: string | null
@@ -393,7 +395,7 @@ export interface InteractionRow {
 const interactionColumns = `id, external_id as "externalId", person_id as "personId",
     connection_id as "connectionId", source, direction, action_type as "actionType",
     target_type as "targetType", target_id as "targetId", target_title as "targetTitle",
-    target_url as "targetUrl", thread_kind as "threadKind",
+    target_body as "targetBody", target_url as "targetUrl", thread_kind as "threadKind",
     thread_root_id as "threadRootId", body, occurred_at as "occurredAt",
     metadata, created_at as "createdAt"`
 
@@ -406,8 +408,8 @@ export async function recordInteraction(
     `insert into interactions
         (id, user_id, connection_id, person_id, external_id, source, direction,
          action_type, target_type, target_id, target_title, target_url,
-         thread_kind, thread_root_id, body, occurred_at, metadata)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+         target_body, thread_kind, thread_root_id, body, occurred_at, metadata)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
      on conflict do nothing
      returning ${interactionColumns}`,
     [
@@ -423,6 +425,7 @@ export async function recordInteraction(
       input.targetId ?? null,
       input.targetTitle ?? null,
       input.targetUrl ?? null,
+      input.targetBody ?? null,
       input.threadKind ?? null,
       input.threadRootId ?? null,
       input.body ?? null,

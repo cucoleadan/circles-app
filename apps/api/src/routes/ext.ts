@@ -26,6 +26,7 @@ function substackAuthor(value: unknown): { id?: string; handle: string; name?: s
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const data = value as Record<string, any>
   const nested = [
+    data,
     data.user,
     data.author,
     data.comment?.user,
@@ -46,6 +47,45 @@ function substackAuthor(value: unknown): { id?: string; handle: string; name?: s
     }
   }
   return null
+}
+
+function substackText(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null
+  const parts: string[] = []
+  const visit = (node: unknown) => {
+    if (Array.isArray(node)) return node.forEach(visit)
+    if (!node || typeof node !== "object") return
+    const item = node as Record<string, unknown>
+    if (item.type === "text" && typeof item.text === "string") parts.push(item.text)
+    visit(item.content)
+  }
+  visit(value)
+  return parts.join(" ").trim() || null
+}
+
+function substackTargetContext(value: unknown, targetKind: string, targetId: string) {
+  const data = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, any>
+    : {}
+  const target = targetKind === "post"
+    ? data.post ?? data.item?.post ?? data
+    : data.comment ?? data.item?.comment ?? data
+  const author = substackAuthor(target)
+  const targetBody = targetKind === "post"
+    ? substackText(target?.subtitle ?? target?.truncated_body_text)
+    : substackText(target?.body ?? target?.body_text ?? target?.body_json)
+  const noteId = targetId.startsWith("c-") ? targetId : `c-${targetId}`
+  const targetUrl = target?.canonical_url ?? target?.url ?? (
+    author?.handle && targetKind !== "post"
+      ? `https://substack.com/@${encodeURIComponent(author.handle)}/note/${encodeURIComponent(noteId)}`
+      : null
+  )
+  return {
+    author,
+    targetBody,
+    targetTitle: typeof target?.title === "string" ? target.title : null,
+    targetUrl: typeof targetUrl === "string" ? targetUrl : null,
+  }
 }
 
 // Authenticate via session cookie forwarded from browser
@@ -174,7 +214,7 @@ ext.post("/activity", async (c) => {
     // including replies made from the owner's own post/Note page.
     if (
       payload?.kind === "outbound-action" &&
-      (payload.targetKind === "comment" || !payload?.targetAuthor?.handle) &&
+      (payload.targetKind === "comment" || !payload?.targetAuthor?.handle || !payload?.targetBody) &&
       conn?.ciphertext
     ) {
       try {
@@ -185,8 +225,11 @@ ext.post("/activity", async (c) => {
         const target = payload.targetKind === "post"
           ? await sdk.getPost(payload.targetId)
           : await sdk.getComment(payload.targetId)
-        const author = substackAuthor(target)
-        if (author) payload.targetAuthor = author
+        const context = substackTargetContext(target, payload.targetKind, String(payload.targetId))
+        if (context.author) payload.targetAuthor = context.author
+        if (context.targetBody) payload.targetBody = context.targetBody
+        if (context.targetTitle) payload.targetTitle = context.targetTitle
+        if (context.targetUrl) payload.targetUrl = context.targetUrl
       } catch (error) {
         console.warn("Could not resolve outbound Substack target author:", error)
       }

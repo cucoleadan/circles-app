@@ -132,6 +132,13 @@ function itemUrl(item: Record<string, any>): string | null {
   return firstString(context?.fallbackUrl, comment?.canonical_url, comment?.url, post?.canonical_url, post?.url)
 }
 
+function noteUrl(author: Record<string, any> | null, id: string): string | null {
+  const handle = firstString(author?.handle, author?.username)?.replace(/^@/, "")
+  if (!handle) return null
+  const noteId = id.startsWith("c-") ? id : `c-${id}`
+  return `https://substack.com/@${encodeURIComponent(handle)}/note/${encodeURIComponent(noteId)}`
+}
+
 function rootCommentId(comment: Record<string, any> | null): string | null {
   if (typeof comment?.ancestor_path !== "string") return null
   return comment.ancestor_path.split(".").map((part: string) => part.trim()).filter(Boolean)[0] ?? null
@@ -169,6 +176,10 @@ export function normalizeOutboundProfileFeed(
       if (!targetId || !targetAuthor || isOwner(targetAuthor, ownerId)) continue
       const postId = firstString(post?.id, comment?.post_id)
       const rootId = postId ?? rootCommentId(comment) ?? targetId
+      const targetBody = targetKind === "post"
+        ? firstString(post?.subtitle, post?.truncated_body_text)
+        : firstString(comment?.body, comment?.body_text) ?? bodyText(comment?.body_json)
+      const targetUrl = itemUrl(item) ?? (targetKind !== "post" ? noteUrl(targetAuthor, targetId) : null)
 
       normalized.push({
         kind: "outbound-action",
@@ -179,7 +190,8 @@ export function normalizeOutboundProfileFeed(
         targetKind,
         targetId,
         targetTitle: firstString(post?.title),
-        targetUrl: itemUrl(item),
+        targetBody,
+        targetUrl,
         targetAuthor,
         threadKind: postId ? "post" : "note",
         threadRootId: rootId,

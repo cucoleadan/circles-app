@@ -7,6 +7,7 @@ import {
   type ActivityItemInput,
 } from "@workspace/core"
 import {
+  normalizeOutboundProfileFeed,
   replayOwnedNoteSnapshots,
   syncOutboundActionsPage,
   syncOwnedNotesPage,
@@ -548,6 +549,87 @@ export async function processStoredNoteReplay(
   })
 }
 
+export async function processStoredInteractionEvidence(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  cursor?: { activityDone?: boolean; afterReceivedAt?: string | null; afterBatchId?: string | null },
+) {
+  return withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select profile_id, profile_handle, status, created_at
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const conn = connection.rows[0]
+    if (!conn || conn.status !== "active" || !conn.profile_id) {
+      return { completed: true, cursor: null }
+    }
+
+    const context = {
+      userId,
+      connectionId,
+      ownerId: String(conn.profile_id),
+      ownerHandle: conn.profile_handle ?? null,
+    }
+
+    if (!cursor?.activityDone) {
+      const snapshot = await client.query(
+        `select payload from activity_snapshots
+         where connection_id = $1 order by captured_at desc limit 1`,
+        [connectionId],
+      )
+      if (snapshot.rows[0]?.payload) {
+        await ingestActivityBatch(client, {
+          ...context,
+          items: normalizeActivityPage(snapshot.rows[0].payload),
+          source: "import",
+        })
+      }
+    }
+
+    const page = await client.query(
+      `select id, source, payload, received_at
+       from ingestion_batches
+       where user_id = $1
+         and received_at >= $2
+         and (payload ? 'profileFeedStage' or payload ? 'activityItems')
+         and ($3::timestamptz is null or (received_at, id) > ($3::timestamptz, $4::text))
+       order by received_at, id
+       limit 10`,
+      [userId, conn.created_at, cursor?.afterReceivedAt ?? null, cursor?.afterBatchId ?? ""],
+    )
+
+    for (const row of page.rows) {
+      const payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload
+      const stage = payload?.profileFeedStage
+      const items = stage === "likes" || stage === "restacks"
+        ? normalizeOutboundProfileFeed(
+            Array.isArray(payload?.page?.items) ? payload.page.items : [],
+            context.ownerId,
+          )
+        : normalizeActivityPage(payload)
+      await ingestActivityBatch(client, {
+        ...context,
+        items,
+        source: row.source === "sdk" ? "sdk" : "import",
+      })
+    }
+
+    const last = page.rows.at(-1)
+    return {
+      completed: page.rows.length < 10,
+      cursor: last
+        ? {
+            activityDone: true,
+            afterReceivedAt: new Date(last.received_at).toISOString(),
+            afterBatchId: String(last.id),
+          }
+        : null,
+    }
+  })
+}
+
 export interface JobHandlers {
   onSync?: (client: PoolClient, userId: string, connectionId: string) => Promise<{ skipped: boolean }>
   onHistorySync?: (
@@ -693,6 +775,24 @@ export async function claimAndRunJob(
             `insert into jobs (type, payload, status, run_at)
              values ('reprocess:note-snapshots', $1, 'pending', now() + interval '10 seconds')`,
             [JSON.stringify({ ...payload, afterNoteId: result.nextCursor })],
+          )
+        }
+      } else if (job.type === "reprocess:interaction-evidence") {
+        const result = await processStoredInteractionEvidence(
+          client,
+          userId,
+          connectionId,
+          {
+            activityDone: payload.activityDone === true,
+            afterReceivedAt: payload.afterReceivedAt ?? null,
+            afterBatchId: payload.afterBatchId ?? null,
+          },
+        )
+        if (!result.completed && result.cursor) {
+          await client.query(
+            `insert into jobs (type, payload, status, run_at)
+             values ('reprocess:interaction-evidence', $1, 'pending', now() + interval '1 second')`,
+            [JSON.stringify({ ...payload, ...result.cursor })],
           )
         }
       } else {

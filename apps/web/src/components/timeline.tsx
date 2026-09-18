@@ -83,6 +83,20 @@ function formatDate(iso: string) {
   }
 }
 
+function targetLabel(targetType: string | null) {
+  if (targetType === "note") return "Note"
+  if (targetType === "comment") return "comment"
+  if (targetType === "post") return "post"
+  return "Substack content"
+}
+
+function interactionLabel(item: Interaction, personName: string) {
+  const actor = item.direction === "inbound" ? personName : "You"
+  if (item.actionType !== "like") return actor
+  const possessive = item.direction === "inbound" ? "your" : `${personName}’s`
+  return `${actor} liked ${possessive} ${targetLabel(item.targetType)}`
+}
+
 export function Timeline({
   personId,
   personName,
@@ -207,7 +221,7 @@ export function Timeline({
                       <span className="opacity-75 font-normal">+{badge.pts}</span>
                     </span>
                     <span className="text-[11px] font-medium text-stone-500">
-                      {isInbound ? personName : "You"}
+                      {interactionLabel(item, personName)}
                     </span>
                   </div>
                   <span className="text-[11px] text-muted-foreground">
@@ -221,20 +235,27 @@ export function Timeline({
                   </p>
                 )}
 
-                {(item.targetTitle || item.targetUrl) && (
-                  <div className="mt-2.5 flex items-center gap-1.5 pt-2 border-t border-stone-100 dark:border-stone-800 text-[11px] text-muted-foreground">
-                    <span className="truncate font-medium text-stone-600 dark:text-stone-400">
-                      {item.targetTitle || "Substack conversation"}
-                    </span>
-                    {item.targetUrl && (
-                      <a
-                        href={item.targetUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-0.5 text-[#f15a3a] hover:underline ml-auto shrink-0"
-                      >
-                        View <ExternalLink className="size-3" />
-                      </a>
+                {(item.targetTitle || item.targetBody || item.targetUrl || item.actionType === "like") && (
+                  <div className="mt-2.5 border-t border-stone-100 pt-2 text-[11px] text-muted-foreground dark:border-stone-800">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-medium text-stone-600 dark:text-stone-400">
+                        {item.targetTitle || (item.targetBody ? targetLabel(item.targetType) : "Target content unavailable")}
+                      </span>
+                      {item.targetUrl && (
+                        <a
+                          href={item.targetUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[#f15a3a] hover:underline"
+                        >
+                          View <ExternalLink className="size-3" />
+                        </a>
+                      )}
+                    </div>
+                    {item.targetBody && (
+                      <blockquote className="mt-1.5 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-stone-200 pl-2 leading-relaxed text-stone-600 dark:border-stone-700 dark:text-stone-400">
+                        {item.targetBody}
+                      </blockquote>
                     )}
                   </div>
                 )}

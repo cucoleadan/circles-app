@@ -65,6 +65,7 @@ export interface Interaction {
   targetType: string | null
   targetId: string | null
   targetTitle: string | null
+  targetBody: string | null
   targetUrl: string | null
   threadKind: "post" | "note" | string | null
   threadRootId: string | null

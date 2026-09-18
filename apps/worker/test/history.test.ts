@@ -8,7 +8,7 @@ describe("profile outbound history normalization", () => {
     const items = normalizeOutboundProfileFeed([
       {
         context: { type: "note_like", source: "db-like", timestamp: "2026-09-01T10:00:00Z" },
-        comment: { id: 101, type: "feed", user_id: 9001, handle: "alice", name: "Alice" },
+        comment: { id: 101, type: "feed", user_id: 9001, handle: "alice", name: "Alice", body: "Alice's note" },
       },
       {
         context: { type: "comment_restack", source: "db-restack", timestamp: "2026-09-02T10:00:00Z" },
@@ -21,6 +21,8 @@ describe("profile outbound history normalization", () => {
       action: "like",
       externalId: "outbound:like:note:101",
       targetKind: "note",
+      targetBody: "Alice's note",
+      targetUrl: "https://substack.com/@alice/note/c-101",
       targetAuthor: { id: "9001", handle: "alice" },
     })
     expect(items[1]).toMatchObject({
@@ -66,7 +68,7 @@ describe("profile outbound history normalization", () => {
     const items = normalizeOutboundProfileFeed([
       {
         context: { type: "comment_like", source: "db-like", timestamp: "2026-09-04T12:00:00Z" },
-        comment: { id: 250, type: "comment", user_id: 9006, handle: "frank", name: "Frank", post_id: 200 },
+        comment: { id: 250, type: "comment", user_id: 9006, handle: "frank", name: "Frank", post_id: 200, body: "Frank's comment" },
         post: {
           id: 200,
           publishedBylines: [{ id: 9999, handle: "post-author", name: "Post Author" }],
@@ -79,6 +81,7 @@ describe("profile outbound history normalization", () => {
       externalId: "outbound:like:comment:250",
       targetKind: "comment",
       targetId: "250",
+      targetBody: "Frank's comment",
       targetAuthor: { id: "9006", handle: "frank" },
       threadKind: "post",
       threadRootId: "200",

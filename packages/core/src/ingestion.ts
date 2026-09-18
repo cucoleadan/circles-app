@@ -48,6 +48,8 @@ export interface ActivityItemInput {
   targetId?: string | number | null
   target_title?: string | null
   targetTitle?: string | null
+  target_body?: string | null
+  targetBody?: string | null
   target_url?: string | null
   targetUrl?: string | null
   actor?: InteractionAuthorInput | null
@@ -166,6 +168,13 @@ function activityBody(value: Record<string, any> | null): string | null {
   return parts.join(" ").trim() || null
 }
 
+function noteUrl(author: InteractionAuthorInput | null, id: string | null): string | null {
+  const handle = author?.handle?.trim().replace(/^@/, "")
+  if (!handle || !id) return null
+  const noteId = id.startsWith("c-") ? id : `c-${id}`
+  return `https://substack.com/@${encodeURIComponent(handle)}/note/${encodeURIComponent(noteId)}`
+}
+
 /** Resolves the activity feed's ID references before its lookup arrays are discarded. */
 export function normalizeActivityPage(value: unknown): ActivityItemInput[] {
   if (Array.isArray(value)) return value as ActivityItemInput[]
@@ -197,6 +206,16 @@ export function normalizeActivityPage(value: unknown): ActivityItemInput[] {
     const targetKind = targetComment
       ? typeof targetComment.ancestor_path === "string" && targetComment.ancestor_path.trim() ? "comment" : "note"
       : post ? "post" : raw.target_kind ?? null
+    const targetBody = targetComment
+      ? activityBody(targetComment)
+      : post
+        ? activityBody({ body: post.subtitle ?? post.truncated_body_text ?? null })
+        : null
+    const targetUrl = typeof post?.canonical_url === "string"
+      ? post.canonical_url
+      : typeof post?.url === "string"
+        ? post.url
+        : noteUrl(targetCommentAuthor, targetCommentId)
     const kind = String(raw.type ?? raw.kind ?? "activity")
     const senderIds = Array.isArray(raw.recent_sender_ids)
       ? [...new Set(raw.recent_sender_ids.map(activityId).filter((id): id is string => Boolean(id)))]
@@ -220,7 +239,8 @@ export function normalizeActivityPage(value: unknown): ActivityItemInput[] {
         targetKind,
         targetId: targetCommentId ?? postId ?? rootCommentId,
         targetTitle: typeof post?.title === "string" ? post.title : null,
-        targetUrl: typeof post?.canonical_url === "string" ? post.canonical_url : typeof post?.url === "string" ? post.url : null,
+        targetBody,
+        targetUrl,
         targetAuthor: targetCommentAuthor ?? postAuthor,
       })
     }
@@ -458,6 +478,7 @@ export async function ingestActivityBatch(
       ? item.action || "other"
       : item.kind || item.type || item.action || "other"
     const body = item.body || item.comment_body || item.commentBody || null
+    const targetBody = item.target_body || item.targetBody || null
     const actionType = classifyAction(actionKind, body)
     const direction = isOwner ? "outbound" : "inbound"
     const occurredAt = parseTimestamp(item.occurredAt || item.created_at || item.createdAt || item.updated_at)
@@ -479,8 +500,14 @@ export async function ingestActivityBatch(
          set removed_at = coalesce(removed_at, now()), metadata = $4
          where user_id = $1 and external_id = $2
            and (($3::text is null and connection_id is null) or connection_id = $3)
+            or (user_id = $1 and person_id = $5 and direction = $6
+              and action_type = $7 and target_type = $8 and target_id = $9
+              and action_type in ('like', 'restack') and removed_at is null)
          returning person_id`,
-        [userId, externalId, connectionId ?? null, JSON.stringify(item)]
+        [
+          userId, externalId, connectionId ?? null, JSON.stringify(item),
+          personId, direction, actionType, targetType, targetId ? String(targetId) : null,
+        ]
       )
       const removedPersonId = removed.rows[0]?.person_id as string | undefined
       if (removedPersonId) touchedPersonIds.add(removedPersonId)
@@ -495,8 +522,8 @@ export async function ingestActivityBatch(
       `insert into interactions
           (id, user_id, connection_id, person_id, external_id, source, direction,
            action_type, target_type, target_id, target_title, target_url,
-           thread_kind, thread_root_id, body, occurred_at, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+           target_body, thread_kind, thread_root_id, body, occurred_at, metadata)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
        on conflict do nothing
        returning id`,
       [
@@ -512,6 +539,7 @@ export async function ingestActivityBatch(
         targetId ? String(targetId) : null,
         item.target_title || item.targetTitle || null,
         item.target_url || item.targetUrl || null,
+        targetBody,
         threadKind,
         threadRootId,
         body,
@@ -526,9 +554,21 @@ export async function ingestActivityBatch(
       await client.query(
         `update interactions
          set removed_at = null, person_id = $4, direction = $5,
-             action_type = $6, body = $7, occurred_at = $8, metadata = $9
-         where user_id = $1 and external_id = $2
-           and (($3::text is null and connection_id is null) or connection_id = $3)`,
+             action_type = $6,
+             target_type = coalesce($7, target_type),
+             target_id = coalesce($8, target_id),
+             target_title = coalesce(nullif($9, ''), target_title),
+             target_url = coalesce(nullif($10, ''), target_url),
+             target_body = coalesce(nullif($11, ''), target_body),
+             thread_kind = coalesce($12, thread_kind),
+             thread_root_id = coalesce($13, thread_root_id),
+             body = coalesce(nullif($14, ''), body), occurred_at = $15,
+             metadata = metadata || $16::jsonb
+         where (user_id = $1 and external_id = $2
+           and (($3::text is null and connection_id is null) or connection_id = $3))
+           or (user_id = $1 and person_id = $4 and direction = $5
+             and action_type = $6 and target_type = $7 and target_id = $8
+             and action_type in ('like', 'restack') and removed_at is null)`,
         [
           userId,
           externalId,
@@ -536,6 +576,13 @@ export async function ingestActivityBatch(
           personId,
           direction,
           actionType,
+          targetType,
+          targetId ? String(targetId) : null,
+          item.target_title || item.targetTitle || null,
+          item.target_url || item.targetUrl || null,
+          targetBody,
+          threadKind,
+          threadRootId,
           body,
           occurredAt,
           JSON.stringify(item),
