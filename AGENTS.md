@@ -77,9 +77,11 @@ schema, or assume application code starts before its migration succeeds.
 Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
-Current latest migration at the time of writing is
-`010_substack_request_pacing.sql`. It spaces already-pending authenticated
-Substack work and requeues imports that the old retry policy failed on a 429.
+Current latest migration at the time of writing is `012_user_settings.sql`.
+Migration `011_interaction_target_context.sql` preserves the content acted on by
+Likes/restacks, repairs it from retained evidence, and soft-removes proven
+duplicate active actions. Migration `010_substack_request_pacing.sql` spaces
+authenticated Substack work and repairs imports stranded by the old 429 policy.
 Migration `009_merge_proven_profile_duplicates.sql` performs evidence-backed
 handle/profile-ID contact reconciliation and never merges by display name.
 

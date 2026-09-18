@@ -4,13 +4,12 @@ This guide provides the exact fields, copy-paste descriptions, and permission ju
 
 ---
 
-## 1. Access the Chrome Web Store Developer Dashboard
+## 1. Account Settings: Publisher Email Verification
 
-1. Visit [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
-2. Sign in with your Google account.
-3. If this is your first time, accept the developer agreement and pay the one-time **$5 USD** registration fee.
-4. Click **"Add new item"** (or "Upload new package").
-5. Drag and drop `extension/circles-companion-0.2.5.zip`.
+*In the left navigation menu, click **Account** or **Settings**:*
+1. **Contact Email**: Enter your email address (e.g., `cucoleadan@gmail.com`).
+2. Click **Verify email** / **Send verification link**.
+3. Open your inbox, click the verification link from Google to activate your developer profile.
 
 ---
 
@@ -18,11 +17,9 @@ This guide provides the exact fields, copy-paste descriptions, and permission ju
 
 ### Extension Details
 * **Name**: `Circles Companion`
-* **Summary (up to 132 chars)**:
-  ```text
-  Connects your Substack session to Circles CRM and adds people to your lists.
-  ```
+* **Summary**: `Connects your Substack session to Circles CRM and adds people to your lists.`
 * **Category**: `Productivity` (or `Social & Communication`)
+* **Language**: `English`
 
 ### Detailed Description
 Paste the following into the description box:
@@ -42,16 +39,13 @@ Circles Companion is an independent tool built for Circles CRM users. It is not 
 ```
 
 ### Graphic Assets
-* **Store Icon**: Upload `extension/store-assets/store-icon-128.png` (128×128 PNG).
-* **Small Promo Tile**: Upload `extension/store-assets/promo-tile-440x280.png` (440×280 PNG).
-* **Screenshots**: Upload 1 to 5 screenshots (1280×800 or 640×400 PNG).
-  * *Tip*: Take a screenshot of the Circles popup and a Substack page showing the "+ Circles" button next to a note author.
+* **Store Icon**: `extension/store-assets/store-icon-128.png` (Matches your Circles concentric circles SVG).
+* **Screenshots**: `extension/store-assets/screenshot-1280x800.png` (24-bit RGB, no alpha).
+* **Small Promo Tile**: `extension/store-assets/promo-tile-440x280.png` (24-bit RGB, no alpha).
 
 ---
 
-## 3. Privacy Tab (Crucial for Fast Approval)
-
-Google manually reviews privacy declarations. Fill these out exactly as described:
+## 3. Privacy Practices Tab (Required Justifications)
 
 ### Single Purpose Description
 ```text
@@ -60,38 +54,43 @@ The single purpose of Circles Companion is to connect a user's authenticated Sub
 
 ### Permission Justifications
 
+#### `alarms`
+```text
+Used to schedule periodic background tasks that drain and retry queued outbound Substack interactions (likes, restacks, comments) to ensure data reaches the user's CRM even during network fluctuations.
+```
+
 #### `cookies`
 ```text
-Used solely to read the user's active Substack session cookie (substack.sid) so their private Circles CRM instance can verify account ownership and synchronize authorized feeds without requiring the user to expose their Substack password.
+Used solely to read the user's active Substack session cookie (substack.sid) so their private Circles CRM instance can verify account ownership and synchronize authorized feeds without requiring the user to share their Substack password.
 ```
 
-#### `host_permissions` (`https://*.substack.com/*`)
+#### `host_permissions`
 ```text
-Required to inject in-page quick-action buttons ('+ Circles') next to author handles on Substack and passively observe incoming feed responses so conversation threads are captured without generating extra, rate-limited network requests.
+Required on https://*.substack.com/* to inject in-page quick-action buttons ('+ Circles') and passively observe feed responses so conversation threads are captured without generating extra rate-limited requests. Also required on https://circles.mhntwrkdan.dev/* to securely transmit contact list additions and engagement data to the user's private CRM backend over HTTPS.
 ```
 
-#### `host_permissions` (`https://circles.mhntwrkdan.dev/*`)
+#### `storage`
 ```text
-The user's private Circles CRM host. Required to transmit captured contact list additions, engagement metrics, and session verification directly to their CRM backend over HTTPS.
+Used locally in the browser to store extension preferences, publication connection status, and offline retry queues for outbound CRM interactions.
 ```
 
-### Data Usage Declarations
-In the Developer Console checkboxes for data collection:
-- [x] **Authentication information**: Yes
-  - *Data type*: Personal identification & credentials (`substack.sid` session token).
-  - *Usage*: Link Substack publication to private Circles CRM.
-- [x] **User activity**: Yes
-  - *Data type*: Network monitoring & clicks (Passive capture of Substack engagement actions: likes, restacks, comments).
-  - *Usage*: Maintain chronological relationship timelines in CRM.
-- [x] **Website content**: Yes
-  - *Data type*: Substack author handles and thread comments.
-  - *Usage*: Contact list management.
+#### Remote Code
+* Select: **No, I am not using remote code**
+*(If a text justification is requested):*
+```text
+This extension does not use any remote code. All scripts and assets are packaged and executed locally within the extension bundle.
+```
 
-### Chrome Web Store Policies Certification
-Check all 3 compliance checkboxes:
-- [x] "I certify that my extension does not sell or transfer user data to third parties..."
+### Data Usage Declarations & Checkboxes
+- [x] **Authentication information**: Yes (`substack.sid` session token)
+- [x] **User activity**: Yes (Outbound likes, restacks, comments)
+- [x] **Website content**: Yes (Substack author handles and thread comments)
+
+### Policy Certification Checkboxes
+Check all 3 compliance certifications at the bottom:
+- [x] "I certify that my extension does not sell or transfer user data..."
 - [x] "I certify that my extension does not use or transfer user data for personalized advertising..."
-- [x] "I certify that my extension does not use or transfer user data to determine creditworthiness or for lending purposes."
+- [x] "I certify that my extension does not use or transfer user data to determine creditworthiness..."
 
 ### Privacy Policy URL
 ```text
@@ -104,17 +103,4 @@ https://circles.mhntwrkdan.dev/privacy
 
 1. Under **Visibility**, select:
    * **Unlisted** ("Anyone with the link can install")
-2. Under **Distribution**, leave as standard / worldwide.
-3. Under **Pricing & Payments**, select **Free**.
-
----
-
-## 5. Submit for Review
-
-1. Click **Submit for Review**.
-2. Review duration for unlisted extensions is typically **24 to 72 hours**.
-3. Once approved:
-   - Google assigns a permanent URL format:
-     `https://chromewebstore.google.com/detail/circles-companion/<extension_id>`
-   - Share this link with your team.
-   - Any future version updates you publish (via `bun run pack` in `extension/`) will automatically roll out in the background to all team members within a few hours!
+2. Click **Save draft**, then click **Submit for review**.

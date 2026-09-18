@@ -34,14 +34,14 @@ function makePngChunk(type, data) {
 }
 
 /**
- * Generates a 440x280 Small Promo Tile for Chrome Web Store
+ * Generates a 440x280 Small Promo Tile for Chrome Web Store (24-bit RGB, NO ALPHA)
  */
 function generatePromoTile(width = 440, height = 280) {
-  const rowBytes = width * 4;
+  const rowBytes = width * 3; // 24-bit RGB
   const rawData = Buffer.alloc((1 + rowBytes) * height);
 
   const cx = width / 2;
-  const cy = height / 2 - 14; // Slightly elevated to give breathing room
+  const cy = height / 2 - 14;
   const iconRadius = 56;
   const strokeW = 4.2;
   const rOuter = iconRadius * 0.76;
@@ -52,19 +52,17 @@ function generatePromoTile(width = 440, height = 280) {
   for (let y = 0; y < height; y++) {
     rawData[y * (1 + rowBytes)] = 0; // Filter: None
     for (let x = 0; x < width; x++) {
-      const idx = y * (1 + rowBytes) + 1 + x * 4;
+      const idx = y * (1 + rowBytes) + 1 + x * 3;
 
       // Dark background with subtle radial gradient centered at (cx, cy)
       const distFromCenter = Math.hypot(x - cx, y - cy);
       const bgNorm = Math.min(1, distFromCenter / (width * 0.7));
-      
-      // Base background: #0c0a09 (very dark stone) radiating to #000000
+
       let r = Math.round(18 * (1 - bgNorm) + 8 * bgNorm);
       let g = Math.round(16 * (1 - bgNorm) + 7 * bgNorm);
       let b = Math.round(15 * (1 - bgNorm) + 6 * bgNorm);
-      let a = 255;
 
-      // Subtle orange atmospheric glow around the icon center
+      // Subtle orange atmospheric glow
       const glowDist = distFromCenter / 140;
       if (glowDist < 1) {
         const glowFactor = (1 - glowDist) * 0.28;
@@ -73,7 +71,7 @@ function generatePromoTile(width = 440, height = 280) {
         b = Math.min(255, Math.round(b + 12 * glowFactor * 0.2));
       }
 
-      // Rounded rectangle container for the central icon
+      // Rounded rectangle container for central card
       const qx = Math.abs(x + 0.5 - cx) - (iconRadius - cornerR);
       const qy = Math.abs(y + 0.5 - cy) - (iconRadius - cornerR);
       const distBox = (qx > 0 && qy > 0)
@@ -82,13 +80,11 @@ function generatePromoTile(width = 440, height = 280) {
 
       const boxAlpha = Math.min(1, Math.max(0, 0.5 - distBox));
       if (boxAlpha > 0) {
-        // Icon container background: crisp white card with slight border
         const isBorder = distBox > -1.2 && distBox <= 0;
         let cardR = isBorder ? 228 : 255;
         let cardG = isBorder ? 228 : 255;
         let cardB = isBorder ? 231 : 255;
 
-        // Orange gradient inside concentric circles
         const distToIconCenter = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
         const t = (x - (cx - iconRadius) + y - (cy - iconRadius)) / (4 * iconRadius);
         const fgR = Math.round(251 * (1 - t) + 234 * t);
@@ -96,16 +92,13 @@ function generatePromoTile(width = 440, height = 280) {
         const fgB = Math.round(60 * (1 - t) + 12 * t);
 
         let circleCov = 0;
-        // Center dot
         const dotCov = Math.min(1, Math.max(0, rDot + 0.5 - distToIconCenter));
         if (dotCov > 0) circleCov = Math.max(circleCov, dotCov);
 
-        // Middle ring
         const midDist = Math.abs(distToIconCenter - rMiddle);
         const midCov = Math.min(1, Math.max(0, (strokeW / 2 + 0.5) - midDist));
         if (midCov > 0) circleCov = Math.max(circleCov, midCov * 0.95);
 
-        // Outer ring
         const outDist = Math.abs(distToIconCenter - rOuter);
         const outCov = Math.min(1, Math.max(0, (strokeW / 2 + 0.5) - outDist));
         if (outCov > 0) circleCov = Math.max(circleCov, outCov);
@@ -116,7 +109,6 @@ function generatePromoTile(width = 440, height = 280) {
           cardB = Math.round(cardB * (1 - circleCov) + fgB * circleCov);
         }
 
-        // Blend container card onto background
         r = Math.round(r * (1 - boxAlpha) + cardR * boxAlpha);
         g = Math.round(g * (1 - boxAlpha) + cardG * boxAlpha);
         b = Math.round(b * (1 - boxAlpha) + cardB * boxAlpha);
@@ -125,20 +117,18 @@ function generatePromoTile(width = 440, height = 280) {
       rawData[idx + 0] = r;
       rawData[idx + 1] = g;
       rawData[idx + 2] = b;
-      rawData[idx + 3] = a;
     }
   }
 
-  // PNG Signature & Chunks
   const sig = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
-  ihdr[8] = 8;  // Bit depth
-  ihdr[9] = 6;  // Color type: RGBA
-  ihdr[10] = 0; // Compression
-  ihdr[11] = 0; // Filter
-  ihdr[12] = 0; // Interlace: None
+  ihdr[8] = 8; // Bit depth: 8
+  ihdr[9] = 2; // Color type: RGB (24-bit, NO ALPHA)
+  ihdr[10] = 0;
+  ihdr[11] = 0;
+  ihdr[12] = 0;
 
   const idat = deflateSync(rawData);
   const iend = Buffer.alloc(0);
@@ -154,4 +144,4 @@ function generatePromoTile(width = 440, height = 280) {
 const promoPng = generatePromoTile(440, 280);
 const outPath = path.join(storeAssetsDir, "promo-tile-440x280.png");
 writeFileSync(outPath, promoPng);
-console.log(`Generated ${outPath} (440x280)`);
+console.log(`Generated ${outPath} (440x280, 24-bit RGB no-alpha)`);

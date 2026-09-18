@@ -1,7 +1,7 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-17.
+Update this file as work completes. Last updated: 2026-09-18.
 
 ## Where we are
 
@@ -29,7 +29,7 @@ What exists:
   - User Settings (`app_users.settings` JSONB column via Migration `012_user_settings.sql`) and slide-over Settings UI for customizing queue criteria and scoring parameters.
   - Sidebar: view navigation with informative interactive hover tooltips for directories, list management (create, member counts), tag filters, Queue Settings launcher, and Badge & Scoring Guide drawer.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
-  - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), Substack external links, cursor pagination.
+  - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), exact target excerpts for Likes, honest unavailable-content fallbacks, Substack external links, cursor pagination.
   - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.
   - Accessible card triggers and explicit "Details" button with keyboard navigation (`Enter`/`Space`).
   - Base theme: global `cursor: pointer` on all buttons, links, roles, tabs, and interactive elements.
@@ -195,6 +195,9 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
       distinguish engagement received from engagement given.
       Received/given totals, timestamps, timeline context, and inbound/outbound filters
       are complete; a grouped per-action count breakdown is still pending.
+      Like timelines now preserve and display the acted-on Note/comment/post content;
+      retained evidence is replayed after migration and proven duplicate active actions
+      are soft-removed across import/connection boundaries.
 - [ ] Gate: incremental sync and backfill deduplicate; interrupted backfills resume;
       unlike/unrestack state is handled; outbound actions never inflate inbound
       engagement scores; representative post and note threads reconcile to source.
