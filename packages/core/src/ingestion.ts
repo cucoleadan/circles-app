@@ -276,7 +276,13 @@ export async function ensurePerson(
   client: PoolLike,
   userId: string,
   personCache: Map<string, string>,
-  author: { name?: string | null; handle?: string | null; id?: string | number | null }
+  author: {
+    name?: string | null
+    handle?: string | null
+    id?: string | number | null
+    photo_url?: string | null
+    avatarUrl?: string | null
+  }
 ): Promise<string | null> {
   const rawHandle = author.handle?.trim()
   const handle = rawHandle ? rawHandle.replace(/^@/, "") : null
@@ -284,6 +290,7 @@ export async function ensurePerson(
   const substackProfileId = author.id === undefined || author.id === null
     ? null
     : String(author.id)
+  const avatarUrl = author.photo_url || author.avatarUrl || null
   if (!normalized && !substackProfileId) return null
   const cacheKey = substackProfileId ? `profile:${substackProfileId}` : `handle:${normalized}`
 
@@ -293,7 +300,7 @@ export async function ensurePerson(
   // Stable Substack profile IDs take precedence because reply payloads often
   // omit handles entirely. Handle lookup remains the compatibility fallback.
   const found = await client.query(
-    `select id, substack_profile_id from people
+    `select id, substack_profile_id, avatar_url from people
      where user_id = $1 and archived_at is null
        and (($2::text is not null and substack_profile_id = $2)
          or ($3::text is not null and normalized_handle = $3))
@@ -316,6 +323,14 @@ export async function ensurePerson(
         [id, userId, substackProfileId],
       )
     }
+    if (avatarUrl && !found.rows[0].avatar_url) {
+      await client.query(
+        `update people
+         set avatar_url = $3, updated_at = now()
+         where id = $1 and user_id = $2 and (avatar_url is null or avatar_url = '')`,
+        [id, userId, avatarUrl]
+      )
+    }
     personCache.set(cacheKey, id)
     return id
   }
@@ -326,10 +341,10 @@ export async function ensurePerson(
   const profileUrl = normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null
 
   await client.query(
-    `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, source)
-     values ($1, $2, $3, $4, $5, $6, $7, 'extension')
+    `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, avatar_url, source)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, 'extension')
      on conflict do nothing`,
-    [newId, userId, name, handle, normalized, profileUrl, substackProfileId]
+    [newId, userId, name, handle, normalized, profileUrl, substackProfileId, avatarUrl]
   )
 
   const check = await client.query(
@@ -465,9 +480,10 @@ export async function ingestActivityBatch(
       (normalizedOwnerId && actorId && String(actorId) === normalizedOwnerId)
 
     const targetAuthor = targetAuthorFromItem(item)
+    const actorPhoto = item.actor?.photo_url || item.actor_photo_url || item.actorPhotoUrl || item.actor?.avatarUrl || null
     const counterparty = isOwner
       ? targetAuthor
-      : { handle: actorHandle, name: actorName, id: actorId }
+      : { handle: actorHandle, name: actorName, id: actorId, photo_url: actorPhoto }
     const personId = counterparty
       ? await ensurePerson(client, userId, personCache, counterparty)
       : null

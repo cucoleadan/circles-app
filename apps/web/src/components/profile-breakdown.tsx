@@ -28,6 +28,14 @@ export function ProfileBreakdown({ person }: { person: Person }) {
   const lastOutboundComment = person.lastOutboundCommentAt
     ? new Date(person.lastOutboundCommentAt).getTime()
     : 0
+  const lastOutboundLike = person.lastOutboundLikeAt
+    ? new Date(person.lastOutboundLikeAt).getTime()
+    : 0
+
+  const iLikedLast =
+    lastOutboundLike > 0 &&
+    (lastOutboundLike >= lastInboundComment ||
+      (person.lastActionDirection === "outbound" && person.lastActionType === "like"))
 
   return (
     <div className="space-y-4">
@@ -41,9 +49,18 @@ export function ProfileBreakdown({ person }: { person: Person }) {
 
           {/* Reciprocity Status Tag */}
           {lastInboundComment > 0 && lastInboundComment > lastOutboundComment ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 text-[11px] font-bold dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
-              <span>📥</span> Needs your reply
-            </span>
+            iLikedLast ? (
+              <span
+                className="inline-flex items-center gap-1 rounded-full bg-stone-100 text-stone-700 border border-stone-200 px-2.5 py-0.5 text-[11px] font-semibold dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700"
+                title="You acknowledged their comment with a like; conversation is ended"
+              >
+                <span>❤️</span> Convo ended (liked)
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-900 border border-amber-300 px-2.5 py-0.5 text-[11px] font-bold dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
+                <span>📥</span> Needs your reply
+              </span>
+            )
           ) : lastOutboundComment > 0 && lastOutboundComment > lastInboundComment ? (
             <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-900 border border-sky-300 px-2.5 py-0.5 text-[11px] font-bold dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800">
               <span>📤</span> Ball in their court

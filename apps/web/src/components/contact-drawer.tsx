@@ -1,14 +1,13 @@
-import { useEffect, useState } from "react"
-import { Archive, ExternalLink, Sparkles } from "lucide-react"
+import { useState } from "react"
+import { Archive, Ban, ExternalLink, EyeOff, Plus, Sparkles } from "lucide-react"
 
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@workspace/ui/components/select"
 import {
   Sheet,
@@ -21,13 +20,6 @@ import type { ListRecord, Person, TagRecord } from "../lib/types"
 import { ContactDetailsTab } from "./contact-details-tab"
 import { ProfileBreakdown } from "./profile-breakdown"
 import { Timeline } from "./timeline"
-
-const statusOptions = [
-  { id: "new", label: "New", color: "bg-amber-400" },
-  { id: "active", label: "Active", color: "bg-sky-500" },
-  { id: "close", label: "Close", color: "bg-emerald-500" },
-  { id: "dormant", label: "Dormant", color: "bg-stone-400" },
-]
 
 function initials(name: string) {
   return name
@@ -60,6 +52,7 @@ export function ContactDrawer({
   onPersonArchived,
   allLists,
   allTags,
+  onCreateList,
 }: {
   person: Person | null
   open: boolean
@@ -68,26 +61,74 @@ export function ContactDrawer({
   onPersonArchived: (id: string) => void
   allLists: ListRecord[]
   allTags: TagRecord[]
+  onCreateList?: (name: string) => Promise<ListRecord | void>
 }) {
   if (!person) return null
 
-  const [status, setStatus] = useState(person.relationshipStatus ?? "new")
   const [activeTab, setActiveTab] = useState<"timeline" | "details">("timeline")
 
-  useEffect(() => {
-    setStatus(person.relationshipStatus ?? "new")
-  }, [person.id, person.relationshipStatus])
+  const isIgnored = (person.lists ?? []).some((l) => l.name.toLowerCase() === "ignored")
 
-  async function handleStatusChange(newStatus: string) {
-    setStatus(newStatus)
+  async function toggleIgnore() {
+    if (!person) return
     try {
-      const res = await fetch(`/api/v1/people/${person?.id}`, {
-        method: "PATCH",
+      if (isIgnored) {
+        const ignoredList = person.lists?.find((l) => l.name.toLowerCase() === "ignored")
+        if (ignoredList) {
+          await fetch(`/api/v1/lists/${ignoredList.id}/members/${person.id}`, { method: "DELETE" })
+          const updatedLists = (person.lists ?? []).filter((l) => l.id !== ignoredList.id)
+          onPersonUpdated({ ...person, lists: updatedLists })
+        }
+      } else {
+        let ignoredList = allLists.find((l) => l.name.toLowerCase() === "ignored")
+        if (!ignoredList) {
+          if (onCreateList) {
+            const res = await onCreateList("Ignored")
+            if (res && "id" in res) ignoredList = res
+          }
+          if (!ignoredList) {
+            const res = await fetch("/api/v1/lists", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name: "Ignored" }),
+            })
+            if (res.ok) {
+              const data = await res.json()
+              ignoredList = data.list
+            }
+          }
+        }
+        if (ignoredList) {
+          await fetch(`/api/v1/lists/${ignoredList.id}/members`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ personId: person.id }),
+          })
+          const updatedLists = [...(person.lists ?? []), { id: ignoredList.id, name: ignoredList.name }]
+          onPersonUpdated({ ...person, lists: updatedLists })
+        }
+      }
+    } catch (err) {
+      console.error("Error toggling ignored status:", err)
+    }
+  }
+
+  async function addToList(listId: string) {
+    if (!listId || !person) return
+    const targetList = allLists.find((l) => l.id === listId)
+    if (!targetList) return
+    try {
+      const res = await fetch(`/api/v1/lists/${listId}/members`, {
+        method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ relationshipStatus: newStatus }),
+        body: JSON.stringify({ personId: person.id }),
       })
-      if (!res.ok) throw new Error("Failed to update status")
-      onPersonUpdated({ ...person!, relationshipStatus: newStatus })
+      if (!res.ok) throw new Error("Failed to add to list")
+      const currentLists = person.lists ?? []
+      if (!currentLists.some((l) => l.id === listId)) {
+        const updatedLists = [...currentLists, { id: listId, name: targetList.name }]
+        onPersonUpdated({ ...person, lists: updatedLists })
+      }
     } catch (err) {
       console.error(err)
     }
@@ -126,6 +167,7 @@ export function ContactDrawer({
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3.5 min-w-0">
               <Avatar className="size-13 border-2 border-white shadow-xs dark:border-stone-800 shrink-0">
+                <AvatarImage src={person.avatarUrl ?? undefined} alt={person.name} referrerPolicy="no-referrer" />
                 <AvatarFallback className="bg-stone-200 text-stone-700 font-semibold text-sm dark:bg-stone-800 dark:text-stone-300">
                   {initials(person.name)}
                 </AvatarFallback>
@@ -156,24 +198,76 @@ export function ContactDrawer({
                     <span>No handle</span>
                   )}
                   <span>·</span>
-                  <span className="capitalize">{person.driftStatus}</span>
+                  <span
+                    className="capitalize text-stone-600 dark:text-stone-400"
+                    title="Recency: Active (<30d), Slipping (30-60d), Dormant (>60d)"
+                  >
+                    {person.driftStatus}
+                  </span>
                 </div>
+
+                {person.lists && person.lists.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {person.lists.map((l) => (
+                      <span
+                        key={l.id}
+                        className={`inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium border ${
+                          l.name.toLowerCase() === "ignored"
+                            ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400"
+                            : "border-stone-200 bg-stone-100/80 text-stone-700 dark:border-stone-800 dark:bg-stone-800/80 dark:text-stone-300"
+                        }`}
+                      >
+                        {l.name.toLowerCase() === "ignored" ? "🚫 Ignored" : l.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Relationship Status Selector */}
-            <div className="shrink-0">
-              <Select value={status} onValueChange={handleStatusChange}>
-                <SelectTrigger className="h-8.5 rounded-full text-xs font-semibold px-3 bg-white dark:bg-stone-800 border-stone-200">
-                  <SelectValue />
+            {/* Quick Actions & Lists */}
+            <div className="shrink-0 flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={toggleIgnore}
+                className={`h-8 rounded-full text-xs font-medium px-2.5 gap-1.5 ${
+                  isIgnored
+                    ? "text-rose-600 dark:text-rose-400 border-rose-300 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100"
+                    : "text-stone-600 dark:text-stone-300 border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:bg-stone-100 hover:text-rose-600"
+                }`}
+                title={isIgnored ? "Remove from Ignored list" : "Ignore from Action Queues"}
+              >
+                {isIgnored ? (
+                  <>
+                    <EyeOff className="size-3.5" /> Ignored
+                  </>
+                ) : (
+                  <>
+                    <Ban className="size-3.5" /> Ignore
+                  </>
+                )}
+              </Button>
+
+              <Select value="" onValueChange={addToList}>
+                <SelectTrigger className="h-8 rounded-full text-xs font-medium px-2.5 border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 gap-1 w-auto min-w-[70px]">
+                  <Plus className="size-3" /> List
                 </SelectTrigger>
-                <SelectContent>
-                  {statusOptions.map((opt) => (
-                    <SelectItem key={opt.id} value={opt.id} className="text-xs">
-                      <span className={`inline-block size-2 rounded-full mr-2 ${opt.color}`} />
-                      {opt.label}
+                <SelectContent align="end" className="w-44 text-xs">
+                  {allLists.length === 0 ? (
+                    <SelectItem value="__none__" disabled className="text-xs text-muted-foreground">
+                      No lists created
                     </SelectItem>
-                  ))}
+                  ) : (
+                    allLists.map((l) => {
+                      const inList = (person.lists ?? []).some((pl) => pl.id === l.id)
+                      return (
+                        <SelectItem key={l.id} value={l.id} disabled={inList} className="text-xs">
+                          {l.name} {inList ? "✓" : ""}
+                        </SelectItem>
+                      )
+                    })
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -208,7 +302,12 @@ export function ContactDrawer({
               </span>
             </div>
             <div className="flex flex-col">
-              <span className="text-[11px] font-medium text-stone-500">Status</span>
+              <span
+                className="text-[11px] font-medium text-stone-500"
+                title="Recency of interaction: Active (<30d), Slipping (30-60d), Dormant (>60d)"
+              >
+                Recency
+              </span>
               <span className="text-xs font-bold uppercase tracking-wider text-stone-700 dark:text-stone-300 mt-1.5">
                 {person.driftStatus}
               </span>
@@ -266,6 +365,7 @@ export function ContactDrawer({
               allLists={allLists}
               allTags={allTags}
               onPersonUpdated={onPersonUpdated}
+              onCreateList={onCreateList}
             />
           )}
         </div>

@@ -17,28 +17,23 @@ import {
   SheetTitle,
 } from "@workspace/ui/components/sheet"
 import { Textarea } from "@workspace/ui/components/textarea"
-import type { Person } from "../lib/types"
-
-const statusOptions = [
-  { id: "new", label: "New", color: "bg-amber-400" },
-  { id: "active", label: "Active", color: "bg-sky-500" },
-  { id: "close", label: "Close", color: "bg-emerald-500" },
-  { id: "dormant", label: "Dormant", color: "bg-stone-400" },
-]
+import type { ListRecord, Person } from "../lib/types"
 
 export function AddContactDialog({
   open,
   onOpenChange,
   onCreated,
+  allLists = [],
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreated: (person: Person) => void
+  allLists?: ListRecord[]
 }) {
   const [name, setName] = useState("")
   const [handle, setHandle] = useState("")
   const [notes, setNotes] = useState("")
-  const [status, setStatus] = useState("new")
+  const [selectedListId, setSelectedListId] = useState<string>("none")
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -55,7 +50,7 @@ export function AddContactDialog({
           name: name.trim(),
           handle: handle.trim() ? handle.trim().replace(/^@/, "") : null,
           notes: notes.trim() || null,
-          relationshipStatus: status,
+          relationshipStatus: "active",
         }),
       })
       if (!res.ok) {
@@ -63,11 +58,34 @@ export function AddContactDialog({
         throw new Error(body.error || "Failed to add person")
       }
       const data = await res.json()
-      onCreated(data.person)
+      let createdPerson: Person = data.person
+
+      if (selectedListId && selectedListId !== "none") {
+        try {
+          const listRes = await fetch(`/api/v1/lists/${selectedListId}/members`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ personId: createdPerson.id }),
+          })
+          if (listRes.ok) {
+            const listObj = allLists.find((l) => l.id === selectedListId)
+            if (listObj) {
+              createdPerson = {
+                ...createdPerson,
+                lists: [{ id: listObj.id, name: listObj.name }],
+              }
+            }
+          }
+        } catch {
+          // Non-blocking
+        }
+      }
+
+      onCreated(createdPerson)
       setName("")
       setHandle("")
       setNotes("")
-      setStatus("new")
+      setSelectedListId("none")
       onOpenChange(false)
     } catch (err: any) {
       setError(err.message)
@@ -119,22 +137,26 @@ export function AddContactDialog({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold">Initial Status</label>
-            <Select value={status} onValueChange={setStatus}>
-              <SelectTrigger className="h-9 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {statusOptions.map((opt) => (
-                  <SelectItem key={opt.id} value={opt.id} className="text-xs">
-                    <span className={`inline-block size-2 rounded-full mr-2 ${opt.color}`} />
-                    {opt.label}
+          {allLists.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold">Add to List (Optional)</label>
+              <Select value={selectedListId} onValueChange={setSelectedListId}>
+                <SelectTrigger className="h-9 text-xs">
+                  <SelectValue placeholder="Select a list…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none" className="text-xs">
+                    (No list)
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+                  {allLists.map((l) => (
+                    <SelectItem key={l.id} value={l.id} className="text-xs">
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label htmlFor="add-notes" className="text-xs font-semibold">

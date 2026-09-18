@@ -30,6 +30,7 @@ const personInput = z.object({
   relationshipStatus: relationshipStatus.optional().nullable(),
   substackProfileId: z.string().max(200).optional().nullable(),
   profileUrl: z.string().url().max(500).optional().nullable(),
+  avatarUrl: z.string().url().max(1000).optional().nullable(),
 })
 
 peopleRoutes.get("/people", async (c) => {
@@ -43,6 +44,10 @@ peopleRoutes.get("/people", async (c) => {
       sort: c.req.query("sort") || undefined,
       since: c.req.query("since") || undefined,
       until: c.req.query("until") || undefined,
+      hasRestack: c.req.query("hasRestack") === "true",
+      hasComment: c.req.query("hasComment") === "true",
+      hasLike: c.req.query("hasLike") === "true",
+      actionType: c.req.query("actionType") || undefined,
       limit: Number(c.req.query("limit") ?? 1000),
       offset: c.req.query("offset") ? Number(c.req.query("offset")) : undefined,
     })
@@ -68,7 +73,7 @@ peopleRoutes.get("/people/:personId", async (c) => {
 })
 
 peopleRoutes.patch("/people/:personId", async (c) => {
-  const parsed = personInput.safeParse(await c.req.json())
+  const parsed = personInput.partial().safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: "Invalid person" }, 400)
   const person = await withTenant({ appUserId: c.get("appUser") }, (client) =>
     updatePerson(client, c.req.param("personId"), parsed.data)

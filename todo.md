@@ -27,7 +27,15 @@ What exists:
   - Views & Queues: All, Needs Your Reply, Ball in Their Court (with 7-day cutoff), Priority to Engage, Mutual Circle, Conversations, Inbound, Outbound, Opportunities, No History.
   - Priority to Engage queue with user-customizable adaptive thresholds (unreciprocated supporters, recent restackers, drifting advocates).
   - User Settings (`app_users.settings` JSONB column via Migration `012_user_settings.sql`) and slide-over Settings UI for customizing queue criteria and scoring parameters.
-  - Sidebar: view navigation with informative interactive hover tooltips for directories, list management (create, member counts), tag filters, Queue Settings launcher, and Badge & Scoring Guide drawer.
+  - Migration `013_people_avatar_url.sql`: `avatar_url` column added to `people` table with backfill from retained `profile_snapshots`, ingestion pipeline population, and worker enrichment.
+- Contact profile pictures: Rendered cleanly across Contact Cards and Contact Drawer using `referrerPolicy="no-referrer"` to safely bypass Substack CDN anti-hotlinking.
+- Extension Distribution: `circles-companion-0.2.5.zip` added to `apps/web/public/downloads/` and accessible via a dedicated Chrome Extension tab in Settings Dialog with step-by-step Developer Mode instructions.
+- Ignored List & Action Filtering: Contacts in the "Ignored" list are dynamically excluded from Action Queues (`priority`, `needs-reply`, `awaiting-response`, `mutual`); distinct 🚫 styling in sidebar and cards; quick Ignore/Unignore toggle button in contact drawer header; action queues can be filtered by any custom list.
+- "Needs Your Reply" Logic Refined: Excludes contacts where user liked last or liked after the latest inbound comment (conversation acknowledged).
+- Profile Restacks Filter: Profile breakdown and timeline feature always-visible restack filter chips and reciprocal engagement counts.
+- Recency Drift Clarification: Replaced ambiguous stage statuses with user-defined Lists and clarified the "Active" status as an objective 30-day interaction recency drift indicator.
+- Inline List Creation: Allows creating and immediately assigning new lists directly from the contact drawer's Notes & Memberships tab.
+- Advanced Filters & Bi-directional Sorting: Filter contacts by interaction type (restacks, comments, likes); sort by newest/oldest activity by them (inbound) or by me (outbound), as well as lowest/highest engagement.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
   - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), exact target excerpts for Likes, honest unavailable-content fallbacks, Substack external links, cursor pagination.
   - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.

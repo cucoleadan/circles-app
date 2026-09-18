@@ -519,6 +519,13 @@ export async function processProfileEnrichment(
           [profileData.name, personId, userId]
         )
       }
+      const enrichedPhoto = profileData?.photo_url || profileData?.avatar_url || null
+      if (enrichedPhoto) {
+        await client.query(
+          "update people set avatar_url = $1, updated_at = now() where id = $2 and user_id = $3 and (avatar_url is null or avatar_url = '')",
+          [enrichedPhoto, personId, userId]
+        )
+      }
 
       return { success: true }
     } catch (err: any) {

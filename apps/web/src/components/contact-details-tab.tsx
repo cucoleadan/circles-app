@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react"
-import { Tag, X } from "lucide-react"
+import { useEffect, useState, type SyntheticEvent } from "react"
+import { Plus, Tag, X } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
+import { Input } from "@workspace/ui/components/input"
 import {
   Select,
   SelectContent,
@@ -32,17 +33,22 @@ export function ContactDetailsTab({
   allLists,
   allTags,
   onPersonUpdated,
+  onCreateList,
 }: {
   person: Person
   allLists: ListRecord[]
   allTags: TagRecord[]
   onPersonUpdated: (updated: Person) => void
+  onCreateList?: (name: string) => Promise<ListRecord | void>
 }) {
   const [notes, setNotes] = useState(person.notes ?? "")
   const [savingNotes, setSavingNotes] = useState(false)
   const [notesSaved, setNotesSaved] = useState(false)
   const [selectedListToAdd, setSelectedListToAdd] = useState<string>("")
   const [selectedTagToAdd, setSelectedTagToAdd] = useState<string>("")
+  const [isCreatingList, setIsCreatingList] = useState(false)
+  const [newListName, setNewListName] = useState("")
+  const [creatingListLoading, setCreatingListLoading] = useState(false)
 
   useEffect(() => {
     setNotes(person.notes ?? "")
@@ -87,6 +93,42 @@ export function ContactDetailsTab({
       setSelectedListToAdd("")
     } catch (err) {
       console.error(err)
+    }
+  }
+
+  async function handleCreateAndAddList(e?: SyntheticEvent<HTMLFormElement>) {
+    if (e) e.preventDefault()
+    const trimmed = newListName.trim()
+    if (!trimmed || creatingListLoading) return
+    setCreatingListLoading(true)
+    try {
+      let createdList: { id: string; name: string } | null = null
+      if (onCreateList) {
+        const result = await onCreateList(trimmed)
+        if (result && "id" in result) {
+          createdList = result
+        }
+      }
+      if (!createdList) {
+        const res = await fetch("/api/v1/lists", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        })
+        if (!res.ok) throw new Error("Failed to create list")
+        const data = await res.json()
+        createdList = data.list
+      }
+
+      if (createdList) {
+        await addToList(createdList.id)
+      }
+      setNewListName("")
+      setIsCreatingList(false)
+    } catch (err) {
+      console.error("Error creating and adding list:", err)
+    } finally {
+      setCreatingListLoading(false)
     }
   }
 
@@ -209,20 +251,74 @@ export function ContactDetailsTab({
           )}
         </div>
 
-        {availableLists.length > 0 && (
+        {isCreatingList ? (
+          <form onSubmit={handleCreateAndAddList} className="flex items-center gap-2 pt-1">
+            <Input
+              type="text"
+              value={newListName}
+              onChange={(e) => setNewListName(e.target.value)}
+              placeholder="List name (e.g. VIP, Ignored, Follow-up)..."
+              className="h-8 text-xs max-w-64 bg-white dark:bg-stone-900"
+              autoFocus
+            />
+            <Button
+              type="submit"
+              size="sm"
+              className="h-8 text-xs px-2.5"
+              disabled={!newListName.trim() || creatingListLoading}
+            >
+              {creatingListLoading ? "Adding…" : "Add"}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-8 text-xs px-2"
+              onClick={() => {
+                setIsCreatingList(false)
+                setNewListName("")
+              }}
+            >
+              Cancel
+            </Button>
+          </form>
+        ) : (
           <div className="flex items-center gap-2 pt-1">
-            <Select value={selectedListToAdd} onValueChange={addToList}>
-              <SelectTrigger className="h-8 text-xs max-w-56 bg-white dark:bg-stone-900">
-                <SelectValue placeholder="+ Add to list…" />
-              </SelectTrigger>
-              <SelectContent>
-                {availableLists.map((l) => (
-                  <SelectItem key={l.id} value={l.id} className="text-xs">
-                    {l.name}
+            {availableLists.length > 0 && (
+              <Select
+                value={selectedListToAdd}
+                onValueChange={(val) => {
+                  if (val === "__create_new__") {
+                    setIsCreatingList(true)
+                  } else {
+                    addToList(val)
+                  }
+                }}
+              >
+                <SelectTrigger className="h-8 text-xs max-w-56 bg-white dark:bg-stone-900">
+                  <SelectValue placeholder="+ Add to list…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableLists.map((l) => (
+                    <SelectItem key={l.id} value={l.id} className="text-xs">
+                      {l.name}
+                    </SelectItem>
+                  ))}
+                  <SelectItem value="__create_new__" className="text-xs font-medium text-primary">
+                    + Create New List…
                   </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+                </SelectContent>
+              </Select>
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs gap-1"
+              onClick={() => setIsCreatingList(true)}
+            >
+              <Plus className="size-3" /> New List
+            </Button>
           </div>
         )}
       </div>

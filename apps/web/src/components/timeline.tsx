@@ -227,45 +227,39 @@ export function Timeline({
         >
           All ({interactions.length})
         </button>
-        {commentCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setFilter("comments")}
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
-              filter === "comments"
-                ? "bg-[#191817] text-white shadow-2xs"
-                : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
-            }`}
-          >
-            💬 Comments ({commentCount})
-          </button>
-        )}
-        {likeCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setFilter("likes")}
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
-              filter === "likes"
-                ? "bg-[#191817] text-white shadow-2xs"
-                : "bg-rose-50 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300"
-            }`}
-          >
-            ❤️ Likes ({likeCount})
-          </button>
-        )}
-        {restackCount > 0 && (
-          <button
-            type="button"
-            onClick={() => setFilter("restacks")}
-            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
-              filter === "restacks"
-                ? "bg-[#191817] text-white shadow-2xs"
-                : "bg-violet-50 text-violet-800 hover:bg-violet-100 dark:bg-violet-950/50 dark:text-violet-300"
-            }`}
-          >
-            🔁 Restacks ({restackCount})
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => setFilter("restacks")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "restacks"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-violet-50 text-violet-800 hover:bg-violet-100 dark:bg-violet-950/50 dark:text-violet-300"
+          }`}
+        >
+          🔁 Restacks ({restackCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter("comments")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "comments"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
+          }`}
+        >
+          💬 Comments ({commentCount})
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter("likes")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "likes"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-rose-50 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300"
+          }`}
+        >
+          ❤️ Likes ({likeCount})
+        </button>
         <button
           type="button"
           onClick={() => setFilter("inbound")}

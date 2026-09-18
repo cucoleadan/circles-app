@@ -5,6 +5,7 @@ import {
   Bookmark,
   Check,
   Clock,
+  EyeOff,
   HelpCircle,
   Inbox,
   MessageSquare,
@@ -114,7 +115,7 @@ export function CirclesSidebar({
   lists: ListRecord[]
   tags: TagRecord[]
   overview: CirclesOverview | null
-  onCreateList: (name: string) => Promise<void>
+  onCreateList: (name: string) => Promise<ListRecord | void>
   onOpenBadgeGuide?: () => void
   onOpenSettings?: () => void
 }) {
@@ -325,26 +326,39 @@ export function CirclesSidebar({
         <div className="space-y-0.5">
           {lists.map((l) => {
             const isActive = selectedListId === l.id
+            const isIgnored = l.name.toLowerCase() === "ignored"
             return (
               <button
                 key={l.id}
                 type="button"
-                title={`Filter by list: ${l.name} (${l.count} ${l.count === 1 ? "contact" : "contacts"})`}
+                title={`Filter by list: ${l.name} (${l.count} ${l.count === 1 ? "contact" : "contacts"})${
+                  isIgnored ? " · Excluded from Action Queues" : ""
+                }`}
                 onClick={() => {
                   onTagChange(null)
                   onListChange(isActive ? null : l.id)
                 }}
                 className={`w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg text-xs transition-colors ${
                   isActive
-                    ? "bg-stone-200/80 font-semibold text-stone-900 dark:bg-stone-800 dark:text-stone-100"
-                    : "text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800/60"
+                    ? isIgnored
+                      ? "bg-rose-100 font-semibold text-rose-900 dark:bg-rose-950/60 dark:text-rose-200"
+                      : "bg-stone-200/80 font-semibold text-stone-900 dark:bg-stone-800 dark:text-stone-100"
+                    : isIgnored
+                      ? "text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                      : "text-stone-600 hover:bg-stone-100 dark:text-stone-400 dark:hover:bg-stone-800/60"
                 }`}
               >
                 <div className="flex items-center gap-2 truncate">
-                  <Bookmark className="size-3.5 text-stone-400 shrink-0" />
+                  {isIgnored ? (
+                    <EyeOff className="size-3.5 text-rose-500 shrink-0" />
+                  ) : (
+                    <Bookmark className="size-3.5 text-stone-400 shrink-0" />
+                  )}
                   <span className="truncate">{l.name}</span>
                 </div>
-                <span className="text-[11px] text-stone-400 shrink-0">{l.count}</span>
+                <span className={`text-[11px] shrink-0 ${isIgnored ? "text-rose-400" : "text-stone-400"}`}>
+                  {l.count}
+                </span>
               </button>
             )
           })}

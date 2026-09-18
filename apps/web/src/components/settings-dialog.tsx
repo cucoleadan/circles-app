@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Check,
   CheckCircle2,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -11,6 +12,7 @@ import {
   HeartHandshake,
   Info,
   Key,
+  Puzzle,
   RefreshCw,
   Repeat,
   RotateCcw,
@@ -61,11 +63,11 @@ export function SettingsDialog({
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
-  initialTab?: "connection" | "queue"
+  initialTab?: "connection" | "queue" | "extension"
   onSaved?: () => void
   onConnectionUpdated?: () => void
 }) {
-  const [activeTab, setActiveTab] = useState<"connection" | "queue">(initialTab)
+  const [activeTab, setActiveTab] = useState<"connection" | "queue" | "extension">(initialTab)
   const [settings, setSettings] = useState<UserSettings>(defaultSettings)
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -257,6 +259,21 @@ export function SettingsDialog({
             >
               <Sparkles className="size-3.5" />
               Smart Queue Rules
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("extension")}
+              className={`pb-2 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all ${
+                activeTab === "extension"
+                  ? "border-[#f15a3a] text-[#f15a3a]"
+                  : "border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+              }`}
+            >
+              <Puzzle className="size-3.5" />
+              Chrome Extension
+              <span className="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 px-1.5 py-0.2 text-[9px] font-bold">
+                v0.2.5
+              </span>
             </button>
           </div>
         </SheetHeader>
@@ -610,6 +627,143 @@ export function SettingsDialog({
                 </>
               )}
             </>
+          )}
+
+          {activeTab === "extension" && (
+            <div className="space-y-5">
+              {/* Extension Hero & Download Card */}
+              <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="size-10 rounded-xl bg-gradient-to-br from-[#f15a3a] to-[#ff7e5f] text-white flex items-center justify-center shadow-xs">
+                      <Puzzle className="size-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-stone-900 dark:text-stone-100 text-sm flex items-center gap-2">
+                        Circles Companion Extension
+                        <span className="rounded-full bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300 px-2 py-0.5 text-[10px] font-semibold">
+                          v0.2.5
+                        </span>
+                      </h3>
+                      <p className="text-[11.5px] text-muted-foreground mt-0.5">
+                        Chrome Manifest V3 · Seamless Substack sync &amp; outbound touch capture
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-stone-600 dark:text-stone-300 text-xs leading-relaxed">
+                  While our official Chrome Web Store listing is awaiting store verification, you can install the extension directly in Developer Mode in less than 60 seconds.
+                </p>
+
+                <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                  <a
+                    href="/downloads/circles-companion-0.2.5.zip"
+                    download="circles-companion-0.2.5.zip"
+                    className="inline-flex items-center justify-center gap-2 rounded-full bg-[#191817] hover:bg-[#302e2c] text-white px-5 py-2.5 text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <Download className="size-4" />
+                    Download Extension ZIP (v0.2.5)
+                  </a>
+                  <span className="text-[11px] text-muted-foreground self-center">
+                    (Zip archive · 58 KB)
+                  </span>
+                </div>
+              </div>
+
+              {/* Step-by-Step Installation Guide */}
+              <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-3.5">
+                <h4 className="font-bold text-stone-900 dark:text-stone-100 text-xs uppercase tracking-wider text-stone-500">
+                  Quick 5-Step Installation Guide
+                </h4>
+
+                <ol className="space-y-3 pt-1 text-xs">
+                  <li className="flex items-start gap-2.5">
+                    <span className="size-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                      1
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-stone-800 dark:text-stone-200">
+                        Download &amp; Unzip
+                      </p>
+                      <p className="text-muted-foreground text-[11.5px]">
+                        Click the download button above. Once downloaded, extract (unzip) the file to an easily accessible folder on your computer.
+                      </p>
+                    </div>
+                  </li>
+
+                  <li className="flex items-start gap-2.5">
+                    <span className="size-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                      2
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-stone-800 dark:text-stone-200">
+                        Open Chrome Extension Manager
+                      </p>
+                      <p className="text-muted-foreground text-[11.5px]">
+                        In Chrome, Brave, or Edge, open a new tab and navigate to{" "}
+                        <code className="bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded font-mono text-[11px]">
+                          chrome://extensions
+                        </code>
+                        .
+                      </p>
+                    </div>
+                  </li>
+
+                  <li className="flex items-start gap-2.5">
+                    <span className="size-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                      3
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-stone-800 dark:text-stone-200">
+                        Enable Developer Mode
+                      </p>
+                      <p className="text-muted-foreground text-[11.5px]">
+                        In the top right corner of the Extensions page, switch the <strong>Developer mode</strong> toggle to ON.
+                      </p>
+                    </div>
+                  </li>
+
+                  <li className="flex items-start gap-2.5">
+                    <span className="size-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                      4
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-stone-800 dark:text-stone-200">
+                        Click "Load unpacked"
+                      </p>
+                      <p className="text-muted-foreground text-[11.5px]">
+                        Click the <strong>Load unpacked</strong> button in the top-left toolbar, and select the unzipped extension folder (containing <code className="font-mono">manifest.json</code>).
+                      </p>
+                    </div>
+                  </li>
+
+                  <li className="flex items-start gap-2.5">
+                    <span className="size-5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 font-bold flex items-center justify-center shrink-0 text-[11px]">
+                      5
+                    </span>
+                    <div className="space-y-0.5">
+                      <p className="font-semibold text-stone-800 dark:text-stone-200">
+                        Browse Substack
+                      </p>
+                      <p className="text-muted-foreground text-[11.5px]">
+                        Open Substack in your browser. The companion automatically detects your account and captures your outbound likes, restacks, and comments into Circles!
+                      </p>
+                    </div>
+                  </li>
+                </ol>
+              </div>
+
+              {/* Web Store Note */}
+              <div className="rounded-xl border border-stone-200/60 bg-stone-50 p-4 dark:border-stone-800/60 dark:bg-stone-900/40 text-stone-600 dark:text-stone-400 text-xs">
+                <p className="flex items-center gap-1.5 font-semibold text-stone-800 dark:text-stone-200">
+                  <Info className="size-3.5 text-[#f15a3a]" /> Chrome Web Store status
+                </p>
+                <p className="mt-1 text-[11.5px] leading-relaxed">
+                  As soon as our Chrome Web Store listing is approved, you will be able to install it with 1 click directly from Google for automatic updates.
+                </p>
+              </div>
+            </div>
           )}
         </div>
 

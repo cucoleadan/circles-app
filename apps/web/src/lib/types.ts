@@ -17,6 +17,7 @@ export interface Person {
   relationshipStatus: "new" | "active" | "close" | "dormant" | string | null
   substackProfileId: string | null
   profileUrl: string | null
+  avatarUrl?: string | null
   source: string
   createdAt: string
   updatedAt: string
@@ -37,6 +38,7 @@ export interface Person {
   lastActionDirection?: string | null
   lastInboundCommentAt?: string | null
   lastOutboundCommentAt?: string | null
+  lastOutboundLikeAt?: string | null
   likeCount?: number
   restackCount?: number
   commentCount?: number
@@ -67,9 +69,12 @@ export interface CirclesOverview {
 
 export interface Interaction {
   id: string
+  personId: string | null
+  externalId: string
+  source: "extension" | "sdk" | "import" | string
   direction: "inbound" | "outbound"
-  actionType: "like" | "restack" | "comment" | "reply" | string
-  targetType: string | null
+  actionType: "comment" | "reply" | "like" | "restack" | "subscribe" | "mention" | "other" | string
+  targetType: "post" | "note" | "comment" | "profile" | string | null
   targetId: string | null
   targetTitle: string | null
   targetBody: string | null
@@ -96,11 +101,18 @@ export type PeopleView =
 
 export type PeopleSort =
   | "engagement"
+  | "engagement_asc"
   | "recent_conversation"
   | "recent_interaction"
+  | "recent_interaction_desc"
+  | "recent_interaction_asc"
   | "name"
   | "inbound"
+  | "inbound_desc"
+  | "inbound_asc"
   | "outbound"
+  | "outbound_desc"
+  | "outbound_asc"
   | "priority"
 
 export type DateRangePreset = "all" | "7d" | "14d" | "30d" | "90d"

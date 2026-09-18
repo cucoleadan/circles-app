@@ -1,5 +1,5 @@
 import { ArrowUpRight, Clock, MessageSquare, Sparkles } from "lucide-react"
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
+import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import type { Person } from "../lib/types"
 
 const statusColors: Record<string, string> = {
@@ -77,6 +77,9 @@ export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
   const lastOutboundComment = person.lastOutboundCommentAt
     ? new Date(person.lastOutboundCommentAt).getTime()
     : 0
+  const lastOutboundLike = person.lastOutboundLikeAt
+    ? new Date(person.lastOutboundLikeAt).getTime()
+    : 0
   const lastAction = person.lastActionType
   const lastDir = person.lastActionDirection
 
@@ -84,8 +87,21 @@ export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
     return null
   }
 
-  // 1. Comments and replies are the only triggers for "Needs your reply" and "Awaiting response"
+  // If you liked last (or liked after their comment), convo is ended/acknowledged
+  const iLikedLast =
+    (lastDir === "outbound" && lastAction === "like") ||
+    (lastOutboundLike > 0 && lastInboundComment > 0 && lastOutboundLike > lastInboundComment)
+
+  // 1. Comments and replies are triggers for "Needs your reply" and "Ball in their court"
   if (lastInboundComment > 0 && lastInboundComment > lastOutboundComment) {
+    if (iLikedLast) {
+      return {
+        label: "You liked last",
+        sublabel: "Convo acknowledged",
+        variant: "stone",
+        icon: "❤️",
+      }
+    }
     return {
       label: "Needs your reply",
       sublabel: "Commented last",
@@ -210,6 +226,13 @@ export function ContactCard({
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="relative shrink-0">
               <Avatar className="size-10 border border-stone-100 shadow-2xs dark:border-stone-800">
+                {person.avatarUrl && (
+                  <AvatarImage
+                    src={person.avatarUrl}
+                    alt={person.name}
+                    referrerPolicy="no-referrer"
+                  />
+                )}
                 <AvatarFallback className="bg-stone-100 font-semibold text-stone-700 text-xs dark:bg-stone-800 dark:text-stone-300">
                   {initials(person.name)}
                 </AvatarFallback>
@@ -311,14 +334,21 @@ export function ContactCard({
         {/* Lists Badges */}
         {person.lists && person.lists.length > 0 && (
           <div className="mt-2.5 flex flex-wrap gap-1">
-            {person.lists.map((l) => (
-              <span
-                key={l.id}
-                className="rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[10px] font-medium text-stone-700 dark:text-stone-300"
-              >
-                {l.name}
-              </span>
-            ))}
+            {person.lists.map((l) => {
+              const isIgnored = l.name.toLowerCase() === "ignored"
+              return (
+                <span
+                  key={l.id}
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    isIgnored
+                      ? "bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-900/60"
+                      : "bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300"
+                  }`}
+                >
+                  {isIgnored ? "🚫 Ignored" : l.name}
+                </span>
+              )
+            })}
           </div>
         )}
 

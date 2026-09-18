@@ -9,6 +9,7 @@ export type PoolLike = PoolClient
 const personColumns = `p.id, p.name, p.handle, p.notes,
     p.relationship_status as "relationshipStatus",
     p.substack_profile_id as "substackProfileId", p.profile_url as "profileUrl",
+    p.avatar_url as "avatarUrl",
     p.source, p.created_at as "createdAt", p.updated_at as "updatedAt",
     p.archived_at as "archivedAt"`
 
@@ -47,6 +48,7 @@ export interface Person {
   relationshipStatus: string | null
   substackProfileId: string | null
   profileUrl: string | null
+  avatarUrl?: string | null
   source: string
   createdAt: string
   updatedAt: string
@@ -70,6 +72,7 @@ export interface PersonWithStats extends Person {
   lastActionDirection?: string | null
   lastInboundCommentAt?: string | null
   lastOutboundCommentAt?: string | null
+  lastOutboundLikeAt?: string | null
   likeCount?: number
   restackCount?: number
   commentCount?: number
@@ -78,12 +81,13 @@ export interface PersonWithStats extends Person {
 }
 
 export interface PersonInput {
-  name: string
+  name?: string
   handle?: string | null
   notes?: string | null
   relationshipStatus?: string | null
   substackProfileId?: string | null
   profileUrl?: string | null
+  avatarUrl?: string | null
 }
 
 export const normalizeHandle = (handle: string) =>
@@ -208,6 +212,10 @@ export async function listPeople(
     until?: string
     limit?: number
     offset?: number
+    hasRestack?: boolean
+    hasComment?: boolean
+    hasLike?: boolean
+    actionType?: "restack" | "comment" | "like" | "all" | string
   } = {}
 ): Promise<PersonWithStats[]> {
   const limit = Math.min(Math.max(options.limit ?? 1000, 1), 5000)
@@ -236,11 +244,29 @@ export async function listPeople(
     )
   }
 
+  // Automatically exclude people in the "Ignored" list from Action Queues
+  const isActionQueue = ["priority", "needs-reply", "awaiting-response", "mutual"].includes(options.view ?? "")
+  if (isActionQueue) {
+    conditions.push(
+      `not exists (
+        select 1 from list_members lm
+        join lists l on l.id = lm.list_id
+        where lm.person_id = p.id and lower(l.name) = 'ignored'
+      )`
+    )
+  }
+
   if (options.view === "conversations") {
     conditions.push("coalesce(s.conversation_count, 0) > 0")
   } else if (options.view === "needs-reply") {
+    // Needs reply if they commented last AND you haven't liked or replied since
     conditions.push(
-      "(act_counts.\"lastInboundCommentAt\" is not null and (act_counts.\"lastOutboundCommentAt\" is null or act_counts.\"lastInboundCommentAt\" > act_counts.\"lastOutboundCommentAt\"))"
+      `(act_counts."lastInboundCommentAt" is not null
+        and (act_counts."lastOutboundCommentAt" is null or act_counts."lastInboundCommentAt" > act_counts."lastOutboundCommentAt")
+        and not (
+          (last_act."lastActionDirection" = 'outbound' and last_act."lastActionType" = 'like')
+          or (act_counts."lastOutboundLikeAt" is not null and act_counts."lastOutboundLikeAt" > act_counts."lastInboundCommentAt")
+        ))`
     )
   } else if (options.view === "awaiting-response") {
     conditions.push(
@@ -283,6 +309,17 @@ export async function listPeople(
     )
   }
 
+  // Advanced Interaction Filters
+  if (options.hasRestack || options.actionType === "restack") {
+    conditions.push(`coalesce(act_counts."restackCount", 0) > 0`)
+  }
+  if (options.hasComment || options.actionType === "comment") {
+    conditions.push(`coalesce(act_counts."commentCount", 0) > 0`)
+  }
+  if (options.hasLike || options.actionType === "like") {
+    conditions.push(`coalesce(act_counts."likeCount", 0) > 0`)
+  }
+
   const dateColumn =
     options.view === "conversations" ? "s.last_conversation_at" :
     options.view === "needs-reply" ? "act_counts.\"lastInboundCommentAt\"" :
@@ -321,12 +358,20 @@ export async function listPeople(
     orderBy = "act_counts.\"lastOutboundCommentAt\" desc nulls last, lower(p.name)"
   } else if (sort === "priority" || options.view === "priority") {
     orderBy = "(coalesce(s.inbound_interaction_count, 0) - coalesce(s.outbound_interaction_count, 0)) desc, coalesce(s.engagement_score, 0) desc, s.last_inbound_at desc nulls last, lower(p.name)"
-  } else if (sort === "recent_interaction") {
+  } else if (sort === "recent_interaction" || sort === "recent_interaction_desc") {
     orderBy = "s.last_interaction_at desc nulls last, lower(p.name)"
-  } else if (sort === "inbound") {
+  } else if (sort === "recent_interaction_asc") {
+    orderBy = "s.last_interaction_at asc nulls last, lower(p.name)"
+  } else if (sort === "inbound" || sort === "inbound_desc") {
     orderBy = "s.last_inbound_at desc nulls last, lower(p.name)"
-  } else if (sort === "outbound") {
+  } else if (sort === "inbound_asc") {
+    orderBy = "s.last_inbound_at asc nulls last, lower(p.name)"
+  } else if (sort === "outbound" || sort === "outbound_desc") {
     orderBy = "s.last_outbound_at desc nulls last, lower(p.name)"
+  } else if (sort === "outbound_asc") {
+    orderBy = "s.last_outbound_at asc nulls last, lower(p.name)"
+  } else if (sort === "engagement_asc") {
+    orderBy = "coalesce(s.engagement_score, 0) asc, s.last_interaction_at asc nulls last, lower(p.name)"
   } else if (sort === "name") {
     orderBy = "lower(p.name), p.id"
   }
@@ -346,6 +391,7 @@ export async function listPeople(
        last_act."lastActionDirection",
        act_counts."lastInboundCommentAt",
        act_counts."lastOutboundCommentAt",
+       act_counts."lastOutboundLikeAt",
        coalesce(act_counts."likeCount", 0)::int as "likeCount",
        coalesce(act_counts."restackCount", 0)::int as "restackCount",
        coalesce(act_counts."commentCount", 0)::int as "commentCount",
@@ -372,6 +418,7 @@ export async function listPeople(
         select
           max(occurred_at) filter (where direction = 'inbound' and action_type in ('comment', 'reply')) as "lastInboundCommentAt",
           max(occurred_at) filter (where direction = 'outbound' and action_type in ('comment', 'reply')) as "lastOutboundCommentAt",
+          max(occurred_at) filter (where direction = 'outbound' and action_type = 'like') as "lastOutboundLikeAt",
           count(*) filter (where action_type = 'like') as "likeCount",
           count(*) filter (where action_type = 'restack') as "restackCount",
           count(*) filter (where action_type in ('comment', 'reply')) as "commentCount"
@@ -400,6 +447,7 @@ export async function getPerson(
        last_act."lastActionDirection",
        act_counts."lastInboundCommentAt",
        act_counts."lastOutboundCommentAt",
+       act_counts."lastOutboundLikeAt",
        coalesce(act_counts."likeCount", 0)::int as "likeCount",
        coalesce(act_counts."restackCount", 0)::int as "restackCount",
        coalesce(act_counts."commentCount", 0)::int as "commentCount"
@@ -416,6 +464,7 @@ export async function getPerson(
         select
           max(occurred_at) filter (where direction = 'inbound' and action_type in ('comment', 'reply')) as "lastInboundCommentAt",
           max(occurred_at) filter (where direction = 'outbound' and action_type in ('comment', 'reply')) as "lastOutboundCommentAt",
+          max(occurred_at) filter (where direction = 'outbound' and action_type = 'like') as "lastOutboundLikeAt",
           count(*) filter (where action_type = 'like') as "likeCount",
           count(*) filter (where action_type = 'restack') as "restackCount",
           count(*) filter (where action_type in ('comment', 'reply')) as "commentCount"
@@ -456,19 +505,20 @@ export async function createPerson(
   const result = await client.query(
     `insert into people
         (id, user_id, name, handle, normalized_handle, notes, relationship_status,
-         substack_profile_id, profile_url, source)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'manual')
+         substack_profile_id, profile_url, avatar_url, source)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'manual')
      returning ${plainPersonColumns}`,
     [
       randomUUID(),
       userId,
-      input.name,
+      input.name ?? (handle || "Unnamed Contact"),
       handle,
       handle ? normalizeHandle(handle) : null,
       input.notes ?? null,
       input.relationshipStatus ?? null,
       input.substackProfileId ?? null,
       input.profileUrl ?? null,
+      input.avatarUrl ?? null,
     ]
   )
   return result.rows[0]
@@ -479,24 +529,47 @@ export async function updatePerson(
   personId: string,
   input: PersonInput
 ): Promise<Person | null> {
-  const handle = input.handle?.trim() ? input.handle : null
+  const updates: string[] = ["updated_at = now()"]
+  const params: unknown[] = [personId]
+
+  if (input.name !== undefined && input.name !== null) {
+    params.push(input.name)
+    updates.push(`name = $${params.length}`)
+  }
+  if (input.handle !== undefined) {
+    const handle = input.handle?.trim() ? input.handle : null
+    params.push(handle)
+    updates.push(`handle = $${params.length}`)
+    params.push(handle ? normalizeHandle(handle) : null)
+    updates.push(`normalized_handle = $${params.length}`)
+  }
+  if (input.notes !== undefined) {
+    params.push(input.notes)
+    updates.push(`notes = $${params.length}`)
+  }
+  if (input.relationshipStatus !== undefined) {
+    params.push(input.relationshipStatus)
+    updates.push(`relationship_status = $${params.length}`)
+  }
+  if (input.substackProfileId !== undefined) {
+    params.push(input.substackProfileId)
+    updates.push(`substack_profile_id = $${params.length}`)
+  }
+  if (input.profileUrl !== undefined) {
+    params.push(input.profileUrl)
+    updates.push(`profile_url = $${params.length}`)
+  }
+  if (input.avatarUrl !== undefined) {
+    params.push(input.avatarUrl)
+    updates.push(`avatar_url = $${params.length}`)
+  }
+
   const result = await client.query(
     `update people
-        set name = $2, handle = $3, normalized_handle = $4, notes = $5,
-            relationship_status = $6, substack_profile_id = $7, profile_url = $8,
-            updated_at = now()
+        set ${updates.join(", ")}
       where id = $1 and archived_at is null
       returning ${plainPersonColumns}`,
-    [
-      personId,
-      input.name,
-      handle,
-      handle ? normalizeHandle(handle) : null,
-      input.notes ?? null,
-      input.relationshipStatus ?? null,
-      input.substackProfileId ?? null,
-      input.profileUrl ?? null,
-    ]
+    params
   )
   return result.rows[0] ?? null
 }
