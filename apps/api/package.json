@@ -7,6 +7,8 @@
     "start": "bun dist/index.js",
     "migrate": "bun dist/migrate.js",
     "reset-password": "bun dist/reset-password.js",
+    "create-user": "bun dist/create-user.js",
+    "update-connection": "bun dist/update-connection.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.test.json",
     "test": "bun test"
   },

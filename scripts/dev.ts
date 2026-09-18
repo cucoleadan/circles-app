@@ -136,7 +136,7 @@ try {
       BETTER_AUTH_SECRET:
         process.env.BETTER_AUTH_SECRET ??
         crypto.randomUUID() + crypto.randomUUID(),
-      ALLOW_SIGNUP: "false",
+      ALLOW_SIGNUP: process.env.ALLOW_SIGNUP ?? "false",
       ASTRO_DEV_BACKGROUND: "0",
     }
     const spawn = (command: string[], cwd: string) =>

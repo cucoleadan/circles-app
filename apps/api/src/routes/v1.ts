@@ -276,7 +276,7 @@ v1.get("/connection", async (c) => {
               status, last_verified_at as "lastVerifiedAt",
               created_at as "createdAt"
        from substack_connections
-       where user_id = $1 and status = 'active'
+       where user_id = $1 and status != 'revoked'
        order by generation desc limit 1`,
       [appUser]
     )
@@ -312,7 +312,13 @@ v1.post("/connection", async (c) => {
     profileName = self?.name ?? null
     profileHandle = self?.handle ?? null
     profileId = self?.id ? String(self.id) : null
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.statusCode === 401 || error?.message?.includes("401")) {
+      return c.json(
+        { error: "Substack rejected this session cookie (401 Unauthorized). Please verify that you copied the complete, active substack.sid cookie value." },
+        400
+      )
+    }
     console.warn("Could not verify Substack credentials:", error)
   }
 
@@ -324,7 +330,7 @@ v1.post("/connection", async (c) => {
     const nextGen = genRes.rows[0]?.next_gen ?? 1
 
     await client.query(
-      "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status = 'active'",
+      "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status in ('active', 'expired')",
       [appUser]
     )
 
@@ -336,7 +342,8 @@ v1.post("/connection", async (c) => {
            profile_id, profile_name, profile_handle, last_verified_at)
        values ($1, $2, $3, 'active', $4, 1, 'plain', 'plain', 'plain', $5, $6, $7, $8, now())
        returning id, publication_url as "publicationUrl", profile_id as "profileId",
-                 profile_name as "profileName", profile_handle as "profileHandle"`,
+                 profile_name as "profileName", profile_handle as "profileHandle",
+                 status, last_verified_at as "lastVerifiedAt"`,
       [connId, appUser, nextGen, publicationUrl, sessionToken, profileId, profileName, profileHandle]
     )
 

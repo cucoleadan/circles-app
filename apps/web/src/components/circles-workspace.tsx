@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
+  AlertTriangle,
   Calendar,
   CircleDot,
   HelpCircle,
@@ -91,6 +92,8 @@ export function CirclesWorkspace({
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isBadgeGuideOpen, setIsBadgeGuideOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"connection" | "queue">("connection")
+  const [connectionStatus, setConnectionStatus] = useState<"active" | "expired" | "none">("active")
   const [refreshKey, setRefreshKey] = useState(0)
   const [isSyncing, setIsSyncing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
@@ -98,6 +101,22 @@ export function CirclesWorkspace({
   function refetchPeople() {
     setRefreshKey((k) => k + 1)
   }
+
+  const checkConnection = useCallback(async () => {
+    try {
+      const res = await fetch("/api/v1/connection")
+      if (res.ok) {
+        const data = await res.json()
+        setConnectionStatus(data.connection?.status ?? "none")
+      }
+    } catch {
+      // Ignore background check failure
+    }
+  }, [])
+
+  useEffect(() => {
+    void checkConnection()
+  }, [checkConnection])
 
   // Read URL query params on initial mount
   useEffect(() => {
@@ -382,6 +401,31 @@ export function CirclesWorkspace({
             </Button>
 
             <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setSettingsInitialTab("connection")
+                setIsSettingsOpen(true)
+              }}
+              className={`h-8.5 rounded-full text-xs font-medium border-stone-200 relative ${
+                connectionStatus === "expired"
+                  ? "border-rose-300 text-rose-700 bg-rose-50/70 dark:bg-rose-950/30 dark:border-rose-800"
+                  : ""
+              }`}
+              title="Settings & Substack Connection"
+            >
+              <Settings
+                className={`size-3.5 mr-1 text-stone-500 ${
+                  connectionStatus === "expired" ? "text-rose-600 dark:text-rose-400" : ""
+                }`}
+              />
+              <span className="hidden sm:inline">Settings</span>
+              {connectionStatus === "expired" && (
+                <span className="ml-1 size-1.5 rounded-full bg-rose-500 animate-pulse" />
+              )}
+            </Button>
+
+            <Button
               size="sm"
               onClick={() => setIsAddOpen(true)}
               className="h-8.5 rounded-full bg-[#191817] hover:bg-[#302e2c] text-white text-xs font-semibold px-3.5 shadow-xs"
@@ -402,6 +446,29 @@ export function CirclesWorkspace({
           </div>
         </div>
       </header>
+
+      {/* Expired Substack Session Banner */}
+      {connectionStatus === "expired" && (
+        <div className="bg-rose-50 border-b border-rose-200/90 dark:bg-rose-950/40 dark:border-rose-900/60 px-4 sm:px-6 py-2.5 text-xs text-rose-900 dark:text-rose-200 flex items-center justify-between shadow-2xs animate-in fade-in">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="size-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            <span>
+              <strong>Substack session expired:</strong> Background sync is paused because your session cookie is no longer valid.
+            </span>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setSettingsInitialTab("connection")
+              setIsSettingsOpen(true)
+            }}
+            className="h-7 text-xs border-rose-300 bg-white hover:bg-rose-50 text-rose-800 dark:bg-stone-900 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50 rounded-full font-medium shadow-2xs"
+          >
+            Update Cookie
+          </Button>
+        </div>
+      )}
 
       {/* Notice Banner */}
       {notice && (
@@ -430,7 +497,10 @@ export function CirclesWorkspace({
             overview={overview}
             onCreateList={handleCreateList}
             onOpenBadgeGuide={() => setIsBadgeGuideOpen(true)}
-            onOpenSettings={() => setIsSettingsOpen(true)}
+            onOpenSettings={() => {
+              setSettingsInitialTab("queue")
+              setIsSettingsOpen(true)
+            }}
           />
 
           {/* Cards Section */}
@@ -446,7 +516,10 @@ export function CirclesWorkspace({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setIsSettingsOpen(true)}
+                      onClick={() => {
+                        setSettingsInitialTab("queue")
+                        setIsSettingsOpen(true)
+                      }}
                       className="h-7 rounded-full text-xs font-medium border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-2xs hover:border-[#f15a3a]/50 text-stone-700 dark:text-stone-300"
                       title="Adjust queue thresholds and rules"
                     >
@@ -617,11 +690,16 @@ export function CirclesWorkspace({
         onOpenChange={setIsBadgeGuideOpen}
       />
 
-      {/* Queue Criteria & Adaptive Thresholds Settings Dialog */}
+      {/* Workspace Settings Dialog */}
       <SettingsDialog
         open={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
+        initialTab={settingsInitialTab}
         onSaved={refetchPeople}
+        onConnectionUpdated={() => {
+          void checkConnection()
+          refetchPeople()
+        }}
       />
     </main>
   )
