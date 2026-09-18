@@ -112,6 +112,9 @@ export async function getOrCreateAppUser(authUserId: string): Promise<string> {
 
 export type PeopleView =
   | "all"
+  | "needs-reply"
+  | "awaiting-response"
+  | "mutual"
   | "conversations"
   | "inbound"
   | "outbound"
@@ -135,6 +138,8 @@ export async function listPeople(
     listId?: string
     view?: PeopleView | string
     sort?: PeopleSort | string
+    since?: string
+    until?: string
     limit?: number
     offset?: number
   } = {}
@@ -167,6 +172,18 @@ export async function listPeople(
 
   if (options.view === "conversations") {
     conditions.push("coalesce(s.conversation_count, 0) > 0")
+  } else if (options.view === "needs-reply") {
+    conditions.push(
+      "(coalesce(s.inbound_interaction_count, 0) > 0 and (coalesce(s.outbound_interaction_count, 0) = 0 or s.last_inbound_at > s.last_outbound_at))"
+    )
+  } else if (options.view === "awaiting-response") {
+    conditions.push(
+      "(coalesce(s.outbound_interaction_count, 0) > 0 and (coalesce(s.inbound_interaction_count, 0) = 0 or s.last_outbound_at > s.last_inbound_at))"
+    )
+  } else if (options.view === "mutual") {
+    conditions.push(
+      "(coalesce(s.inbound_interaction_count, 0) > 0 and coalesce(s.outbound_interaction_count, 0) > 0)"
+    )
   } else if (options.view === "inbound") {
     conditions.push("s.last_inbound_at is not null")
   } else if (options.view === "outbound") {
@@ -179,8 +196,27 @@ export async function listPeople(
     )
   }
 
+  const dateColumn =
+    options.view === "conversations" ? "s.last_conversation_at" :
+    options.view === "needs-reply" ? "s.last_inbound_at" :
+    options.view === "awaiting-response" ? "s.last_outbound_at" :
+    options.view === "inbound" ? "s.last_inbound_at" :
+    options.view === "outbound" ? "s.last_outbound_at" :
+    "s.last_interaction_at"
+
+  if (options.since) {
+    params.push(options.since)
+    conditions.push(`${dateColumn} >= $${params.length}`)
+  }
+  if (options.until) {
+    params.push(options.until)
+    conditions.push(`${dateColumn} <= $${params.length}`)
+  }
+
   const sort = options.sort ?? (
     options.view === "conversations" ? "recent_conversation" :
+    options.view === "needs-reply" ? "inbound" :
+    options.view === "awaiting-response" ? "outbound" :
     options.view === "inbound" ? "inbound" :
     options.view === "outbound" ? "outbound" :
     options.view === "opportunities" ? "engagement" :
@@ -248,20 +284,18 @@ export async function getPerson(
   )
   if (!person.rows[0]) return null
 
-  const [tags, lists] = await Promise.all([
-    client.query(
-      `select t.id, t.name, t.color from person_tags pt
-         join tags t on t.id = pt.tag_id
-        where pt.person_id = $1 order by lower(t.name)`,
-      [personId]
-    ),
-    client.query(
-      `select l.id, l.name from list_members lm
-         join lists l on l.id = lm.list_id
-        where lm.person_id = $1 order by lower(l.name)`,
-      [personId]
-    ),
-  ])
+  const tags = await client.query(
+    `select t.id, t.name, t.color from person_tags pt
+       join tags t on t.id = pt.tag_id
+      where pt.person_id = $1 order by lower(t.name)`,
+    [personId]
+  )
+  const lists = await client.query(
+    `select l.id, l.name from list_members lm
+       join lists l on l.id = lm.list_id
+      where lm.person_id = $1 order by lower(l.name)`,
+    [personId]
+  )
   const foundPerson = {
     ...person.rows[0],
     tags: tags.rows,
@@ -727,17 +761,17 @@ export interface CirclesOverview {
 }
 
 export async function circlesOverview(client: PoolLike): Promise<CirclesOverview> {
-  const [people, stats, interactions] = await Promise.all([
-    client.query(
-      `select relationship_status as status, count(*)::int as count
-         from people where archived_at is null group by relationship_status`
-    ),
-    client.query(
-      `select drift_status as status, count(*)::int as count
-         from relationship_stats group by drift_status`
-    ),
-    client.query("select count(*)::int as count from interactions where removed_at is null"),
-  ])
+  const people = await client.query(
+    `select relationship_status as status, count(*)::int as count
+       from people where archived_at is null group by relationship_status`
+  )
+  const stats = await client.query(
+    `select drift_status as status, count(*)::int as count
+       from relationship_stats group by drift_status`
+  )
+  const interactions = await client.query(
+    "select count(*)::int as count from interactions where removed_at is null"
+  )
   const byStatus: Record<string, number> = {}
   for (const row of people.rows) byStatus[row.status ?? "new"] = row.count
   const byDrift: Record<string, number> = {}

@@ -65,6 +65,8 @@ v1.get("/people", async (c) => {
       listId: c.req.query("listId") || undefined,
       view: c.req.query("view") || undefined,
       sort: c.req.query("sort") || undefined,
+      since: c.req.query("since") || undefined,
+      until: c.req.query("until") || undefined,
       limit: Number(c.req.query("limit") ?? 1000),
       offset: c.req.query("offset") ? Number(c.req.query("offset")) : undefined,
     })

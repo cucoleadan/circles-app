@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   ArrowUpRight,
+  Calendar,
   CircleDot,
   Clock,
+  HelpCircle,
   LogOut,
   MessageSquare,
   Plus,
@@ -25,6 +27,7 @@ import {
 } from "@workspace/ui/components/select"
 import type {
   CirclesOverview,
+  DateRangePreset,
   ListRecord,
   PeopleSort,
   PeopleView,
@@ -32,6 +35,7 @@ import type {
   TagRecord,
 } from "../lib/types"
 import { AddContactDialog } from "./add-contact-dialog"
+import { BadgeGuideDrawer } from "./badge-guide-drawer"
 import { CirclesSidebar } from "./circles-sidebar"
 import { ContactDrawer } from "./contact-drawer"
 import { HistoryBackfill } from "./history-backfill"
@@ -58,6 +62,86 @@ function formatDate(iso: string | null | undefined) {
     })
   } catch {
     return ""
+  }
+}
+
+const dateRangeOptions: { id: DateRangePreset; label: string; days?: number }[] = [
+  { id: "all", label: "All Time" },
+  { id: "7d", label: "Last 7 days", days: 7 },
+  { id: "14d", label: "Last 14 days", days: 14 },
+  { id: "30d", label: "Last 30 days", days: 30 },
+  { id: "90d", label: "Last 90 days", days: 90 },
+]
+
+function getSinceDate(preset: DateRangePreset): string | undefined {
+  const opt = dateRangeOptions.find((o) => o.id === preset)
+  if (!opt || !opt.days) return undefined
+  const d = new Date()
+  d.setDate(d.getDate() - opt.days)
+  return d.toISOString()
+}
+
+interface ReciprocityInfo {
+  label: string
+  sublabel: string
+  variant: "amber" | "sky" | "emerald" | "stone"
+  icon: string
+}
+
+function getReciprocityBadge(person: Person): ReciprocityInfo | null {
+  const inbound = person.inboundInteractionCount ?? 0
+  const outbound = person.outboundInteractionCount ?? 0
+  const lastInbound = person.lastInboundAt ? new Date(person.lastInboundAt).getTime() : 0
+  const lastOutbound = person.lastOutboundAt ? new Date(person.lastOutboundAt).getTime() : 0
+
+  if (inbound === 0 && outbound === 0) {
+    return null
+  }
+
+  // They reached out, but you never responded
+  if (inbound > 0 && outbound === 0) {
+    return {
+      label: "Needs your reply",
+      sublabel: `${inbound} received`,
+      variant: "amber",
+      icon: "📥",
+    }
+  }
+
+  // You reached out, but they never responded
+  if (outbound > 0 && inbound === 0) {
+    return {
+      label: "Awaiting response",
+      sublabel: `${outbound} given`,
+      variant: "stone",
+      icon: "📤",
+    }
+  }
+
+  // Both engaged: who spoke last?
+  if (lastInbound > lastOutbound) {
+    return {
+      label: "Needs reply",
+      sublabel: "They engaged last",
+      variant: "amber",
+      icon: "📥",
+    }
+  }
+
+  if (lastOutbound > lastInbound) {
+    return {
+      label: "Ball in their court",
+      sublabel: "You engaged last",
+      variant: "sky",
+      icon: "📤",
+    }
+  }
+
+  return {
+    label: "Mutual circle",
+    sublabel: `${inbound} in · ${outbound} out`,
+    variant: "emerald",
+    icon: "🔄",
   }
 }
 
@@ -90,13 +174,16 @@ export function CirclesWorkspace({
   // Filters & Navigation
   const [currentView, setCurrentView] = useState<PeopleView>("all")
   const [currentSort, setCurrentSort] = useState<PeopleSort>("engagement")
+  const [dateRange, setDateRange] = useState<DateRangePreset>("all")
   const [selectedListId, setSelectedListId] = useState<string | null>(null)
   const [selectedTagId, setSelectedTagId] = useState<string | null>(null)
   const [search, setSearch] = useState("")
+  const [visibleLimit, setVisibleLimit] = useState(48)
 
   // Modals & Drawers
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null)
   const [isAddOpen, setIsAddOpen] = useState(false)
+  const [isBadgeGuideOpen, setIsBadgeGuideOpen] = useState(false)
   const [isSyncing, setIsSyncing] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
 
@@ -117,6 +204,11 @@ export function CirclesWorkspace({
 
     const sortParam = params.get("sort") as PeopleSort | null
     if (sortParam) setCurrentSort(sortParam)
+
+    const rangeParam = params.get("range") as DateRangePreset | null
+    if (rangeParam && ["all", "7d", "14d", "30d", "90d"].includes(rangeParam)) {
+      setDateRange(rangeParam)
+    }
   }, [])
 
   // Sync state back to URL
@@ -166,6 +258,12 @@ export function CirclesWorkspace({
     updateUrl({ sort })
   }
 
+  // Handle Date Range Change
+  function handleDateRangeChange(range: DateRangePreset) {
+    setDateRange(range)
+    updateUrl({ range: range === "all" ? null : range })
+  }
+
   // Refetch people when filters change
   useEffect(() => {
     const query = new URLSearchParams()
@@ -176,6 +274,8 @@ export function CirclesWorkspace({
     if (selectedListId) query.set("listId", selectedListId)
     if (selectedTagId) query.set("tagId", selectedTagId)
     if (search.trim()) query.set("search", search.trim())
+    const since = getSinceDate(dateRange)
+    if (since) query.set("since", since)
     query.set("limit", "1000")
 
     fetch(`/api/v1/people?${query.toString()}`)
@@ -185,9 +285,10 @@ export function CirclesWorkspace({
       })
       .then((data) => {
         setPeople(data.people ?? [])
+        setVisibleLimit(48)
       })
       .catch((err) => console.error("Error fetching people:", err))
-  }, [currentView, currentSort, selectedListId, selectedTagId, search])
+  }, [currentView, currentSort, selectedListId, selectedTagId, search, dateRange])
 
   // Sync Substack activity
   async function triggerSync() {
@@ -268,6 +369,10 @@ export function CirclesWorkspace({
     return people.find((p) => p.id === selectedPersonId) ?? null
   }, [people, selectedPersonId])
 
+  const visiblePeople = useMemo(() => {
+    return people.slice(0, visibleLimit)
+  }, [people, visibleLimit])
+
   const viewHeading = useMemo(() => {
     if (selectedListId) {
       const list = lists.find((l) => l.id === selectedListId)
@@ -278,10 +383,16 @@ export function CirclesWorkspace({
       return `Tag: ${tag?.name ?? "Custom Tag"}`
     }
     switch (currentView) {
+      case "needs-reply":
+        return "Needs Your Reply"
+      case "awaiting-response":
+        return "Awaiting Response"
+      case "mutual":
+        return "Mutual Circle"
       case "conversations":
         return "Conversations"
       case "inbound":
-        return "Inbound Advocates"
+        return "Inbound Touches"
       case "outbound":
         return "Outbound Touches"
       case "opportunities":
@@ -331,6 +442,17 @@ export function CirclesWorkspace({
           {/* Actions */}
           <div className="flex items-center gap-2">
             <HistoryBackfill />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsBadgeGuideOpen(true)}
+              className="h-8.5 rounded-full text-xs font-medium border-stone-200"
+              title="Badge & Scoring Guide"
+            >
+              <HelpCircle className="size-3.5 mr-1 text-stone-500" />
+              <span className="hidden sm:inline">Guide</span>
+            </Button>
+
             <Button
               variant="outline"
               size="sm"
@@ -433,6 +555,7 @@ export function CirclesWorkspace({
             tags={tags}
             overview={overview}
             onCreateList={handleCreateList}
+            onOpenBadgeGuide={() => setIsBadgeGuideOpen(true)}
           />
 
           {/* Cards Section */}
@@ -443,35 +566,88 @@ export function CirclesWorkspace({
                 <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-100">
                   {viewHeading}
                 </h2>
-                <p className="text-xs text-stone-500 mt-0.5">
-                  Showing {people.length} {people.length === 1 ? "person" : "people"}
+                <p className="text-xs text-stone-500 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                  <span>
+                    Showing {people.length} {people.length === 1 ? "person" : "people"}
+                  </span>
+                  {dateRange !== "all" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+                      Active: {dateRangeOptions.find((o) => o.id === dateRange)?.label}
+                      <button
+                        type="button"
+                        onClick={() => handleDateRangeChange("all")}
+                        className="ml-0.5 text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
+                        title="Clear date filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
                 </p>
               </div>
 
-              {/* Sort Selector */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
-                  <SlidersHorizontal className="size-3" /> Sort:
-                </span>
-                <Select value={currentSort} onValueChange={(v) => handleSortChange(v as PeopleSort)}>
-                  <SelectTrigger className="h-8 text-xs font-medium w-44 bg-white dark:bg-stone-900">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="engagement" className="text-xs">
-                      ⭐️ Highest Engagement
-                    </SelectItem>
-                    <SelectItem value="recent_conversation" className="text-xs">
-                      💬 Recent Conversation
-                    </SelectItem>
-                    <SelectItem value="recent_interaction" className="text-xs">
-                      🕒 Recent Activity
-                    </SelectItem>
-                    <SelectItem value="name" className="text-xs">
-                      🔤 Name (A-Z)
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+              {/* Toolbar Controls: Activity Date Range & Sort */}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                {/* Date Range Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                    <Calendar className="size-3" /> Activity:
+                  </span>
+                  <Select
+                    value={dateRange}
+                    onValueChange={(v) => handleDateRangeChange(v as DateRangePreset)}
+                  >
+                    <SelectTrigger className="h-8 text-xs font-medium w-36 bg-white dark:bg-stone-900">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all" className="text-xs">
+                        📅 All Time
+                      </SelectItem>
+                      <SelectItem value="7d" className="text-xs">
+                        ⚡️ Last 7 days
+                      </SelectItem>
+                      <SelectItem value="14d" className="text-xs">
+                        ⚡️ Last 14 days
+                      </SelectItem>
+                      <SelectItem value="30d" className="text-xs">
+                        🗓️ Last 30 days
+                      </SelectItem>
+                      <SelectItem value="90d" className="text-xs">
+                        🗓️ Last 90 days
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Sort Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                    <SlidersHorizontal className="size-3" /> Sort:
+                  </span>
+                  <Select
+                    value={currentSort}
+                    onValueChange={(v) => handleSortChange(v as PeopleSort)}
+                  >
+                    <SelectTrigger className="h-8 text-xs font-medium w-44 bg-white dark:bg-stone-900">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="engagement" className="text-xs">
+                        ⭐️ Highest Engagement
+                      </SelectItem>
+                      <SelectItem value="recent_conversation" className="text-xs">
+                        💬 Recent Conversation
+                      </SelectItem>
+                      <SelectItem value="recent_interaction" className="text-xs">
+                        🕒 Recent Activity
+                      </SelectItem>
+                      <SelectItem value="name" className="text-xs">
+                        🔤 Name (A-Z)
+                      </SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </div>
 
@@ -483,14 +659,27 @@ export function CirclesWorkspace({
                   No contacts match this view
                 </p>
                 <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
-                  Try clearing your search query, choosing a different filter, or adding a new contact.
+                  {dateRange !== "all"
+                    ? "No contacts had activity within the selected time window."
+                    : "Try clearing your search query, choosing a different filter, or adding a new contact."}
                 </p>
+                {dateRange !== "all" && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleDateRangeChange("all")}
+                    className="mt-3 text-xs h-8 rounded-full"
+                  >
+                    Show All Time
+                  </Button>
+                )}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {people.map((person) => {
+                {visiblePeople.map((person) => {
                   const hasEngagement = (person.engagementScore ?? 0) > 0
                   const isHighAdvocate = (person.engagementScore ?? 0) >= 30
+                  const reciprocity = getReciprocityBadge(person)
 
                   return (
                     <div
@@ -504,7 +693,7 @@ export function CirclesWorkspace({
                           handleSelectPerson(person.id)
                         }
                       }}
-                      className="group cursor-pointer rounded-2xl border border-stone-200/90 bg-white p-4 transition-all hover:border-[#f15a3a]/40 hover:shadow-md dark:border-stone-800 dark:bg-stone-900 dark:hover:border-[#f15a3a]/40 flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#f15a3a]/30"
+                      className="group cursor-pointer rounded-2xl border border-stone-200/90 bg-white p-4 transition-colors hover:border-[#f15a3a]/60 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-[#f15a3a]/60 flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#f15a3a]/30 shadow-2xs"
                     >
                       <div>
                         {/* Card Header: Avatar, Name, Handle, Score */}
@@ -549,6 +738,29 @@ export function CirclesWorkspace({
                             <span>{person.engagementScore}</span>
                           </div>
                         </div>
+
+                        {/* Reciprocity State Chip */}
+                        {reciprocity && (
+                          <div className="mt-2.5 flex items-center">
+                            <span
+                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold tracking-tight ${
+                                reciprocity.variant === "amber"
+                                  ? "bg-amber-100/90 text-amber-900 border border-amber-300/80 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800"
+                                  : reciprocity.variant === "emerald"
+                                    ? "bg-emerald-100/90 text-emerald-900 border border-emerald-300/80 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800"
+                                    : reciprocity.variant === "sky"
+                                      ? "bg-sky-50 text-sky-800 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800"
+                                      : "bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
+                              }`}
+                            >
+                              <span>{reciprocity.icon}</span>
+                              <span>{reciprocity.label}</span>
+                              <span className="opacity-60 text-[9.5px] font-normal">
+                                • {reciprocity.sublabel}
+                              </span>
+                            </span>
+                          </div>
+                        )}
 
                         {/* Middle: Metrics and Tags */}
                         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500">
@@ -618,6 +830,18 @@ export function CirclesWorkspace({
                 })}
               </div>
             )}
+
+            {people.length > visibleLimit && (
+              <div className="mt-6 flex justify-center pb-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setVisibleLimit((prev) => prev + 48)}
+                  className="text-xs font-semibold rounded-full px-5 h-8 border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+                >
+                  Load more ({visibleLimit} of {people.length})
+                </Button>
+              </div>
+            )}
           </section>
         </div>
       </div>
@@ -640,6 +864,12 @@ export function CirclesWorkspace({
         open={isAddOpen}
         onOpenChange={setIsAddOpen}
         onCreated={handlePersonCreated}
+      />
+
+      {/* Badge & Scoring Guide Drawer */}
+      <BadgeGuideDrawer
+        open={isBadgeGuideOpen}
+        onOpenChange={setIsBadgeGuideOpen}
       />
     </main>
   )

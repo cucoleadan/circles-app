@@ -77,6 +77,9 @@ export interface Interaction {
 
 export type PeopleView =
   | "all"
+  | "needs-reply"
+  | "awaiting-response"
+  | "mutual"
   | "conversations"
   | "inbound"
   | "outbound"
@@ -90,3 +93,6 @@ export type PeopleSort =
   | "name"
   | "inbound"
   | "outbound"
+
+export type DateRangePreset = "all" | "7d" | "14d" | "30d" | "90d"
+

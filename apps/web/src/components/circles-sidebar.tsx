@@ -5,8 +5,12 @@ import {
   Bookmark,
   Check,
   Clock,
+  HelpCircle,
+  Inbox,
   MessageSquare,
   Plus,
+  RefreshCw,
+  Send,
   Sparkles,
   Users,
 } from "lucide-react"
@@ -14,6 +18,27 @@ import {
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import type { CirclesOverview, ListRecord, PeopleView, TagRecord } from "../lib/types"
+
+const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
+  {
+    id: "needs-reply",
+    label: "Needs Your Reply",
+    icon: Inbox,
+    desc: "Heard from them, waiting on you",
+  },
+  {
+    id: "awaiting-response",
+    label: "Awaiting Response",
+    icon: Send,
+    desc: "You reached out, waiting on them",
+  },
+  {
+    id: "mutual",
+    label: "Mutual Circle",
+    icon: RefreshCw,
+    desc: "Active reciprocal conversations",
+  },
+]
 
 const views: { id: PeopleView; label: string; icon: any; desc: string }[] = [
   {
@@ -30,13 +55,13 @@ const views: { id: PeopleView; label: string; icon: any; desc: string }[] = [
   },
   {
     id: "inbound",
-    label: "Inbound",
+    label: "Inbound Touches",
     icon: ArrowDownLeft,
     desc: "Reached out to you",
   },
   {
     id: "outbound",
-    label: "Outbound",
+    label: "Outbound Touches",
     icon: ArrowUpRight,
     desc: "You engaged with them",
   },
@@ -65,6 +90,7 @@ export function CirclesSidebar({
   tags,
   overview,
   onCreateList,
+  onOpenBadgeGuide,
 }: {
   currentView: PeopleView
   onViewChange: (view: PeopleView) => void
@@ -76,6 +102,7 @@ export function CirclesSidebar({
   tags: TagRecord[]
   overview: CirclesOverview | null
   onCreateList: (name: string) => Promise<void>
+  onOpenBadgeGuide?: () => void
 }) {
   const [isCreatingList, setIsCreatingList] = useState(false)
   const [newListName, setNewListName] = useState("")
@@ -96,10 +123,48 @@ export function CirclesSidebar({
 
   return (
     <aside className="w-full lg:w-64 space-y-6 shrink-0">
+      {/* Action Queues */}
+      <div className="space-y-1">
+        <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-[#f15a3a] flex items-center gap-1">
+          <Sparkles className="size-3" /> Action Queues
+        </p>
+        <div className="space-y-0.5 pt-1">
+          {actionViews.map((v) => {
+            const Icon = v.icon
+            const isActive = currentView === v.id && !selectedListId && !selectedTagId
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => {
+                  onListChange(null)
+                  onTagChange(null)
+                  onViewChange(v.id)
+                }}
+                className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-xl text-xs font-medium transition-all ${
+                  isActive
+                    ? "bg-[#191817] text-white font-semibold shadow-xs"
+                    : "text-stone-700 hover:bg-stone-100 dark:text-stone-300 dark:hover:bg-stone-800"
+                }`}
+              >
+                <div className="flex items-center gap-2.5 truncate">
+                  <Icon
+                    className={`size-4 shrink-0 ${
+                      isActive ? "text-[#f15a3a]" : "text-stone-400"
+                    }`}
+                  />
+                  <span className="truncate">{v.label}</span>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
       {/* Primary Views */}
       <div className="space-y-1">
         <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-stone-400 dark:text-stone-500">
-          Views
+          Directory
         </p>
         <div className="space-y-0.5 pt-1">
           {views.map((v) => {
@@ -247,6 +312,25 @@ export function CirclesSidebar({
               )
             })}
           </div>
+        </div>
+      )}
+
+      {/* Guide & Documentation */}
+      {onOpenBadgeGuide && (
+        <div className="pt-2 border-t border-stone-200/80 dark:border-stone-800">
+          <button
+            type="button"
+            onClick={onOpenBadgeGuide}
+            className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-stone-800 transition-colors group cursor-pointer"
+          >
+            <div className="flex items-center gap-2.5">
+              <HelpCircle className="size-4 text-stone-400 group-hover:text-[#f15a3a] shrink-0 transition-colors" />
+              <span>Badge &amp; Scoring Guide</span>
+            </div>
+            <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md">
+              Docs
+            </span>
+          </button>
         </div>
       )}
     </aside>
