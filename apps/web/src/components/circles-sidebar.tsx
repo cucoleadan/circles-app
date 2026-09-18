@@ -401,15 +401,15 @@ export function CirclesSidebar({
           <button
             type="button"
             onClick={onOpenSettings}
-            title="Configure Queue Criteria & Adaptive Thresholds"
+            title="Configure Workspace Settings & Substack Connection"
             className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-stone-800 transition-colors group cursor-pointer"
           >
             <div className="flex items-center gap-2.5">
               <Settings className="size-4 text-stone-400 group-hover:text-[#f15a3a] shrink-0 transition-colors" />
-              <span>Queue Settings</span>
+              <span>Workspace Settings</span>
             </div>
             <span className="text-[10px] font-semibold text-stone-400 bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 rounded-md">
-              Rules
+              Config
             </span>
           </button>
         )}

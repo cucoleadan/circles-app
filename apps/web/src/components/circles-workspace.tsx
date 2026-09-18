@@ -524,7 +524,7 @@ export function CirclesWorkspace({
                       title="Adjust queue thresholds and rules"
                     >
                       <Settings className="size-3 mr-1 text-[#f15a3a]" />
-                      Queue Settings
+                      Workspace Settings
                     </Button>
                   )}
                 </div>
