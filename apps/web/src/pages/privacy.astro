@@ -1,0 +1,195 @@
+---
+import "@workspace/ui/globals.css";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy Policy · Circles</title>
+    <meta
+      name="description"
+      content="Privacy policy and data usage disclosures for Circles CRM and Circles Companion."
+    />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+  </head>
+  <body class="min-h-screen bg-background text-foreground antialiased selection:bg-primary/20">
+    <header class="border-b border-border/40 bg-background/80 backdrop-blur-md sticky top-0 z-50">
+      <div class="mx-auto flex max-w-4xl items-center justify-between px-6 py-4">
+        <a href="/" class="flex items-center gap-2 font-semibold tracking-tight hover:opacity-90 transition-opacity">
+          <span class="inline-block h-4 w-4 rounded-full bg-primary ring-4 ring-primary/20"></span>
+          <span>Circles CRM</span>
+        </a>
+        <a
+          href="/login"
+          class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Sign in &rarr;
+        </a>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-4xl px-6 py-12 lg:py-16">
+      <div class="space-y-4 border-b border-border/40 pb-8">
+        <span class="inline-flex items-center rounded-full bg-primary/10 px-3 py-1 text-xs font-semibold text-primary">
+          Chrome Web Store Disclosure
+        </span>
+        <h1 class="text-3xl font-extrabold tracking-tight sm:text-4xl">
+          Privacy Policy & Data Disclosures
+        </h1>
+        <p class="text-sm text-muted-foreground">
+          Effective date: September 18, 2026 &bull; Last updated: September 2026
+        </p>
+      </div>
+
+      <div class="mt-8 space-y-10 text-sm leading-relaxed text-muted-foreground">
+        <!-- Section 1 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">1. Overview and Purpose</h2>
+          <p>
+            This Privacy Policy describes the practices of <strong>Circles CRM</strong> and its companion browser
+            extension, <strong>Circles Companion</strong> ("we", "our", or "the extension"). Circles is a private,
+            single-tenant relationship CRM designed to help creators understand and organize their conversations,
+            notes, and community relationships on Substack.
+          </p>
+          <p>
+            Circles Companion exists for the sole purpose of bridging the user's active Substack browsing session to
+            their private Circles CRM dashboard.
+          </p>
+        </section>
+
+        <!-- Section 2 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">2. Data We Access and Collect</h2>
+          <p>
+            Circles Companion accesses and processes only the minimum data required to perform its core CRM functions:
+          </p>
+          <div class="grid gap-4 rounded-xl border border-border/60 bg-card p-5 text-card-foreground">
+            <div>
+              <h3 class="font-medium text-foreground">A. Authentication Tokens (Cookies)</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                With user consent, the extension reads the authenticated Substack session cookie (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">substack.sid</code>)
+                to link the user's Substack publication to their private Circles CRM instance. We never request or store
+                your Substack account password.
+              </p>
+            </div>
+            <div class="border-t border-border/40 pt-3">
+              <h3 class="font-medium text-foreground">B. Engagement and Conversation Evidence</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                While browsing Substack, the extension passively observes public API responses for activity, comments,
+                and conversation threads. It also observes outbound engagement actions you initiate (such as likes,
+                restacks, and comments) so your CRM timeline accurately reflects interactions you have had with your community.
+              </p>
+            </div>
+            <div class="border-t border-border/40 pt-3">
+              <h3 class="font-medium text-foreground">C. CRM Labels and List Assignments</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                When you click the "+ Circles" button next to an author on Substack, the extension transmits the
+                selected list or tag associations you choose to assign to that contact.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 3 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">3. How We Use Data</h2>
+          <p>All data processed by Circles Companion is used exclusively to:</p>
+          <ul class="list-disc space-y-1.5 pl-5">
+            <li>Authenticate and maintain connection to your private Circles CRM database.</li>
+            <li>Chronologically map conversation history and inbound/outbound relationship stats.</li>
+            <li>Maintain your contact lists, tags, and relationship queues.</li>
+          </ul>
+          <div class="rounded-lg border border-primary/20 bg-primary/5 p-4 text-foreground">
+            <h4 class="font-medium text-primary">Strict Prohibition on Commercial Data Exploitation:</h4>
+            <ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-muted-foreground">
+              <li>We do <strong>not</strong> sell, rent, or trade personal data to third parties or data brokers.</li>
+              <li>We do <strong>not</strong> use or transmit data for advertising, retargeting, or promotional profiling.</li>
+              <li>We do <strong>not</strong> perform creditworthiness assessments or unrelated background scoring.</li>
+              <li>We do <strong>not</strong> use user data to train generalized machine learning models.</li>
+            </ul>
+          </div>
+        </section>
+
+        <!-- Section 4 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">4. Data Storage and Transmission</h2>
+          <p>
+            Circles Companion transmits data exclusively via secure encrypted connections (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">HTTPS</code>)
+            directly between your browser, Substack's official endpoints, and your Circles CRM host (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">https://circles.mhntwrkdan.dev</code>).
+          </p>
+          <p>
+            Data is stored in your private PostgreSQL database under strict row-level security (RLS) tenant isolation.
+            We do not route your session or activity data through any unlisted intermediary proxy servers.
+          </p>
+        </section>
+
+        <!-- Section 5 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">5. Permissions & Justifications</h2>
+          <p>In accordance with Chrome Web Store transparency requirements:</p>
+          <ul class="list-disc space-y-2 pl-5">
+            <li>
+              <strong><code>cookies</code></strong>: Required to securely detect your active Substack login session and link your publication to your private CRM without asking for passwords.
+            </li>
+            <li>
+              <strong><code>storage</code></strong>: Used locally to store extension preferences, publication connection status, and offline retry queues.
+            </li>
+            <li>
+              <strong><code>alarms</code></strong>: Used for periodic queue drains to ensure outbound touches are reliably sent to your CRM even on erratic network connections.
+            </li>
+            <li>
+              <strong><code>host_permissions</code> (<code>https://*.substack.com/*</code>)</strong>: Required to inject the in-page quick-add contact buttons and passively capture response streams when you browse your Substack feed.
+            </li>
+            <li>
+              <strong><code>host_permissions</code> (<code>https://circles.mhntwrkdan.dev/*</code>)</strong>: Required to communicate with your Circles CRM web API.
+            </li>
+          </ul>
+        </section>
+
+        <!-- Section 6 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">6. Your Rights and Data Deletion</h2>
+          <p>
+            You have full control over your data. You may disconnect the extension at any time by:
+          </p>
+          <ol class="list-decimal space-y-1.5 pl-5">
+            <li>Revoking the Substack connection in your Circles CRM Settings.</li>
+            <li>Uninstalling or disabling the Circles Companion extension in <code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">chrome://extensions</code>.</li>
+            <li>Requesting deletion of your CRM tenant data directly from the administrator account.</li>
+          </ol>
+        </section>
+
+        <!-- Section 7 -->
+        <section class="space-y-3">
+          <h2 class="text-lg font-semibold text-foreground">7. Compliance with Google Limited Use Requirements</h2>
+          <p>
+            Circles Companion adheres to the <a href="https://developer.chrome.com/docs/webstore/program-policies/user-data/" target="_blank" rel="noreferrer" class="text-primary underline underline-offset-2">Chrome Web Store User Data Policy</a>, including the Limited Use requirements. The use of information received from Chrome APIs complies fully with these standards.
+          </p>
+        </section>
+
+        <!-- Section 8 -->
+        <section class="space-y-3 border-t border-border/40 pt-6">
+          <h2 class="text-lg font-semibold text-foreground">8. Contact</h2>
+          <p>
+            If you have questions about this Privacy Policy or your CRM data, contact:
+            <br />
+            <a href="mailto:cucoleadan@gmail.com" class="font-medium text-primary hover:underline">cucoleadan@gmail.com</a>
+          </p>
+        </section>
+      </div>
+    </main>
+
+    <footer class="mt-16 border-t border-border/40 py-8 text-center text-xs text-muted-foreground">
+      <div class="mx-auto max-w-4xl px-6 flex flex-col sm:flex-row items-center justify-between gap-4">
+        <p>&copy; {new Date().getFullYear()} Circles CRM. All rights reserved.</p>
+        <div class="flex gap-4">
+          <a href="/" class="hover:text-foreground transition-colors">Workspace</a>
+          <a href="/login" class="hover:text-foreground transition-colors">Login</a>
+          <a href="/privacy" class="text-foreground font-medium">Privacy Policy</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
