@@ -134,8 +134,17 @@ export async function processActivitySync(
       throw err
     }
 
-    const items: ActivityItemInput[] = normalizeActivityPage(activityPage)
+    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000)
+    const allItems: ActivityItemInput[] = normalizeActivityPage(activityPage)
     await preserveActivityEvidence(client, userId, connectionId, "sdk", activityPage)
+
+    // Only ingest items occurring within the past 15 minutes for periodic sync
+    const items = allItems.filter((item) => {
+      const ts = item.created_at || item.createdAt || item.updated_at
+      if (!ts) return false
+      const d = new Date(ts)
+      return !Number.isNaN(d.getTime()) && d >= fifteenMinutesAgo
+    })
 
     // 4. Ingest items into interactions & refresh people
     const stats = await ingestActivityBatch(client, {
@@ -215,11 +224,12 @@ export async function processScheduledHistorySync(
       ownerId: conn.profile_id,
       source: "sdk" as const,
     }
+    const recentCutoff = new Date(Date.now() - 15 * 60 * 1000)
     const result = stream === "owned_notes"
-      ? await syncOwnedNotesPage(client, sdk, context, null, 1)
+      ? await syncOwnedNotesPage(client, sdk, context, null, 1, recentCutoff)
       : stream === "owned_posts"
-        ? await syncOwnedPostsPage(client, sdk, context, null, 1)
-        : await syncRecentOutboundActions(client, sdk, context, 20, outboundStage)
+        ? await syncOwnedPostsPage(client, sdk, context, null, 1, recentCutoff)
+        : await syncRecentOutboundActions(client, sdk, context, 20, outboundStage, recentCutoff)
 
     await client.query(
       `update sync_stream_state
@@ -304,6 +314,7 @@ export async function processHistoryImport(
           },
           streamRun.cursor,
           1,
+          new Date(run.cutoff),
         )
         await client.query(
           `update import_run_streams
@@ -333,6 +344,7 @@ export async function processHistoryImport(
           },
           streamRun.cursor,
           1,
+          new Date(run.cutoff),
         )
         await client.query(
           `update import_run_streams
@@ -733,8 +745,14 @@ export async function claimAndRunJob(
           }
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             values ('sync:activity', $1, 'pending', now() + interval '15 minutes')`,
-            [JSON.stringify(payload)]
+             select 'sync:activity', $1, 'pending', now() + interval '15 minutes'
+             where not exists (
+               select 1 from jobs existing
+               where existing.type = 'sync:activity'
+                 and existing.status in ('pending', 'running')
+                 and existing.payload->>'connectionId' = $2
+             )`,
+            [JSON.stringify(payload), connectionId]
           )
         }
       } else if (job.type === "sync:history") {
@@ -753,8 +771,12 @@ export async function claimAndRunJob(
           // authenticated Substack session and are interleaved by this queue.
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             values ('import:history', $1, 'pending', now() + interval '10 seconds')`,
-            [JSON.stringify(payload)]
+             select 'import:history', $1, 'pending', now() + interval '10 seconds'
+             where exists (
+               select 1 from import_runs
+               where id = $2 and status = 'running'
+             )`,
+            [JSON.stringify(payload), importRunId]
           )
         }
       } else if (job.type === "enrich:profile") {

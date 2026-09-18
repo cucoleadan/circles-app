@@ -345,6 +345,7 @@ export async function syncRecentOutboundActions(
   context: HistoryContext,
   limit = 20,
   stage?: OutboundStage,
+  cutoff?: Date | null,
 ): Promise<HistoryPageResult> {
   if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
   let items = 0
@@ -354,15 +355,19 @@ export async function syncRecentOutboundActions(
     const page = await fetchOutboundPage(sdk, context.ownerId, currentStage, null, limit)
     await preserveOutboundEvidence(client, context, currentStage, page)
     const rawItems = Array.isArray(page?.items) ? page.items : []
+    const normalized = normalizeOutboundProfileFeed(rawItems, context.ownerId)
+    const filtered = cutoff
+      ? normalized.filter((item) => !isAtOrBeforeCutoff(item, cutoff))
+      : normalized
     const stats = await ingestActivityBatch(client, {
       ...context,
-      items: normalizeOutboundProfileFeed(rawItems, context.ownerId),
+      items: filtered,
     })
-    items += rawItems.length
+    items += filtered.length
     newInteractions += stats.newInteractions
     newPeople += stats.newPeople
   }
-  return { items, newInteractions, newPeople, nextCursor: null, complete: false }
+  return { items, newInteractions, newPeople, nextCursor: null, complete: true }
 }
 
 function normalizeComment(value: unknown): ConversationCommentInput | null {
@@ -382,8 +387,8 @@ function normalizeComment(value: unknown): ConversationCommentInput | null {
     createdAt: raw.created_at ?? raw.createdAt ?? raw.date,
     authorId: firstString(raw.user_id, raw.author_id, author.id),
     authorName: firstString(author.name, raw.author_name),
-    authorHandle: firstString(author.handle, author.username, raw.author_handle),
-    authorPhotoUrl: firstString(author.photo_url, author.avatar_url, raw.author_photo_url),
+    authorHandle: firstString(author.handle, raw.username, raw.author_handle),
+    authorPhotoUrl: firstString(author.photo_url, raw.avatar_url, raw.author_photo_url),
     parentId: firstString(raw.parent_id, raw.parentId, raw.parent_comment_id, ancestorPath.at(-1)),
     children: Array.isArray(childrenRaw)
       ? childrenRaw.map(normalizeComment).filter((item): item is ConversationCommentInput => Boolean(item))
@@ -401,29 +406,32 @@ function buildCommentTree(values: unknown[]): ConversationCommentInput[] {
     item.children = []
     nodes.set(String(item.id), item)
     ordered.push(item)
-    nested.forEach(add)
+    for (const child of nested) add(child)
   }
-  values.forEach(add)
-
-  const roots: ConversationCommentInput[] = []
-  for (const item of ordered) {
-    const parentId = item.parentId === null || item.parentId === undefined ? null : String(item.parentId)
-    const parent = parentId ? nodes.get(parentId) : null
-    if (parent) (parent.children ??= []).push(item)
-    else roots.push(item)
-  }
-  return roots
-}
-
-export function noteComments(result: any): ConversationCommentInput[] {
-  const values: unknown[] = []
-  for (const page of Array.isArray(result?.replyPages) ? result.replyPages : []) {
-    for (const branch of Array.isArray(page?.commentBranches) ? page.commentBranches : []) {
-      values.push(branch)
-      if (Array.isArray(branch?.descendantComments)) values.push(...branch.descendantComments)
+  for (const value of values) add(value)
+  for (const node of ordered) {
+    if (!node.parentId) continue
+    const parent = nodes.get(String(node.parentId))
+    if (parent) {
+      parent.children ??= []
+      if (!parent.children.some((child) => child.id === node.id)) {
+        parent.children.push(node)
+      }
     }
   }
-  return buildCommentTree(values)
+  return ordered.filter((node) => !node.parentId || !nodes.has(String(node.parentId)))
+}
+
+function noteComments(result: unknown): ConversationCommentInput[] {
+  const page = record(result)
+  const replies = Array.isArray(page?.replies)
+    ? page.replies
+    : Array.isArray(page?.comments)
+      ? page.comments
+      : Array.isArray(page?.items)
+        ? page.items
+        : []
+  return buildCommentTree(replies)
 }
 
 export async function replayOwnedNoteSnapshots(
@@ -468,30 +476,38 @@ export async function replayOwnedNoteSnapshots(
   }
 }
 
-function postComments(result: any): ConversationCommentInput[] {
-  const values = Array.isArray(result?.comments)
-    ? result.comments
-    : Array.isArray(result?.commentItems)
-    ? result.commentItems
-    : []
-  return buildCommentTree(values)
+function postComments(result: unknown): ConversationCommentInput[] {
+  const page = record(result)
+  const comments = Array.isArray(page?.comments)
+    ? page.comments
+    : Array.isArray(page?.items)
+      ? page.items
+      : []
+  return buildCommentTree(comments)
 }
 
-function noteItems(page: any): Record<string, any>[] {
-  return Array.isArray(page?.items)
-    ? page.items.map(record).filter((item: Record<string, any> | null): item is Record<string, any> => Boolean(item))
-    : []
+function noteItems(page: unknown): Array<Record<string, any>> {
+  const raw = record(page)
+  const items = Array.isArray(raw?.items)
+    ? raw.items
+    : Array.isArray(raw?.notes)
+      ? raw.notes
+      : Array.isArray(raw?.posts)
+        ? raw.posts
+        : []
+  return items.map((item) => record(item)).filter((item): item is Record<string, any> => Boolean(item))
 }
 
-function postItems(response: any): Record<string, any>[] {
-  const values = Array.isArray(response)
-    ? response
-    : Array.isArray(response?.posts)
-    ? response.posts
-    : Array.isArray(response?.items)
-    ? response.items
-    : []
-  return values.map(record).filter((item: Record<string, any> | null): item is Record<string, any> => Boolean(item))
+function postItems(page: unknown): Array<Record<string, any>> {
+  const raw = record(page)
+  const items = Array.isArray(raw?.posts)
+    ? raw.posts
+    : Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(page)
+        ? page
+        : []
+  return items.map((item) => record(item)).filter((item): item is Record<string, any> => Boolean(item))
 }
 
 async function upsertOwnedContent(
@@ -533,17 +549,32 @@ export async function syncOwnedNotesPage(
   context: HistoryContext,
   cursor?: string | null,
   limit = 20,
+  cutoff?: Date | null,
 ): Promise<HistoryPageResult> {
   if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
   const page: any = await sdk.getProfileNotes(context.ownerId, { cursor: cursor || undefined, limit })
   const items = noteItems(page)
   let newInteractions = 0
   let newPeople = 0
+  let hitCutoff = false
+
   for (const item of items) {
+    const raw = record(item.comment) ?? item
+    const rawDate = raw.published_at ?? raw.created_at ?? item.created_at ?? null
+    if (cutoff && rawDate) {
+      const d = new Date(rawDate)
+      if (!Number.isNaN(d.getTime()) && d <= cutoff) {
+        hitCutoff = true
+        break
+      }
+    }
+
     const noteId = await upsertOwnedContent(client, context, "note", item)
     if (!noteId) continue
     let result: any
     try {
+      // Pacing delay between note detail fetches to avoid upstream rate limits
+      await new Promise((resolve) => setTimeout(resolve, 300))
       result = await sdk.getNoteWithEngagement(noteId)
     } catch (error) {
       // Deleted or no-longer-readable historical Notes should not poison the
@@ -572,7 +603,8 @@ export async function syncOwnedNotesPage(
     newPeople += stats.newPeople
   }
   const nextCursor = firstString(page?.nextCursor)
-  return { items: items.length, newInteractions, newPeople, nextCursor, complete: !nextCursor }
+  const complete = hitCutoff || !nextCursor
+  return { items: items.length, newInteractions, newPeople, nextCursor: complete ? null : nextCursor, complete }
 }
 
 export async function syncOwnedPostsPage(
@@ -581,6 +613,7 @@ export async function syncOwnedPostsPage(
   context: HistoryContext,
   cursor?: string | null,
   limit = 1,
+  cutoff?: Date | null,
 ): Promise<HistoryPageResult> {
   if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
   const parsedOffset = cursor ? Number.parseInt(cursor, 10) : 0
@@ -590,7 +623,18 @@ export async function syncOwnedPostsPage(
   const items = allItems.slice(0, limit)
   let newInteractions = 0
   let newPeople = 0
+  let hitCutoff = false
+
   for (const item of items) {
+    const postDate = item.post_date ?? item.published_at ?? item.created_at ?? null
+    if (cutoff && postDate) {
+      const d = new Date(postDate)
+      if (!Number.isNaN(d.getTime()) && d <= cutoff) {
+        hitCutoff = true
+        break
+      }
+    }
+
     const postId = await upsertOwnedContent(client, context, "post", item)
     if (!postId) continue
     let result: any
@@ -625,7 +669,7 @@ export async function syncOwnedPostsPage(
     newInteractions += stats.newInteractions
     newPeople += stats.newPeople
   }
-  const complete = items.length < limit
+  const complete = hitCutoff || items.length < limit
   return {
     items: items.length,
     newInteractions,

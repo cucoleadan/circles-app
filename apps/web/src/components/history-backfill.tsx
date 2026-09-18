@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Database, Pause, Play, RefreshCw } from "lucide-react"
+import { Database, Pause, Play, RefreshCw, Square } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -58,10 +58,6 @@ export function HistoryBackfill() {
   useEffect(() => {
     if (!open) return
     void load().catch((err) => setError(err.message))
-  }, [open, load])
-
-  useEffect(() => {
-    if (!open || !runs.some((run) => run.status === "running")) return
     const timer = window.setInterval(() => void load().catch(() => {}), 3_000)
     return () => window.clearInterval(timer)
   }, [open, runs, load])
@@ -73,7 +69,7 @@ export function HistoryBackfill() {
       const response = await fetch("/api/v1/imports", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ full: true }),
+        body: JSON.stringify({ full: false, months: 3 }),
       })
       if (!response.ok) {
         const body = await response.json().catch(() => ({}))
@@ -87,7 +83,7 @@ export function HistoryBackfill() {
     }
   }
 
-  async function changeRun(run: ImportRun, action: "pause" | "resume") {
+  async function changeRun(run: ImportRun, action: "pause" | "resume" | "cancel") {
     setBusy(true)
     setError(null)
     try {
@@ -115,9 +111,9 @@ export function HistoryBackfill() {
       </SheetTrigger>
       <SheetContent className="w-full sm:max-w-lg gap-0 overflow-y-auto bg-stone-50 dark:bg-stone-950">
         <SheetHeader className="border-b border-stone-200 bg-white p-6 dark:border-stone-800 dark:bg-stone-900">
-          <SheetTitle>Full Substack history</SheetTitle>
+          <SheetTitle>Substack history (past 3 months)</SheetTitle>
           <SheetDescription>
-            Backfill notifications, your outbound activity, authored Notes and posts, then keep them current in normal syncs.
+            Backfill notifications, outbound activity, and authored Notes and posts for the past 3 months, then keep them current in normal syncs.
           </SheetDescription>
         </SheetHeader>
 
@@ -129,7 +125,7 @@ export function HistoryBackfill() {
           <div className="flex items-center gap-2">
             <Button onClick={startBackfill} disabled={busy || latest?.status === "running"} size="sm" className="text-xs">
               {busy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <Database className="mr-1.5 size-3.5" />}
-              Start full backfill
+              Backfill past 3 months
             </Button>
             {latest?.status === "running" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "pause")} className="text-xs">
@@ -139,6 +135,11 @@ export function HistoryBackfill() {
             {latest?.status === "paused" && (
               <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "resume")} className="text-xs">
                 <Play className="mr-1.5 size-3.5" /> Resume
+              </Button>
+            )}
+            {(latest?.status === "running" || latest?.status === "paused") && (
+              <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "cancel")} className="text-xs text-red-600 hover:text-red-700 dark:text-red-400">
+                <Square className="mr-1.5 size-3.5" /> Stop
               </Button>
             )}
           </div>

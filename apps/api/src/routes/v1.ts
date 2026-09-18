@@ -386,10 +386,19 @@ v1.post("/sync", async (c) => {
 
     const job = await client.query(
       `insert into jobs (type, payload, status, run_at)
-       values ('sync:activity', json_build_object('userId', $1::text, 'connectionId', $2::text), 'pending', now())
+       select 'sync:activity', json_build_object('userId', $1::text, 'connectionId', $2::text), 'pending', now()
+       where not exists (
+         select 1 from jobs existing
+         where existing.type = 'sync:activity'
+           and existing.status in ('pending', 'running')
+           and existing.payload->>'connectionId' = $2::text
+       )
        returning id`,
       [appUser, connId]
     )
+    if (!job.rows[0]) {
+      return { enqueued: false, message: "A sync job is already in progress or queued." }
+    }
     return { enqueued: true, jobId: job.rows[0].id }
   })
 
@@ -409,8 +418,9 @@ v1.get("/imports", async (c) => {
                 'items', s.items, 'newInteractions', s.new_interactions,
                 'newPeople', s.new_people, 'completeness', s.completeness,
                 'finishReason', s.finish_reason, 'error', s.error
-              ) order by s.stream) from import_run_streams s where s.import_run_id = import_runs.id), '[]') as streams
-       from import_runs
+              ) order by s.stream)
+              from import_run_streams s where s.import_run_id = r.id), '[]'::json) as streams
+       from import_runs r
        where user_id = $1
        order by started_at desc`,
       [appUser]
@@ -433,6 +443,26 @@ v1.post("/imports", async (c) => {
     )
     const connId = connRes.rows[0]?.id as string | undefined
     if (!connId) return { error: "No active Substack connection" }
+
+    // Automatically pause any existing running import runs for this connection and remove their pending jobs
+    const existingRunning = await client.query(
+      "select id from import_runs where user_id = $1 and connection_id = $2 and status = 'running'",
+      [appUser, connId]
+    )
+    for (const prior of existingRunning.rows) {
+      await client.query(
+        "update import_runs set status = 'paused', finish_reason = 'superceded' where id = $1",
+        [prior.id]
+      )
+      await client.query(
+        "update import_run_streams set status = 'paused', finish_reason = 'superceded', updated_at = now() where import_run_id = $1 and status = 'running'",
+        [prior.id]
+      )
+      await client.query(
+        "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+        [prior.id]
+      )
+    }
 
     const importRunId = crypto.randomUUID()
     await client.query(
@@ -484,10 +514,37 @@ v1.post("/imports/:id/pause", async (c) => {
       "update import_run_streams set status = 'paused', updated_at = now() where import_run_id = $1 and status = 'running'",
       [importId],
     )
+    await client.query(
+      "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+      [importId]
+    )
     return true
   })
   if (!updated) return c.json({ error: "Import run not found or cannot be paused" }, 400)
   return c.json({ paused: true })
+})
+
+v1.post("/imports/:id/cancel", async (c) => {
+  const appUser = c.get("appUser")
+  const importId = c.req.param("id")
+  const updated = await withTenant({ appUserId: appUser }, async (client) => {
+    const res = await client.query(
+      "update import_runs set status = 'paused', finish_reason = 'cancelled' where id = $1 and user_id = $2 returning id",
+      [importId, appUser]
+    )
+    if (!res.rows[0]) return false
+    await client.query(
+      "update import_run_streams set status = 'paused', finish_reason = 'cancelled', updated_at = now() where import_run_id = $1 and status in ('running', 'paused')",
+      [importId],
+    )
+    await client.query(
+      "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+      [importId]
+    )
+    return true
+  })
+  if (!updated) return c.json({ error: "Import run not found or cannot be cancelled" }, 400)
+  return c.json({ cancelled: true })
 })
 
 v1.post("/imports/:id/resume", async (c) => {

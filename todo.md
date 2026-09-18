@@ -13,6 +13,10 @@ What exists:
   (Hono + Better Auth + `pg`), `apps/worker` (background queue runner),
   `packages/ui`, `@workspace/core` (Substack client adapter + ingestion engine),
   `extension` (Chrome MV3 passive capture & companion bridge).
+- Paced imports & sync: 3-month cutoff enforced across all streams (`owned_notes`,
+  `owned_posts`, `activity`, `outbound_actions`), single-active-import concurrency
+  with `POST /imports/:id/cancel` and stop button in UI, and deduped 15-minute
+  sync restricted to items in the last 15-minute window.
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
   `001_auth.sql` through `007_profile_identity.sql` (full schema with
   tenant RLS, composite foreign keys, per-stream sync/import state, owned-content

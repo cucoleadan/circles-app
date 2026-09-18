@@ -260,4 +260,34 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       query.sql.includes("update import_run_streams") && query.params?.[2]?.includes("retrying in 960 seconds"),
     )).toBe(true)
   })
+
+  test("sync:activity reschedule uses deduplication clause", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-sync-dedupe",
+      type: "sync:activity",
+      payload: JSON.stringify({ userId: "user-1", connectionId: "conn-1" }),
+      attempts: 0,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const mockPool: any = { connect: async () => mockClient }
+    await claimAndRunJob(mockPool, "test-worker-dedupe", {
+      onSync: async () => ({ skipped: false }),
+    })
+
+    const reschedule = executedQueries.find((q) =>
+      q.sql.includes("insert into jobs") && q.sql.includes("sync:activity") && q.sql.includes("where not exists"),
+    )
+    expect(reschedule).toBeDefined()
+    expect(reschedule?.params?.[1]).toBe("conn-1")
+  })
 })
+
