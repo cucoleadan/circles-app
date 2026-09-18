@@ -85,7 +85,7 @@ importsRoutes.post("/imports", async (c) => {
       `insert into jobs (type, payload, status, run_at)
        select 'import:history',
               json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
-              'pending', now() + (position * interval '10 seconds')
+              'pending', now() + (position * interval '2 seconds')
        from unnest(array['activity', 'owned_notes', 'owned_posts', 'outbound_actions'])
          with ordinality as queued(stream, position)
        returning id`,

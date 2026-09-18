@@ -35,7 +35,7 @@ async function loop() {
       // One worker process owns the queue loop. Keep a gap after every
       // authenticated job so independently scheduled streams cannot burst the
       // same Substack session back-to-back.
-      await new Promise((resolve) => setTimeout(resolve, didWork ? 3000 : 5000))
+      await new Promise((resolve) => setTimeout(resolve, didWork ? 1000 : 3000))
     } catch (err) {
       console.error("[Circles Worker] Loop iteration error:", err)
       await new Promise((resolve) => setTimeout(resolve, 5000))

@@ -106,11 +106,17 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     })
     expect(result).toBe(true)
 
-    // Verify next page was scheduled with a 10-second rate-limit pause
+    // Verify next page was scheduled with a 2-second rate-limit pause
     const nextImportJob = executedQueries.find((q) =>
-      q.sql.includes("insert into jobs") && q.sql.includes("10 seconds")
+      q.sql.includes("insert into jobs") && q.sql.includes("2 seconds")
     )
     expect(nextImportJob).toBeDefined()
+
+    // Verify tenant context was set for the import check
+    const tenantQuery = executedQueries.find((q) =>
+      q.sql.includes("set_config('app.user_id'") && q.params?.[0] === "user-1"
+    )
+    expect(tenantQuery).toBeDefined()
 
     // Verify current job marked done
     const doneUpdate = executedQueries.find((q) =>

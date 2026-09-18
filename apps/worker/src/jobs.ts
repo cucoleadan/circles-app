@@ -769,15 +769,17 @@ export async function claimAndRunJob(
         if (!result.completed) {
           // Keep pages small and spaced out; other streams share the same
           // authenticated Substack session and are interleaved by this queue.
-          await client.query(
-            `insert into jobs (type, payload, status, run_at)
-             select 'import:history', $1, 'pending', now() + interval '10 seconds'
-             where exists (
-               select 1 from import_runs
-               where id = $2 and status = 'running'
-             )`,
-            [JSON.stringify(payload), importRunId]
-          )
+          await withTenant(client, userId, async () => {
+            await client.query(
+              `insert into jobs (type, payload, status, run_at)
+               select 'import:history', $1, 'pending', now() + interval '2 seconds'
+               where exists (
+                 select 1 from import_runs
+                 where id = $2 and status = 'running'
+               )`,
+              [JSON.stringify(payload), importRunId]
+            )
+          })
         }
       } else if (job.type === "enrich:profile") {
         if (handlers?.onEnrich) {
