@@ -448,7 +448,7 @@ v1.post("/imports", async (c) => {
           ($1, $2, $3, 'activity', 'running', 'partial', null),
           ($1, $2, $3, 'owned_notes', 'running', 'partial', null),
           ($1, $2, $3, 'owned_posts', 'running', 'partial', null),
-          ($1, $2, $3, 'outbound_actions', 'unavailable', 'unavailable', 'extension_capture_only')`,
+          ($1, $2, $3, 'outbound_actions', 'running', 'partial', null)`,
       [importRunId, appUser, connId],
     )
 
@@ -457,7 +457,7 @@ v1.post("/imports", async (c) => {
        select 'import:history',
               json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
               'pending', now()
-       from unnest(array['activity', 'owned_notes', 'owned_posts']) as stream
+       from unnest(array['activity', 'owned_notes', 'owned_posts', 'outbound_actions']) as stream
        returning id`,
       [appUser, connId, importRunId],
     )

@@ -6,9 +6,15 @@ import {
   normalizeActivityPage,
   type ActivityItemInput,
 } from "@workspace/core"
-import { replayOwnedNoteSnapshots, syncOwnedNotesPage, syncOwnedPosts } from "./history.js"
+import {
+  replayOwnedNoteSnapshots,
+  syncOutboundActionsPage,
+  syncOwnedNotesPage,
+  syncOwnedPosts,
+  syncRecentOutboundActions,
+} from "./history.js"
 
-type HistoryStream = "activity" | "owned_notes" | "owned_posts"
+type HistoryStream = "activity" | "owned_notes" | "owned_posts" | "outbound_actions"
 
 async function preserveActivityEvidence(
   client: PoolClient,
@@ -151,7 +157,7 @@ export async function processActivitySync(
 
     const historyStats = { items: 0, newInteractions: 0, newPeople: 0 }
     const historyContext = { userId, connectionId, ownerId, ownerHandle, source: "sdk" as const }
-    for (const stream of ["owned_notes", "owned_posts"] as const) {
+    for (const stream of ["owned_notes", "owned_posts", "outbound_actions"] as const) {
       try {
         await client.query(
           `insert into sync_stream_state (connection_id, user_id, stream, status, completeness, updated_at)
@@ -161,7 +167,9 @@ export async function processActivitySync(
         )
         const result = stream === "owned_notes"
           ? await syncOwnedNotesPage(client, sdk, historyContext, null, 10)
-          : await syncOwnedPosts(client, sdk, historyContext, 10)
+          : stream === "owned_posts"
+            ? await syncOwnedPosts(client, sdk, historyContext, 10)
+            : await syncRecentOutboundActions(client, sdk, historyContext, 20)
         historyStats.items += result.items
         historyStats.newInteractions += result.newInteractions
         historyStats.newPeople += result.newPeople
@@ -181,16 +189,6 @@ export async function processActivitySync(
         console.warn(`[Circles Worker] ${stream} sync failed without advancing its checkpoint:`, error)
       }
     }
-    await client.query(
-      `insert into sync_stream_state
-          (connection_id, user_id, stream, status, completeness, finish_reason, updated_at)
-       values ($1, $2, 'outbound_actions', 'unavailable', 'unavailable', 'extension_capture_only', now())
-       on conflict (connection_id, stream) do update
-         set status = 'unavailable', completeness = 'unavailable',
-             finish_reason = 'extension_capture_only', updated_at = now()`,
-      [connectionId, userId],
-    )
-
     // 5. Update sync_state
     await client.query(
       `update sync_state
@@ -320,6 +318,36 @@ export async function processHistoryImport(
         )
         await finishImportIfReady(client, importRunId)
         return { completed: true, stats: result }
+      }
+
+      if (stream === "outbound_actions") {
+        const result = await syncOutboundActionsPage(
+          client,
+          sdk,
+          {
+            userId,
+            connectionId: run.connection_id,
+            ownerHandle: conn.profile_handle,
+            ownerId: conn.profile_id,
+            source: "import",
+          },
+          streamRun.cursor,
+          20,
+          new Date(run.cutoff),
+        )
+        await client.query(
+          `update import_run_streams
+           set pages = pages + 1, items = items + $3,
+               new_interactions = new_interactions + $4, new_people = new_people + $5,
+               cursor = $6, status = case when $7 then 'complete' else 'running' end,
+               completeness = case when $7 then 'complete' else 'partial' end,
+               finish_reason = case when $7 then 'all_outbound_sources_finished' else finish_reason end,
+               error = null, updated_at = now()
+           where import_run_id = $1 and stream = $2`,
+          [importRunId, stream, result.items, result.newInteractions, result.newPeople, result.nextCursor, result.complete],
+        )
+        await finishImportIfReady(client, importRunId)
+        return { completed: result.complete, nextCursor: result.nextCursor, stats: result }
       }
 
       const activityPage: any = await sdk.getActivityPage({

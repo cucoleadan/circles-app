@@ -1,0 +1,241 @@
+# Circles CRM — agent project scope
+
+This is the durable technical briefing for AI/coding agents working in this
+repository. Read `todo.md` for current progress and `circles-crm-vps-rebuild.md`
+for the original rebuild plan. Keep this file accurate when architecture or
+operations materially change.
+
+## Product purpose
+
+Circles is a private relationship CRM for a Substack account. It turns Substack
+activity, authored Notes/posts, and their conversations into people,
+interactions, relationship statistics, filters, and timelines. It consists of a
+web app, API, PostgreSQL-backed worker, and a Chrome companion extension.
+
+## Repository architecture
+
+This is a Bun/Turborepo monorepo. Use Bun, not npm/pnpm/yarn.
+
+- `apps/web`: Astro SSR application with a client-side React workspace and
+  shared shadcn-style components from `packages/ui`.
+- `apps/api`: Hono API, Better Auth, PostgreSQL repositories, extension bridge,
+  and ordered SQL migrations.
+- `apps/worker`: PostgreSQL job runner for incremental sync, imports,
+  enrichment, and retained-evidence reprocessing.
+- `packages/core`: shared Substack SDK adapter and canonical ingestion logic.
+- `packages/ui`: shared React UI primitives.
+- `extension`: Chrome Manifest V3 companion extension. It connects the user's
+  browser Substack session, observes successful Substack responses/mutations,
+  and durably queues captures for the API.
+- `apps/api/migrations`: append-only PostgreSQL migrations, applied in filename
+  order and recorded in `app_migrations`.
+- `docs/operations.md`: production topology, environment variables, database
+  roles, recovery steps, and smoke tests.
+- `todo.md`: authoritative implementation status and known remaining gates.
+
+All TypeScript packages are ESM. Preserve the existing `.js` suffix on local
+imports where the surrounding source uses it; compiled output runs directly in
+Bun/Node-compatible ESM mode.
+
+## Runtime and request flow
+
+Production is built from `Dockerfile` and orchestrated by `compose.yaml` on
+Dokploy. Cloudflare Tunnel provides public ingress; this application is not a
+Cloudflare Worker.
+
+The public host routes `/api/*` to the Hono API and other traffic to the Astro
+web service. Web, API, worker, PostgreSQL, and the one-shot migration service
+communicate on the shared `dokploy-network`.
+
+Authentication is Better Auth with same-origin cookies. Clerk is retired and
+must not be reintroduced. `app_users` is the CRM tenant identity linked to the
+Better Auth user.
+
+The extension calls compatibility routes under `/api/ext/*`. Its durable queue
+is scoped to the active `substack_connections.id`, preventing captures from a
+revoked or different Substack account from being delivered into the current
+account.
+
+## Deployment and PostgreSQL migrations
+
+The user normally pushes changes; Dokploy automatically builds and deploys the
+git revision. Do not push, change Dokploy, or perform a release unless the user
+explicitly asks.
+
+PostgreSQL migrations are applied automatically on every deployment:
+
+1. Dokploy starts the one-shot `migrate` service.
+2. `apps/api/dist/migrate.js` bootstraps/refreshes database roles using the
+   admin `DATABASE_URL`.
+3. It runs every unapplied file in `apps/api/migrations` transactionally and
+   records it in `app_migrations`.
+4. `api` and `worker` are gated on successful migration completion.
+
+Therefore, every schema change must be a new, forward-only numbered SQL file.
+Never edit an already-deployed migration, manually mutate the production
+schema, or assume application code starts before its migration succeeds.
+Migrations may also enqueue repair jobs when a data-model/parser change needs
+to reprocess retained evidence.
+
+Current latest migration at the time of writing is
+`008_profile_outbound_history.sql`. It reactivates the outbound-history stream
+for existing accounts after the SDK profile-feed upgrade and enqueues its
+resumable backfill.
+
+Database roles:
+
+- Admin URL/role: migration bootstrap only.
+- `circles_migrate`: owns schema objects and executes migrations.
+- `circles_app`: restricted DML runtime role used by API and worker.
+
+Tenant isolation uses PostgreSQL RLS and transaction-local
+`set_config('app.user_id', ...)`. All tenant reads/writes must run through
+`withTenant`. A direct query through `APP_DATABASE_URL` without tenant context
+correctly returns no tenant rows. Do not disable RLS to work around this.
+
+Local `.env` normally points `DATABASE_URL`/`APP_DATABASE_URL` at an SSH tunnel
+on `127.0.0.1:5433`. If it returns `ECONNREFUSED`, the tunnel is down; do not
+retry repeatedly. `bun run dev` opens the tunnel and starts the local services,
+while `bun run dev:check` only checks connectivity. Never print credentials or
+connection strings containing passwords.
+
+## Data model and ingestion invariants
+
+Important tables include:
+
+- `substack_connections`: versioned account connections and session material.
+- `people`: CRM contacts. A handle is optional; `substack_profile_id` is the
+  stable identity when Substack omits a handle.
+- `interactions`: normalized inbound/outbound actions with stable external IDs,
+  target/thread context, event time, source, and soft removal via `removed_at`.
+- `relationship_stats`: rebuildable counts/timestamps and separate inbound and
+  outbound scores.
+- `owned_content`: authored Notes/posts used as conversation sync seeds.
+- `activity_snapshots`, `note_replies_snapshots`, `thread_snapshots`, and
+  `ingestion_batches`: raw evidence retained for safe replay.
+- `sync_stream_state`: independent incremental stream status/checkpoints.
+- `import_runs` and `import_run_streams`: resumable user-visible backfills.
+- `jobs`: durable queue with leases, retries, and dead-letter state.
+
+Canonical normalization belongs in `packages/core/src/ingestion.ts`; API,
+worker, and extension captures must converge on that path instead of creating
+parallel scoring/identity logic.
+
+Relationship rules:
+
+- Inbound engagement score reflects engagement received from another person.
+- Outbound engagement is tracked separately and must never inflate the inbound
+  score.
+- A confirmed owner action attaches to the target/parent author when known.
+- Owner replies in a thread are outbound interactions with the person being
+  replied to.
+- Unrelated third-party discussion must not be relabeled as a direct
+  interaction with the owner.
+- Stable Substack profile ID takes precedence over handle; handle is optional
+  enrichment.
+- Replays must be idempotent. Undo operations mark the existing interaction
+  removed and a subsequent repeat restores it.
+
+## Sync and historical coverage
+
+Scheduled/manual sync always reads the newest activity page, recent owned
+Notes/posts, and the newest Likes, restacks, and authored-replies pages.
+Historical cursors belong to backfill jobs, not incremental sync. Activity,
+owned Notes, owned posts, and outbound history have independent
+status/completeness state so one stream cannot silently advance another.
+
+Be precise about upstream limits:
+
+- Substack's activity feed is primarily inbound/notification history.
+- Owned Notes and posts plus their returned reply/comment trees can be
+  backfilled and kept current.
+- Historical owner replies present in retained owned-content threads can be
+  recovered.
+- Authenticated profile feeds expose deep cursor-paginated active Likes,
+  restacks, and authored comments/replies. They do not guarantee that actions
+  removed in the past remain available.
+- The extension captures future outbound likes/unlikes,
+  restacks/unrestacks, comments, and replies when their mutation succeeds.
+- Never label unavailable outbound history as complete. The frontend explains
+  the limitation without showing it as a permanently failed progress card.
+
+The CRM exposes recovered/captured outbound data through the Outbound Touches
+view, “given” totals on contact cards, outbound timestamps, and per-contact
+timelines. A global grouped per-action analytics view is still pending; consult
+`todo.md` before claiming otherwise.
+
+## Extension workflow
+
+The extension version must match in all four files:
+
+- `extension/manifest.json`
+- `extension/package.json`
+- `extension/package-lock.json`
+- `extension/version.json`
+
+Build with:
+
+```powershell
+cd extension
+bun run build
+```
+
+Build output is `extension/dist`. The installable archive convention is
+`extension/circles-companion-<version>.zip`, containing the contents of `dist`
+at the archive root. Rebuild/repackage after extension source changes and verify
+the version in `dist/manifest.json`. Do not bump or rebuild the extension for a
+web/API-only change unless requested or required for compatibility.
+
+The passive page observer must not introduce extra Substack reads merely to
+capture normal browsing. Mutation capture may resolve a missing target author
+through the authenticated API route. Treat all page-world messages as untrusted:
+validate type, shape, length, origin, and account connection before queueing or
+ingesting them.
+
+## Development and verification
+
+Common commands from the repository root:
+
+```powershell
+bun run typecheck
+bun run build
+bun --env-file=.env test --concurrent-test-files=1 packages/core apps/worker apps/api
+```
+
+Useful focused commands:
+
+```powershell
+bun test packages/core/test/ingestion.test.ts apps/worker/test/jobs.test.ts
+bun test extension/tests/outbound-action.test.ts
+bun --env-file=.env apps/api/src/migrate.ts
+```
+
+API/database tests need the PostgreSQL tunnel and create/apply the schema in a
+test database. Extension's older Vitest-oriented tests are not part of the root
+test command; do not interpret Bun/Vitest harness incompatibility as a product
+failure. Add new focused tests in the existing harness style and always run
+typecheck after cross-package interface changes.
+
+Before handing off a change:
+
+1. Check `git status` and preserve unrelated user changes.
+2. Add a migration for schema changes and confirm it works on a fresh/test DB
+   when the tunnel is available.
+3. Run typecheck and tests proportional to the change.
+4. Update `todo.md` when scope or completion status changes.
+5. State what was not tested, deployed, migrated, rebuilt, or pushed.
+
+## Safety and operational expectations
+
+- Never expose Substack session tokens, database passwords, Better Auth
+  secrets, raw private message bodies, or full connection URLs in logs/output.
+- Prefer aggregate/structural inspection of retained payloads when debugging
+  production data.
+- Do not run destructive SQL, delete imports/interactions, reset git state, or
+  revoke connections without explicit user authorization.
+- Do not bypass the queue for long-running sync/backfill work.
+- Do not mark a backfill complete when an upstream stream is unavailable or a
+  checkpoint has not exhausted.
+- Preserve raw snapshots when adjusting parsers; replay evidence rather than
+  refetching private upstream data when possible.
+- Keep UI language honest about complete, partial, and unavailable coverage.

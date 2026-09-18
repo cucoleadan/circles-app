@@ -41,7 +41,7 @@ What exists:
 - [x] Exported live D1 data (`scripts/migration/export-d1.ts`) and imported into PostgreSQL (`scripts/migration/d1-convert.ts`): 692 people, 1,891 interactions, 4 lists, 32 members, 0 quarantined
 - [x] Link Better Auth user (`cucoleadan@gmail.com`) to imported `app_users` record
 - [x] Capture sanitized Substack fixtures for SDK validation
-- [x] Verify pinned `unofficial-substack-sdk` release (0.3.14)
+- [x] Verify pinned `unofficial-substack-sdk` release (0.3.15)
 - [x] Admin recovery procedure (`apps/api/src/reset-password.ts`)
 
 ## Phase 1 — Foundation (complete, pending deploy smoke test)
@@ -201,13 +201,14 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 | Comments/replies on owned content | Complete where Substack returns the thread | Scheduled sync | Owner replies attach to the replied-to person; unrelated third-party branches are excluded |
 | Inbound likes, mentions, restacks, and quote-restacks | Activity-history dependent | Latest activity sync | Identity is complete only for events retained and returned by Substack |
 | Outbound replies/comments on owned content | Recovered from owned thread trees | Thread sync plus extension capture | Counterparty is the parent/root author |
-| Outbound replies/comments elsewhere | Partial when represented in retained activity/conversations | Extension capture | Substack exposes no proven global authored-comment archive |
-| Outbound likes/unlikes | Unavailable globally | Extension capture from v0.2.5 onward | Stable IDs make unlike remove the active interaction |
-| Outbound restacks/unrestacks, including restacks with text | Unavailable globally | Extension capture from v0.2.5 onward | Stable IDs make unrestack remove the active interaction |
+| Outbound replies/comments elsewhere | Paginated authenticated profile replies feed | Latest profile replies page plus extension capture | Each action links to the nearest non-owner parent or target post author by stable profile ID |
+| Outbound likes/unlikes | Deep paginated active-Likes feed | Latest Likes page plus extension capture | Removed historical likes may no longer appear upstream; stable IDs let future unlikes remove the captured action |
+| Outbound restacks/unrestacks | Paginated active-restacks feed for Notes and posts | Latest restacks page plus extension capture | Removed historical restacks may no longer appear upstream; stable IDs let future unrestacks remove the captured action |
 | Individual historical restacker identities on owned content | Activity-history dependent | Activity sync | Note/post aggregate counters do not identify every historical person |
 
-The History panel labels the unavailable outbound-history stream explicitly instead
-of presenting the resulting archive as complete.
+The History panel reports the outbound stream separately. It describes the
+authenticated profile feeds as deep active-action history without promising
+that Substack retains actions that were later removed.
 
 Reply ingestion accepts Substack's handle-less `user_id` identity shape and creates
 or matches contacts by stable profile ID; a public handle is enrichment, not a

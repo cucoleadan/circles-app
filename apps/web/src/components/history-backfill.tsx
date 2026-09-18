@@ -39,7 +39,7 @@ const streamNames: Record<string, string> = {
   activity: "Activity feed",
   owned_notes: "Your Notes + replies",
   owned_posts: "Your posts + comments",
-  outbound_actions: "Historical likes/restacks",
+  outbound_actions: "Your likes, restacks + replies",
 }
 
 export function HistoryBackfill() {
@@ -117,13 +117,13 @@ export function HistoryBackfill() {
         <SheetHeader className="border-b border-stone-200 bg-white p-6 dark:border-stone-800 dark:bg-stone-900">
           <SheetTitle>Full Substack history</SheetTitle>
           <SheetDescription>
-            Backfill your activity, authored Notes and posts, then keep them current in normal syncs.
+            Backfill notifications, your outbound activity, authored Notes and posts, then keep them current in normal syncs.
           </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 p-6">
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-            Substack does not expose a complete historical list of likes and restacks you made. Circles records those actions from the extension going forward; replies and comments are backfilled where Substack exposes them.
+            Substack exposes deep paginated history for active likes, active restacks, and comments or replies you authored. Removed likes and restacks may no longer appear in that history; the extension records future changes as they happen.
           </div>
 
           <div className="flex items-center gap-2">
@@ -157,9 +157,7 @@ export function HistoryBackfill() {
                 </Button>
               </div>
 
-              {latest.streams
-                .filter((stream) => stream.stream !== "outbound_actions")
-                .map((stream) => (
+              {latest.streams.map((stream) => (
                 <div key={stream.stream} className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs font-semibold">{streamNames[stream.stream] ?? stream.stream}</p>
@@ -173,9 +171,9 @@ export function HistoryBackfill() {
                   <p className="mt-2 text-[11px] text-stone-500">
                     {stream.items} items · {stream.newInteractions} new interactions · {stream.newPeople} people
                   </p>
-                  {(stream.error || stream.finishReason === "extension_capture_only") && (
+                  {stream.error && (
                     <p className="mt-1 text-[11px] text-stone-500">
-                      {stream.error ?? "Captured by the extension from now on."}
+                      {stream.error}
                     </p>
                   )}
                 </div>

@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import type { PoolClient } from "pg"
 import {
+  ingestActivityBatch,
   ingestConversationReplies,
+  type ActivityItemInput,
   type ConversationCommentInput,
   type SubstackClient,
 } from "@workspace/core"
@@ -21,6 +23,15 @@ export type HistoryPageResult = {
   nextCursor: string | null
   complete: boolean
 }
+
+type OutboundStage = "likes" | "restacks" | "replies"
+
+type OutboundCursor = {
+  stage: OutboundStage
+  cursor: string | null
+}
+
+const OUTBOUND_STAGES: OutboundStage[] = ["likes", "restacks", "replies"]
 
 const record = (value: unknown): Record<string, any> | null =>
   value !== null && typeof value === "object" && !Array.isArray(value)
@@ -59,6 +70,280 @@ function authorOf(raw: Record<string, any>): Record<string, any> {
     handle: raw.handle ?? raw.username ?? raw.author_handle ?? null,
     photo_url: raw.photo_url ?? raw.author_photo_url ?? null,
   }
+}
+
+function profileAuthor(raw: Record<string, any> | null): Record<string, any> | null {
+  if (!raw) return null
+  const author = authorOf(raw)
+  const id = firstString(author.id, author.user_id)
+  const handle = firstString(author.handle, author.username, author.author_handle)
+  if (!id && !handle) return null
+  return {
+    id,
+    name: firstString(author.name, author.author_name),
+    handle,
+    photo_url: firstString(author.photo_url, author.avatar_url, author.author_photo_url),
+  }
+}
+
+function isOwner(author: Record<string, any> | null, ownerId: string | null): boolean {
+  return Boolean(ownerId && author?.id !== null && author?.id !== undefined && String(author.id) === String(ownerId))
+}
+
+function postAuthor(item: Record<string, any>): Record<string, any> | null {
+  const post = record(item.post)
+  const bylines = Array.isArray(post?.publishedBylines)
+    ? post.publishedBylines
+    : Array.isArray(item.publishedBylines) ? item.publishedBylines : []
+  const byline = bylines.map(record).find(Boolean) ?? null
+  if (byline) return profileAuthor({
+    user_id: byline.id ?? byline.user_id,
+    name: byline.name,
+    handle: byline.handle,
+    photo_url: byline.photo_url,
+  })
+  const publication = record(item.publication)
+  if (!publication) return null
+  return profileAuthor({
+    user_id: publication.author_id ?? publication.primary_user_id,
+    name: publication.author_name ?? publication.primary_profile_name,
+    handle: publication.author_handle,
+    photo_url: publication.author_photo_url ?? publication.primary_profile_photo_url,
+  })
+}
+
+function itemTimestamp(item: Record<string, any>): string | number | null {
+  const context = record(item.context)
+  const comment = record(item.comment)
+  const post = record(item.post)
+  return context?.timestamp ?? comment?.date ?? comment?.created_at ?? post?.post_date ?? null
+}
+
+function itemUrl(item: Record<string, any>): string | null {
+  const context = record(item.context)
+  const comment = record(item.comment)
+  const post = record(item.post)
+  return firstString(context?.fallbackUrl, comment?.canonical_url, comment?.url, post?.canonical_url, post?.url)
+}
+
+function rootCommentId(comment: Record<string, any> | null): string | null {
+  if (typeof comment?.ancestor_path !== "string") return null
+  return comment.ancestor_path.split(".").map((part: string) => part.trim()).filter(Boolean)[0] ?? null
+}
+
+/** Converts raw authenticated profile-feed history into canonical outbound actions. */
+export function normalizeOutboundProfileFeed(
+  values: unknown[],
+  ownerId: string | null,
+): ActivityItemInput[] {
+  const normalized: ActivityItemInput[] = []
+
+  for (const value of values.slice(0, 500)) {
+    const item = record(value)
+    if (!item) continue
+    const context = record(item.context)
+    const contextType = firstString(context?.type)?.toLowerCase() ?? ""
+    const contextSource = firstString(context?.source)?.toLowerCase() ?? ""
+    const comment = record(item.comment)
+    const post = record(item.post)
+    const parents = Array.isArray(item.parentComments)
+      ? item.parentComments.map(record).filter((parent): parent is Record<string, any> => Boolean(parent))
+      : []
+
+    const isLike = contextSource === "db-like" || contextType.endsWith("_like")
+    const isRestack = contextSource === "db-restack" || contextType.includes("restack")
+    if (isLike || isRestack) {
+      const action = isLike ? "like" : "restack"
+      const targetKind = contextType === "comment_like"
+        ? "comment"
+        : contextType === "post_like" || contextType === "post_restack" ? "post" : "note"
+      const target = targetKind === "post" ? post : comment
+      const targetId = firstString(target?.id, item.id)
+      const targetAuthor = targetKind === "post" ? postAuthor(item) : profileAuthor(comment)
+      if (!targetId || !targetAuthor || isOwner(targetAuthor, ownerId)) continue
+      const postId = firstString(post?.id, comment?.post_id)
+      const rootId = postId ?? rootCommentId(comment) ?? targetId
+
+      normalized.push({
+        kind: "outbound-action",
+        action,
+        active: true,
+        externalId: `outbound:${action}:${targetKind}:${targetId}`,
+        occurredAt: itemTimestamp(item) ?? undefined,
+        targetKind,
+        targetId,
+        targetTitle: firstString(post?.title),
+        targetUrl: itemUrl(item),
+        targetAuthor,
+        threadKind: postId ? "post" : "note",
+        threadRootId: rootId,
+      })
+      continue
+    }
+
+    const author = profileAuthor(comment)
+    if (!comment || !author || !isOwner(author, ownerId)) continue
+    const targetParent = [...parents]
+      .reverse()
+      .find((parent) => {
+        const parentAuthor = profileAuthor(parent)
+        return parentAuthor && !isOwner(parentAuthor, ownerId)
+      }) ?? null
+    const targetAuthor = targetParent ? profileAuthor(targetParent) : postAuthor(item)
+    if (!targetAuthor || isOwner(targetAuthor, ownerId)) continue
+
+    const commentId = firstString(comment.id)
+    const postId = firstString(post?.id, comment.post_id)
+    const targetId = firstString(targetParent?.id, postId)
+    if (!commentId || !targetId) continue
+    const hasParent = Boolean(targetParent)
+
+    normalized.push({
+      kind: "outbound-action",
+      action: hasParent ? "reply" : "comment",
+      active: true,
+      externalId: `comment-${commentId}`,
+      occurredAt: itemTimestamp(item) ?? undefined,
+      body: firstString(comment.body, comment.body_text) ?? bodyText(comment.body_json),
+      targetKind: hasParent ? "comment" : post ? "post" : "note",
+      targetId,
+      targetTitle: firstString(post?.title),
+      targetUrl: itemUrl(item),
+      targetAuthor,
+      threadKind: postId ? "post" : "note",
+      threadRootId: postId ?? rootCommentId(comment) ?? targetId,
+    })
+  }
+
+  return normalized
+}
+
+function parseOutboundCursor(value?: string | null): OutboundCursor {
+  if (!value) return { stage: "likes", cursor: null }
+  try {
+    const parsed = JSON.parse(value) as Partial<OutboundCursor>
+    if (parsed && OUTBOUND_STAGES.includes(parsed.stage as OutboundStage)) {
+      return {
+        stage: parsed.stage as OutboundStage,
+        cursor: typeof parsed.cursor === "string" && parsed.cursor ? parsed.cursor : null,
+      }
+    }
+  } catch {
+    // Pre-SDK checkpoints were never active; restart them safely at likes.
+  }
+  return { stage: "likes", cursor: null }
+}
+
+const encodeOutboundCursor = (cursor: OutboundCursor): string => JSON.stringify(cursor)
+
+async function preserveOutboundEvidence(
+  client: PoolClient,
+  context: HistoryContext,
+  stage: OutboundStage,
+  page: unknown,
+) {
+  const payload = JSON.stringify({ profileFeedStage: stage, page })
+  const dedupeKey = createHash("sha256")
+    .update(`${context.connectionId}:profile-feed:${stage}:${payload}`)
+    .digest("hex")
+  await client.query(
+    `insert into ingestion_batches
+        (id, user_id, source, dedupe_key, payload, status, received_at, processed_at)
+     values ($1, $2, $3, $4, $5, 'processed', now(), now())
+     on conflict (user_id, dedupe_key) do nothing`,
+    [randomUUID(), context.userId, context.source, dedupeKey, payload],
+  )
+}
+
+async function fetchOutboundPage(
+  sdk: SubstackClient,
+  ownerId: string,
+  stage: OutboundStage,
+  cursor: string | null,
+  limit: number,
+) {
+  if (stage === "replies") {
+    return sdk.getProfileReplies(ownerId, { cursor: cursor || undefined, limit })
+  }
+  return sdk.getProfileFeed(ownerId, {
+    cursor: cursor || undefined,
+    limit,
+    types: [stage === "likes" ? "like" : "restack"],
+  })
+}
+
+function isAtOrBeforeCutoff(item: ActivityItemInput, cutoff?: Date | null): boolean {
+  if (!cutoff) return false
+  const value = item.occurredAt ?? item.created_at ?? item.createdAt
+  if (!value) return false
+  const date = new Date(value)
+  return !Number.isNaN(date.getTime()) && date <= cutoff
+}
+
+export async function syncOutboundActionsPage(
+  client: PoolClient,
+  sdk: SubstackClient,
+  context: HistoryContext,
+  checkpoint?: string | null,
+  limit = 20,
+  cutoff?: Date | null,
+): Promise<HistoryPageResult> {
+  if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
+  const current = parseOutboundCursor(checkpoint)
+  const page = await fetchOutboundPage(sdk, context.ownerId, current.stage, current.cursor, limit)
+  await preserveOutboundEvidence(client, context, current.stage, page)
+  const rawItems = Array.isArray(page?.items) ? page.items : []
+  const allItems = normalizeOutboundProfileFeed(rawItems, context.ownerId)
+  const hitCutoff = allItems.some((item) => isAtOrBeforeCutoff(item, cutoff))
+  const items = cutoff ? allItems.filter((item) => !isAtOrBeforeCutoff(item, cutoff)) : allItems
+  const stats = await ingestActivityBatch(client, {
+    ...context,
+    items,
+  })
+
+  const upstreamCursor = firstString(page?.nextCursor)
+  let nextCursor: string | null = null
+  let complete = false
+  if (upstreamCursor && !hitCutoff) {
+    nextCursor = encodeOutboundCursor({ stage: current.stage, cursor: upstreamCursor })
+  } else {
+    const nextStage = OUTBOUND_STAGES[OUTBOUND_STAGES.indexOf(current.stage) + 1]
+    if (nextStage) nextCursor = encodeOutboundCursor({ stage: nextStage, cursor: null })
+    else complete = true
+  }
+
+  return {
+    items: rawItems.length,
+    newInteractions: stats.newInteractions,
+    newPeople: stats.newPeople,
+    nextCursor,
+    complete,
+  }
+}
+
+export async function syncRecentOutboundActions(
+  client: PoolClient,
+  sdk: SubstackClient,
+  context: HistoryContext,
+  limit = 20,
+): Promise<HistoryPageResult> {
+  if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
+  let items = 0
+  let newInteractions = 0
+  let newPeople = 0
+  for (const stage of OUTBOUND_STAGES) {
+    const page = await fetchOutboundPage(sdk, context.ownerId, stage, null, limit)
+    await preserveOutboundEvidence(client, context, stage, page)
+    const rawItems = Array.isArray(page?.items) ? page.items : []
+    const stats = await ingestActivityBatch(client, {
+      ...context,
+      items: normalizeOutboundProfileFeed(rawItems, context.ownerId),
+    })
+    items += rawItems.length
+    newInteractions += stats.newInteractions
+    newPeople += stats.newPeople
+  }
+  return { items, newInteractions, newPeople, nextCursor: null, complete: false }
 }
 
 function normalizeComment(value: unknown): ConversationCommentInput | null {

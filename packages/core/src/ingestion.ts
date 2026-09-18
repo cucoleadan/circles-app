@@ -38,6 +38,10 @@ export interface ActivityItemInput {
   commentId?: string | number | null
   root_comment_id?: string | number | null
   rootCommentId?: string | number | null
+  thread_kind?: "note" | "post" | null
+  threadKind?: "note" | "post" | null
+  thread_root_id?: string | number | null
+  threadRootId?: string | number | null
   target_kind?: string | null
   targetKind?: string | null
   target_id?: string | number | null
@@ -238,13 +242,13 @@ function parseTimestamp(val: unknown): string {
 }
 
 function classifyAction(kind: string | undefined, body: string | null | undefined): string {
-  if (body && body.trim().length > 0) return "comment"
   const k = (kind ?? "").toLowerCase()
   if (k.includes("restack")) return "restack"
+  if (k.includes("reply")) return "reply"
   if (k.includes("like") || k.includes("heart") || k.includes("reaction")) return "like"
   if (k.includes("subscribe")) return "subscribe"
   if (k.includes("mention")) return "mention"
-  if (k.includes("reply")) return "reply"
+  if (body && body.trim().length > 0) return "comment"
   return "other"
 }
 
@@ -269,7 +273,7 @@ export async function ensurePerson(
   // Stable Substack profile IDs take precedence because reply payloads often
   // omit handles entirely. Handle lookup remains the compatibility fallback.
   const found = await client.query(
-    `select id from people
+    `select id, substack_profile_id from people
      where user_id = $1 and archived_at is null
        and (($2::text is not null and substack_profile_id = $2)
          or ($3::text is not null and normalized_handle = $3))
@@ -279,6 +283,19 @@ export async function ensurePerson(
   )
   if (found.rows[0]) {
     const id = found.rows[0].id as string
+    if (substackProfileId && !found.rows[0].substack_profile_id) {
+      await client.query(
+        `update people
+         set substack_profile_id = $3, updated_at = now()
+         where id = $1 and user_id = $2 and substack_profile_id is null
+           and not exists (
+             select 1 from people other
+             where other.user_id = $2 and other.substack_profile_id = $3
+               and other.archived_at is null and other.id <> $1
+           )`,
+        [id, userId, substackProfileId],
+      )
+    }
     personCache.set(cacheKey, id)
     return id
   }
@@ -449,9 +466,12 @@ export async function ingestActivityBatch(
       String(item.external_id || item.externalId || item.id || item.item_key || item.comment_id || item.commentId || randomUUID())
 
     const targetType = item.target_kind || item.targetKind || "post"
-    const threadKind = targetType === "note" ? "note" : "post"
+    const threadKind = item.thread_kind || item.threadKind || (targetType === "note" ? "note" : "post")
     const targetId = item.target_id || item.targetId || item.root_comment_id || item.rootCommentId
-    const threadRootId = targetId ? String(targetId) : null
+    const explicitThreadRootId = item.thread_root_id || item.threadRootId
+    const threadRootId = explicitThreadRootId
+      ? String(explicitThreadRootId)
+      : targetId ? String(targetId) : null
 
     if (item.active === false) {
       const removed = await client.query(
