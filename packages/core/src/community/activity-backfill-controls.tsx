@@ -36,7 +36,7 @@ export function ActivityBackfillControls({ job }: { job: BackfillJob | null }) {
       </Button></PopoverTrigger>
       <PopoverContent align="end" className="w-[min(24rem,calc(100vw-2rem))] rounded-2xl p-5">
         <h2 className="text-sm font-semibold">Your notification history</h2>
-        <p className="text-xs leading-5 text-muted-foreground">Import up to 3 months of saved activity. A 2-second pause between pages keeps requests spaced out.</p>
+        <p className="text-xs leading-5 text-muted-foreground">Import up to 3 months of saved activity. Small pages and shared queue pacing keep authenticated requests spaced out.</p>
         {job && <div className="space-y-3 border-y border-border py-3 text-xs">
           <p className="font-medium">{job.status === "complete" ? job.finish_reason === "cutoff" ? "Three-month date boundary reached" : "No more history available from Substack" : active ? busy ? "Saving the current page…" : "Importing · keep Orbit open" : "Progress saved · resume when ready"}</p>
           <dl className="grid grid-cols-2 gap-3">{[["Pages saved", job.pages], ["Notification items", job.items], ["New touchpoints", job.new_interactions], ["Enriched touchpoints", job.enriched_interactions], ["New people", job.new_people]].map(([title, value]) => <div key={title}><dt className="text-muted-foreground">{title}</dt><dd className="mt-1 text-base font-semibold tabular-nums">{value.toLocaleString()}</dd></div>)}</dl>

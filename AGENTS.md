@@ -78,9 +78,10 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`008_profile_outbound_history.sql`. It reactivates the outbound-history stream
-for existing accounts after the SDK profile-feed upgrade and enqueues its
-resumable backfill.
+`010_substack_request_pacing.sql`. It spaces already-pending authenticated
+Substack work and requeues imports that the old retry policy failed on a 429.
+Migration `009_merge_proven_profile_duplicates.sql` performs evidence-backed
+handle/profile-ID contact reconciliation and never merges by display name.
 
 Database roles:
 

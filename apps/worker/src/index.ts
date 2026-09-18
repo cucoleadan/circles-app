@@ -32,9 +32,10 @@ async function loop() {
   while (isRunning) {
     try {
       const didWork = await claimAndRunJob(db, workerId)
-      if (!didWork) {
-        await new Promise((resolve) => setTimeout(resolve, 5000))
-      }
+      // One worker process owns the queue loop. Keep a gap after every
+      // authenticated job so independently scheduled streams cannot burst the
+      // same Substack session back-to-back.
+      await new Promise((resolve) => setTimeout(resolve, didWork ? 3000 : 5000))
     } catch (err) {
       console.error("[Circles Worker] Loop iteration error:", err)
       await new Promise((resolve) => setTimeout(resolve, 5000))

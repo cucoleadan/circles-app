@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeOutboundProfileFeed } from "../src/history.js"
+import { normalizeOutboundProfileFeed, syncOwnedPostsPage } from "../src/history.js"
 
 const ownerId = "44242110"
 
@@ -123,5 +123,40 @@ describe("profile outbound history normalization", () => {
     ], ownerId)
 
     expect(items).toEqual([])
+  })
+})
+
+describe("owned post history", () => {
+  test("advances past a historical post whose detail endpoint returns 404", async () => {
+    const queries: string[] = []
+    const client: any = {
+      query: async (sql: string) => {
+        queries.push(sql)
+        return { rows: [] }
+      },
+    }
+    const sdk: any = {
+      getProfilePosts: async (_id: string, options: unknown) => {
+        expect(options).toEqual({ limit: 1, offset: 3 })
+        return { posts: [{ id: 777, title: "Unavailable historical post" }] }
+      },
+      getPostWithEngagement: async () => {
+        const error: any = new Error("Substack request failed with 404.")
+        error.status = 404
+        throw error
+      },
+    }
+
+    const result = await syncOwnedPostsPage(client, sdk, {
+      userId: "user-1",
+      connectionId: "connection-1",
+      ownerId,
+      ownerHandle: "owner",
+      source: "import",
+    }, "3", 1)
+
+    expect(result).toMatchObject({ items: 1, nextCursor: "4", complete: false })
+    expect(queries.some((sql) => sql.includes("insert into owned_content"))).toBe(true)
+    expect(queries.some((sql) => sql.includes("insert into thread_snapshots"))).toBe(false)
   })
 })

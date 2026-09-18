@@ -24,7 +24,7 @@ export type HistoryPageResult = {
   complete: boolean
 }
 
-type OutboundStage = "likes" | "restacks" | "replies"
+export type OutboundStage = "likes" | "restacks" | "replies"
 
 type OutboundCursor = {
   stage: OutboundStage
@@ -44,6 +44,12 @@ const firstString = (...values: unknown[]): string | null => {
     if (typeof value === "number") return String(value)
   }
   return null
+}
+
+const hasHttpStatus = (error: unknown, status: number): boolean => {
+  const value = error as { status?: number; statusCode?: number; message?: string }
+  return value?.status === status || value?.statusCode === status ||
+    String(value?.message ?? "").includes(String(status))
 }
 
 function bodyText(value: unknown): string | null {
@@ -326,14 +332,15 @@ export async function syncRecentOutboundActions(
   sdk: SubstackClient,
   context: HistoryContext,
   limit = 20,
+  stage?: OutboundStage,
 ): Promise<HistoryPageResult> {
   if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
   let items = 0
   let newInteractions = 0
   let newPeople = 0
-  for (const stage of OUTBOUND_STAGES) {
-    const page = await fetchOutboundPage(sdk, context.ownerId, stage, null, limit)
-    await preserveOutboundEvidence(client, context, stage, page)
+  for (const currentStage of stage ? [stage] : OUTBOUND_STAGES) {
+    const page = await fetchOutboundPage(sdk, context.ownerId, currentStage, null, limit)
+    await preserveOutboundEvidence(client, context, currentStage, page)
     const rawItems = Array.isArray(page?.items) ? page.items : []
     const stats = await ingestActivityBatch(client, {
       ...context,
@@ -523,7 +530,16 @@ export async function syncOwnedNotesPage(
   for (const item of items) {
     const noteId = await upsertOwnedContent(client, context, "note", item)
     if (!noteId) continue
-    const result: any = await sdk.getNoteWithEngagement(noteId)
+    let result: any
+    try {
+      result = await sdk.getNoteWithEngagement(noteId)
+    } catch (error) {
+      // Deleted or no-longer-readable historical Notes should not poison the
+      // entire resumable archive. The owned-content row still records that the
+      // profile feed returned the Note, and the cursor may safely advance.
+      if (hasHttpStatus(error, 404)) continue
+      throw error
+    }
     await client.query(
       `insert into note_replies_snapshots (connection_id, note_id, schema_version, payload, captured_at)
        values ($1, $2, 1, $3, now())
@@ -547,22 +563,34 @@ export async function syncOwnedNotesPage(
   return { items: items.length, newInteractions, newPeople, nextCursor, complete: !nextCursor }
 }
 
-export async function syncOwnedPosts(
+export async function syncOwnedPostsPage(
   client: PoolClient,
   sdk: SubstackClient,
   context: HistoryContext,
-  limit?: number,
+  cursor?: string | null,
+  limit = 1,
 ): Promise<HistoryPageResult> {
   if (!context.ownerId) throw new Error("Connected Substack profile has no profile ID")
-  const response = await sdk.getProfilePosts(context.ownerId)
+  const parsedOffset = cursor ? Number.parseInt(cursor, 10) : 0
+  const offset = Number.isSafeInteger(parsedOffset) && parsedOffset >= 0 ? parsedOffset : 0
+  const response = await sdk.getProfilePosts(context.ownerId, { limit, offset })
   const allItems = postItems(response)
-  const items = typeof limit === "number" ? allItems.slice(0, limit) : allItems
+  const items = allItems.slice(0, limit)
   let newInteractions = 0
   let newPeople = 0
   for (const item of items) {
     const postId = await upsertOwnedContent(client, context, "post", item)
     if (!postId) continue
-    const result: any = await sdk.getPostWithEngagement(postId)
+    let result: any
+    try {
+      result = await sdk.getPostWithEngagement(postId)
+    } catch (error) {
+      // Old, deleted, or otherwise unavailable posts can remain in the profile
+      // listing after their detail/comments endpoint starts returning 404.
+      // Preserve the post seed and advance instead of restarting forever.
+      if (hasHttpStatus(error, 404)) continue
+      throw error
+    }
     await client.query(
       `insert into thread_snapshots
           (id, user_id, connection_id, thread_kind, thread_root_id, complete, payload, fetched_at)
@@ -585,11 +613,12 @@ export async function syncOwnedPosts(
     newInteractions += stats.newInteractions
     newPeople += stats.newPeople
   }
+  const complete = items.length < limit
   return {
     items: items.length,
     newInteractions,
     newPeople,
-    nextCursor: null,
-    complete: limit === undefined || items.length === allItems.length,
+    nextCursor: complete ? null : String(offset + items.length),
+    complete,
   }
 }

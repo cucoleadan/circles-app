@@ -106,9 +106,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     })
     expect(result).toBe(true)
 
-    // Verify next page was scheduled with a 2-second rate-limit pause
+    // Verify next page was scheduled with a 10-second rate-limit pause
     const nextImportJob = executedQueries.find((q) =>
-      q.sql.includes("insert into jobs") && q.sql.includes("2 seconds")
+      q.sql.includes("insert into jobs") && q.sql.includes("10 seconds")
     )
     expect(nextImportJob).toBeDefined()
 
@@ -212,5 +212,52 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     } finally {
       console.error = origConsoleError
     }
+  })
+
+  test("rate limits do not exhaust the retry budget and use exponential backoff", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-429",
+      type: "import:history",
+      payload: JSON.stringify({
+        userId: "user-1",
+        connectionId: "conn-1",
+        importRunId: "run-1",
+        stream: "owned_posts",
+      }),
+      attempts: 4,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const mockPool: any = { connect: async () => mockClient }
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      await claimAndRunJob(mockPool, "test-worker-429", {
+        onImport: async () => {
+          const error: any = new Error("Substack request failed with 429.")
+          error.status = 429
+          throw error
+        },
+      })
+    } finally {
+      console.error = originalError
+    }
+
+    expect(executedQueries.some((query) => query.sql.includes("status = 'dead'"))).toBe(false)
+    const retry = executedQueries.find((query) =>
+      query.sql.includes("set status = 'pending'") && query.sql.includes("seconds"),
+    )
+    expect(retry?.params?.[1]).toBe(960)
+    expect(executedQueries.some((query) =>
+      query.sql.includes("update import_run_streams") && query.params?.[2]?.includes("retrying in 960 seconds"),
+    )).toBe(true)
   })
 })

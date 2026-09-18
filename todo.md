@@ -132,6 +132,10 @@ debugging dropped the Phase 1 `contacts` placeholder before its port could run
 - [x] Monotonic enrichment rule; direction/thread namespaces
 - [x] Scoring calculation per plan (Likes=1, Restack=2, Comment=3, Restack with note=3)
 - [x] Per-account rate limits; pause/stop on expired credentials
+- [x] Shared queue pacing for authenticated Substack work; one-item Note/post
+      history pages; resumable post offsets; non-terminal exponential 429
+      backoff; visible retry state; per-item 404 skips for unavailable historical
+      content; migration repair for streams stranded by an earlier failed sibling
 - [x] Gate: replays deduplicate; interrupted imports resume; tests passing (26/26)
 
 ## Phase 4 — Circles UI (complete 2026-09-17)
@@ -213,6 +217,11 @@ that Substack retains actions that were later removed.
 Reply ingestion accepts Substack's handle-less `user_id` identity shape and creates
 or matches contacts by stable profile ID; a public handle is enrichment, not a
 prerequisite for preserving the relationship.
+
+Handle-only contacts from older imports are reconciled with later ID-only
+contacts when retained evidence proves the exact handle/profile-ID pair. Their
+inbound and outbound interactions, lists, tags, and relationship totals converge
+on the established handle contact; display-name similarity is never sufficient.
 
 ## Phase 6 — Cutover rehearsal
 

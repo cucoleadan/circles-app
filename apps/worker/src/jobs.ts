@@ -10,11 +10,13 @@ import {
   replayOwnedNoteSnapshots,
   syncOutboundActionsPage,
   syncOwnedNotesPage,
-  syncOwnedPosts,
+  syncOwnedPostsPage,
   syncRecentOutboundActions,
+  type OutboundStage,
 } from "./history.js"
 
 type HistoryStream = "activity" | "owned_notes" | "owned_posts" | "outbound_actions"
+type ScheduledHistoryStream = Exclude<HistoryStream, "activity">
 
 async function preserveActivityEvidence(
   client: PoolClient,
@@ -47,7 +49,7 @@ async function finishImportIfReady(client: PoolClient, importRunId: string) {
               coalesce(sum(items), 0)::int as items,
               coalesce(sum(new_interactions), 0)::int as new_interactions,
               coalesce(sum(new_people), 0)::int as new_people,
-              bool_and(status in ('complete', 'unavailable')) as finished,
+              bool_and(status in ('complete', 'unavailable', 'failed')) as finished,
               bool_or(status = 'failed') as failed
        from import_run_streams where import_run_id = $1
      )
@@ -58,7 +60,7 @@ async function finishImportIfReady(client: PoolClient, importRunId: string) {
          new_people = totals.new_people,
          status = case
            when r.status = 'paused' then 'paused'
-           when totals.failed then 'failed'
+           when totals.finished and totals.failed then 'failed'
            when totals.finished then 'complete'
            else 'running'
          end,
@@ -155,40 +157,6 @@ export async function processActivitySync(
       [connectionId, userId, nextCursor],
     )
 
-    const historyStats = { items: 0, newInteractions: 0, newPeople: 0 }
-    const historyContext = { userId, connectionId, ownerId, ownerHandle, source: "sdk" as const }
-    for (const stream of ["owned_notes", "owned_posts", "outbound_actions"] as const) {
-      try {
-        await client.query(
-          `insert into sync_stream_state (connection_id, user_id, stream, status, completeness, updated_at)
-           values ($1, $2, $3, 'running', 'partial', now())
-           on conflict (connection_id, stream) do update set status = 'running', error = null, updated_at = now()`,
-          [connectionId, userId, stream],
-        )
-        const result = stream === "owned_notes"
-          ? await syncOwnedNotesPage(client, sdk, historyContext, null, 10)
-          : stream === "owned_posts"
-            ? await syncOwnedPosts(client, sdk, historyContext, 10)
-            : await syncRecentOutboundActions(client, sdk, historyContext, 20)
-        historyStats.items += result.items
-        historyStats.newInteractions += result.newInteractions
-        historyStats.newPeople += result.newPeople
-        await client.query(
-          `update sync_stream_state
-           set status = 'idle', last_synced_at = now(), completeness = $3,
-               finish_reason = $4, error = null, updated_at = now()
-           where connection_id = $1 and stream = $2`,
-          [connectionId, stream, result.complete ? "complete" : "partial", result.complete ? "exhausted" : "recent_window"],
-        )
-      } catch (error: any) {
-        await client.query(
-          `update sync_stream_state set status = 'error', error = $3, updated_at = now()
-           where connection_id = $1 and stream = $2`,
-          [connectionId, stream, String(error?.message || error)],
-        )
-        console.warn(`[Circles Worker] ${stream} sync failed without advancing its checkpoint:`, error)
-      }
-    }
     // 5. Update sync_state
     await client.query(
       `update sync_state
@@ -207,7 +175,59 @@ export async function processActivitySync(
         `${stats.newInteractions} new interactions, ${stats.newPeople} new contacts.`
     )
 
-    return { skipped: false, stats: { ...stats, ownedContentItems: historyStats.items, historyStats } }
+    return { skipped: false, stats }
+  })
+}
+
+export async function processScheduledHistorySync(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  stream: ScheduledHistoryStream,
+  outboundStage?: OutboundStage,
+) {
+  return withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select ciphertext, publication_url, profile_handle, profile_id, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const conn = connection.rows[0]
+    if (!conn || conn.status !== "active") return { skipped: true }
+
+    await client.query(
+      `insert into sync_stream_state (connection_id, user_id, stream, status, completeness, updated_at)
+       values ($1, $2, $3, 'running', 'partial', now())
+       on conflict (connection_id, stream) do update
+         set status = 'running', error = null, updated_at = now()`,
+      [connectionId, userId, stream],
+    )
+
+    const sdk = createSubstackClient({
+      sessionToken: conn.ciphertext,
+      publicationUrl: conn.publication_url,
+    })
+    const context = {
+      userId,
+      connectionId,
+      ownerHandle: conn.profile_handle,
+      ownerId: conn.profile_id,
+      source: "sdk" as const,
+    }
+    const result = stream === "owned_notes"
+      ? await syncOwnedNotesPage(client, sdk, context, null, 1)
+      : stream === "owned_posts"
+        ? await syncOwnedPostsPage(client, sdk, context, null, 1)
+        : await syncRecentOutboundActions(client, sdk, context, 20, outboundStage)
+
+    await client.query(
+      `update sync_stream_state
+       set status = 'idle', last_synced_at = now(), completeness = 'partial',
+           finish_reason = 'recent_window', error = null, updated_at = now()
+       where connection_id = $1 and stream = $2`,
+      [connectionId, stream],
+    )
+    return { skipped: false, stats: result }
   })
 }
 
@@ -282,7 +302,7 @@ export async function processHistoryImport(
             source: "import",
           },
           streamRun.cursor,
-          20,
+          1,
         )
         await client.query(
           `update import_run_streams
@@ -300,24 +320,32 @@ export async function processHistoryImport(
       }
 
       if (stream === "owned_posts") {
-        const result = await syncOwnedPosts(client, sdk, {
-          userId,
-          connectionId: run.connection_id,
-          ownerHandle: conn.profile_handle,
-          ownerId: conn.profile_id,
-          source: "import",
-        })
+        const result = await syncOwnedPostsPage(
+          client,
+          sdk,
+          {
+            userId,
+            connectionId: run.connection_id,
+            ownerHandle: conn.profile_handle,
+            ownerId: conn.profile_id,
+            source: "import",
+          },
+          streamRun.cursor,
+          1,
+        )
         await client.query(
           `update import_run_streams
            set pages = pages + 1, items = items + $3,
                new_interactions = new_interactions + $4, new_people = new_people + $5,
-               status = 'complete', completeness = 'complete', finish_reason = 'exhausted',
+               cursor = $6, status = case when $7 then 'complete' else 'running' end,
+               completeness = case when $7 then 'complete' else 'partial' end,
+               finish_reason = case when $7 then 'exhausted' else finish_reason end,
                error = null, updated_at = now()
            where import_run_id = $1 and stream = $2`,
-          [importRunId, stream, result.items, result.newInteractions, result.newPeople],
+          [importRunId, stream, result.items, result.newInteractions, result.newPeople, result.nextCursor, result.complete],
         )
         await finishImportIfReady(client, importRunId)
-        return { completed: true, stats: result }
+        return { completed: result.complete, nextCursor: result.nextCursor, stats: result }
       }
 
       if (stream === "outbound_actions") {
@@ -522,6 +550,13 @@ export async function processStoredNoteReplay(
 
 export interface JobHandlers {
   onSync?: (client: PoolClient, userId: string, connectionId: string) => Promise<{ skipped: boolean }>
+  onHistorySync?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+    stream: ScheduledHistoryStream,
+    outboundStage?: OutboundStage,
+  ) => Promise<{ skipped: boolean }>
   onImport?: (client: PoolClient, userId: string, importRunId: string, stream?: HistoryStream) => Promise<{ completed: boolean }>
   onEnrich?: (client: PoolClient, userId: string, personId: string) => Promise<unknown>
 }
@@ -574,7 +609,7 @@ export async function claimAndRunJob(
 
     // Execute job
     const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload
-    const { userId, connectionId, importRunId, personId, stream } = payload
+    const { userId, connectionId, importRunId, personId, stream, outboundStage } = payload
 
     try {
       if (job.type === "sync:activity") {
@@ -582,21 +617,61 @@ export async function claimAndRunJob(
           ? await handlers.onSync(client, userId, connectionId)
           : await processActivitySync(client, userId, connectionId)
         if (!result.skipped) {
+          const scheduledHistory: Array<{
+            stream: ScheduledHistoryStream
+            outboundStage?: OutboundStage
+            delay: number
+          }> = [
+            { stream: "owned_notes", delay: 10 },
+            { stream: "owned_posts", delay: 20 },
+            { stream: "outbound_actions", outboundStage: "likes", delay: 30 },
+            { stream: "outbound_actions", outboundStage: "restacks", delay: 40 },
+            { stream: "outbound_actions", outboundStage: "replies", delay: 50 },
+          ]
+          for (const scheduled of scheduledHistory) {
+            await client.query(
+              `insert into jobs (type, payload, status, run_at)
+               select 'sync:history', $1, 'pending', now() + ($2 || ' seconds')::interval
+               where not exists (
+                 select 1 from jobs existing
+                 where existing.type = 'sync:history'
+                   and existing.status in ('pending', 'running')
+                   and existing.payload->>'connectionId' = $3
+                   and existing.payload->>'stream' = $4
+                   and coalesce(existing.payload->>'outboundStage', '') = $5
+               )`,
+              [
+                JSON.stringify({ ...payload, stream: scheduled.stream, outboundStage: scheduled.outboundStage }),
+                scheduled.delay,
+                connectionId,
+                scheduled.stream,
+                scheduled.outboundStage ?? "",
+              ],
+            )
+          }
           await client.query(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:activity', $1, 'pending', now() + interval '15 minutes')`,
             [JSON.stringify(payload)]
           )
         }
+      } else if (job.type === "sync:history") {
+        const result = handlers?.onHistorySync
+          ? await handlers.onHistorySync(client, userId, connectionId, stream, outboundStage)
+          : await processScheduledHistorySync(client, userId, connectionId, stream, outboundStage)
+        if (result.skipped) {
+          console.log(`[Circles Worker] Skipped ${stream} sync for inactive connection ${connectionId}.`)
+        }
       } else if (job.type === "import:history") {
         const result = handlers?.onImport
           ? await handlers.onImport(client, userId, importRunId, stream)
           : await processHistoryImport(client, userId, importRunId, stream)
         if (!result.completed) {
-          // Schedule next page with a slight pause to respect rate limits
+          // Keep pages small and spaced out; other streams share the same
+          // authenticated Substack session and are interleaved by this queue.
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             values ('import:history', $1, 'pending', now() + interval '2 seconds')`,
+             values ('import:history', $1, 'pending', now() + interval '10 seconds')`,
             [JSON.stringify(payload)]
           )
         }
@@ -616,7 +691,7 @@ export async function claimAndRunJob(
         if (!result.completed) {
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             values ('reprocess:note-snapshots', $1, 'pending', now() + interval '2 seconds')`,
+             values ('reprocess:note-snapshots', $1, 'pending', now() + interval '10 seconds')`,
             [JSON.stringify({ ...payload, afterNoteId: result.nextCursor })],
           )
         }
@@ -626,14 +701,17 @@ export async function claimAndRunJob(
 
       // Mark job done
       await client.query(
-        "update jobs set status = 'done', updated_at = now() where id = $1 and lease_token = $2",
+        "update jobs set status = 'done', last_error = null, updated_at = now() where id = $1 and lease_token = $2",
         [job.id, leaseToken]
       )
     } catch (jobError: any) {
       console.error(`[Circles Worker] Job ${job.id} (${job.type}) failed:`, jobError.message)
-      const isDead =
-        job.attempts + 1 >= job.max_attempts ||
-        jobError.message?.includes("expired")
+      const isRateLimited = jobError?.status === 429 ||
+        jobError?.statusCode === 429 ||
+        String(jobError?.message || "").includes("429")
+      const isDead = (
+        !isRateLimited && job.attempts + 1 >= job.max_attempts
+      ) || jobError.message?.includes("expired")
 
       if (isDead) {
         await client.query(
@@ -652,7 +730,9 @@ export async function claimAndRunJob(
           })
         }
       } else {
-        const retryDelaySeconds = Math.min(300, (job.attempts + 1) * 30)
+        const retryDelaySeconds = isRateLimited
+          ? Math.min(1800, 60 * (2 ** Math.min(job.attempts, 5)))
+          : Math.min(300, (job.attempts + 1) * 30)
         await client.query(
           `update jobs
            set status = 'pending',
@@ -662,6 +742,37 @@ export async function claimAndRunJob(
            where id = $1`,
           [job.id, retryDelaySeconds, jobError.message]
         )
+        if (job.type === "import:history" && userId && importRunId) {
+          await withTenant(client, userId, async () => {
+            await client.query(
+              `update import_run_streams
+               set error = $3, updated_at = now()
+               where import_run_id = $1 and stream = $2 and status = 'running'`,
+              [
+                importRunId,
+                stream ?? "activity",
+                isRateLimited
+                  ? `Substack rate limit; retrying in ${retryDelaySeconds} seconds`
+                  : jobError.message,
+              ],
+            )
+          })
+        } else if (job.type === "sync:history" && userId && connectionId && stream) {
+          await withTenant(client, userId, async () => {
+            await client.query(
+              `update sync_stream_state
+               set status = 'error', error = $3, updated_at = now()
+               where connection_id = $1 and stream = $2`,
+              [
+                connectionId,
+                stream,
+                isRateLimited
+                  ? `Substack rate limit; retrying in ${retryDelaySeconds} seconds`
+                  : jobError.message,
+              ],
+            )
+          })
+        }
       }
     }
 
