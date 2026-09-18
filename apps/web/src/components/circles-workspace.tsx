@@ -1,21 +1,16 @@
 import { useEffect, useMemo, useState } from "react"
 import {
-  ArrowUpRight,
   Calendar,
   CircleDot,
-  Clock,
   HelpCircle,
   LogOut,
-  MessageSquare,
   Plus,
   RefreshCw,
   Search,
   SlidersHorizontal,
-  Sparkles,
   Users,
 } from "lucide-react"
 
-import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
 import {
@@ -36,34 +31,14 @@ import type {
 } from "../lib/types"
 import { AddContactDialog } from "./add-contact-dialog"
 import { BadgeGuideDrawer } from "./badge-guide-drawer"
+import { CirclesMetricsRibbon } from "./circles-metrics-ribbon"
 import { CirclesSidebar } from "./circles-sidebar"
+import { ContactCard } from "./contact-card"
 import { ContactDrawer } from "./contact-drawer"
 import { HistoryBackfill } from "./history-backfill"
 
 // Backwards compatibility type for initial Astro SSR imports
 export type Contact = Person
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-}
-
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return ""
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-    })
-  } catch {
-    return ""
-  }
-}
 
 const dateRangeOptions: { id: DateRangePreset; label: string; days?: number }[] = [
   { id: "all", label: "All Time" },
@@ -79,77 +54,6 @@ function getSinceDate(preset: DateRangePreset): string | undefined {
   const d = new Date()
   d.setDate(d.getDate() - opt.days)
   return d.toISOString()
-}
-
-interface ReciprocityInfo {
-  label: string
-  sublabel: string
-  variant: "amber" | "sky" | "emerald" | "stone"
-  icon: string
-}
-
-function getReciprocityBadge(person: Person): ReciprocityInfo | null {
-  const inbound = person.inboundInteractionCount ?? 0
-  const outbound = person.outboundInteractionCount ?? 0
-  const lastInbound = person.lastInboundAt ? new Date(person.lastInboundAt).getTime() : 0
-  const lastOutbound = person.lastOutboundAt ? new Date(person.lastOutboundAt).getTime() : 0
-
-  if (inbound === 0 && outbound === 0) {
-    return null
-  }
-
-  // They reached out, but you never responded
-  if (inbound > 0 && outbound === 0) {
-    return {
-      label: "Needs your reply",
-      sublabel: `${inbound} received`,
-      variant: "amber",
-      icon: "📥",
-    }
-  }
-
-  // You reached out, but they never responded
-  if (outbound > 0 && inbound === 0) {
-    return {
-      label: "Awaiting response",
-      sublabel: `${outbound} given`,
-      variant: "stone",
-      icon: "📤",
-    }
-  }
-
-  // Both engaged: who spoke last?
-  if (lastInbound > lastOutbound) {
-    return {
-      label: "Needs reply",
-      sublabel: "They engaged last",
-      variant: "amber",
-      icon: "📥",
-    }
-  }
-
-  if (lastOutbound > lastInbound) {
-    return {
-      label: "Ball in their court",
-      sublabel: "You engaged last",
-      variant: "sky",
-      icon: "📤",
-    }
-  }
-
-  return {
-    label: "Mutual circle",
-    sublabel: `${inbound} in · ${outbound} out`,
-    variant: "emerald",
-    icon: "🔄",
-  }
-}
-
-const statusColors: Record<string, string> = {
-  new: "bg-amber-400",
-  active: "bg-sky-500",
-  close: "bg-emerald-500",
-  dormant: "bg-stone-400",
 }
 
 export function CirclesWorkspace({
@@ -386,7 +290,7 @@ export function CirclesWorkspace({
       case "needs-reply":
         return "Needs Your Reply"
       case "awaiting-response":
-        return "Awaiting Response"
+        return "Ball in Their Court"
       case "mutual":
         return "Mutual Circle"
       case "conversations":
@@ -499,47 +403,7 @@ export function CirclesWorkspace({
       {/* Main Content Area */}
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex-1 w-full">
         {/* Metric Ribbon */}
-        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900">
-            <div className="flex items-center justify-between text-xs font-medium text-stone-500">
-              <span>Total in Circle</span>
-              <Users className="size-3.5 text-stone-400" />
-            </div>
-            <p className="mt-1.5 text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-100">
-              {overview?.people ?? people.length}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900">
-            <div className="flex items-center justify-between text-xs font-medium text-stone-500">
-              <span>Conversations</span>
-              <MessageSquare className="size-3.5 text-sky-500" />
-            </div>
-            <p className="mt-1.5 text-2xl font-bold tracking-tight text-sky-600 dark:text-sky-400">
-              {people.filter((p) => (p.conversationCount ?? 0) > 0).length}
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900">
-            <div className="flex items-center justify-between text-xs font-medium text-stone-500">
-              <span>Top Score</span>
-              <Sparkles className="size-3.5 text-amber-500" />
-            </div>
-            <p className="mt-1.5 text-2xl font-bold tracking-tight text-[#f15a3a]">
-              {topScore} <span className="text-xs font-normal text-stone-500">pts</span>
-            </p>
-          </div>
-
-          <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900">
-            <div className="flex items-center justify-between text-xs font-medium text-stone-500">
-              <span>Total Actions</span>
-              <Clock className="size-3.5 text-emerald-500" />
-            </div>
-            <p className="mt-1.5 text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-100">
-              {overview?.interactions ?? people.reduce((acc, p) => acc + (p.interactionCount ?? 0), 0)}
-            </p>
-          </div>
-        </div>
+        <CirclesMetricsRibbon overview={overview} people={people} topScore={topScore} />
 
         {/* Workspace Layout */}
         <div className="flex flex-col lg:flex-row items-start gap-8">
@@ -676,158 +540,13 @@ export function CirclesWorkspace({
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {visiblePeople.map((person) => {
-                  const hasEngagement = (person.engagementScore ?? 0) > 0
-                  const isHighAdvocate = (person.engagementScore ?? 0) >= 30
-                  const reciprocity = getReciprocityBadge(person)
-
-                  return (
-                    <div
-                      key={person.id}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleSelectPerson(person.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault()
-                          handleSelectPerson(person.id)
-                        }
-                      }}
-                      className="group cursor-pointer rounded-2xl border border-stone-200/90 bg-white p-4 transition-colors hover:border-[#f15a3a]/60 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-[#f15a3a]/60 flex flex-col justify-between select-none focus:outline-none focus:ring-2 focus:ring-[#f15a3a]/30 shadow-2xs"
-                    >
-                      <div>
-                        {/* Card Header: Avatar, Name, Handle, Score */}
-                        <div className="flex items-start justify-between gap-2.5">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div className="relative shrink-0">
-                              <Avatar className="size-10 border border-stone-100 shadow-2xs dark:border-stone-800">
-                                <AvatarFallback className="bg-stone-100 font-semibold text-stone-700 text-xs dark:bg-stone-800 dark:text-stone-300">
-                                  {initials(person.name)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span
-                                className={`absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-white dark:border-stone-900 ${
-                                  statusColors[person.relationshipStatus ?? "new"] ?? "bg-stone-400"
-                                }`}
-                                title={`Status: ${person.relationshipStatus ?? "new"}`}
-                              />
-                            </div>
-
-                            <div className="min-w-0">
-                              <p className="font-bold text-sm tracking-tight text-stone-900 dark:text-stone-100 truncate group-hover:text-[#f15a3a] transition-colors">
-                                {person.name}
-                              </p>
-                              <p className="text-xs text-stone-500 font-mono truncate">
-                                {person.handle ? `@${person.handle}` : "—"}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Engagement Score Pill */}
-                          <div
-                            className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                              isHighAdvocate
-                                ? "bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800"
-                                : hasEngagement
-                                  ? "bg-orange-50 text-[#f15a3a] border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300"
-                                  : "bg-stone-100 text-stone-500 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
-                            }`}
-                            title={`Engagement score: ${person.engagementScore} pts`}
-                          >
-                            <Sparkles className="size-3 text-amber-500" />
-                            <span>{person.engagementScore}</span>
-                          </div>
-                        </div>
-
-                        {/* Reciprocity State Chip */}
-                        {reciprocity && (
-                          <div className="mt-2.5 flex items-center">
-                            <span
-                              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold tracking-tight ${
-                                reciprocity.variant === "amber"
-                                  ? "bg-amber-100/90 text-amber-900 border border-amber-300/80 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800"
-                                  : reciprocity.variant === "emerald"
-                                    ? "bg-emerald-100/90 text-emerald-900 border border-emerald-300/80 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800"
-                                    : reciprocity.variant === "sky"
-                                      ? "bg-sky-50 text-sky-800 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800"
-                                      : "bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
-                              }`}
-                            >
-                              <span>{reciprocity.icon}</span>
-                              <span>{reciprocity.label}</span>
-                              <span className="opacity-60 text-[9.5px] font-normal">
-                                • {reciprocity.sublabel}
-                              </span>
-                            </span>
-                          </div>
-                        )}
-
-                        {/* Middle: Metrics and Tags */}
-                        <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500">
-                          <span className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-2 py-0.5 font-medium">
-                            <Clock className="size-2.5 text-stone-400" />
-                            {person.interactionCount} actions
-                          </span>
-                          <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
-                            {person.inboundInteractionCount ?? 0} received
-                          </span>
-                          <span className="inline-flex items-center rounded-md bg-sky-50 px-2 py-0.5 font-medium text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">
-                            {person.outboundInteractionCount ?? 0} given
-                          </span>
-                          {(person.conversationCount ?? 0) > 0 && (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 px-2 py-0.5 font-medium">
-                              <MessageSquare className="size-2.5" />
-                              {person.conversationCount} threads
-                            </span>
-                          )}
-                          <span className="capitalize text-[10px] text-stone-400 ml-auto">
-                            {person.driftStatus}
-                          </span>
-                        </div>
-
-                        {/* Lists Badges */}
-                        {(person.lists && person.lists.length > 0) && (
-                          <div className="mt-2.5 flex flex-wrap gap-1">
-                            {person.lists.map((l) => (
-                              <span
-                                key={l.id}
-                                className="rounded-full bg-stone-100 dark:bg-stone-800 px-2 py-0.5 text-[10px] font-medium text-stone-700 dark:text-stone-300"
-                              >
-                                {l.name}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Notes Snippet */}
-                        {person.notes && (
-                          <p className="mt-2.5 text-xs text-stone-600 dark:text-stone-400 line-clamp-2 italic font-serif">
-                            "{person.notes}"
-                          </p>
-                        )}
-                      </div>
-
-                      {/* Card Footer: Recency Timestamp & Explicit Details Button */}
-                      <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-stone-800/80 flex items-center justify-between text-[11px] text-stone-400">
-                        <span>
-                          {person.lastInteractionAt
-                            ? `Active ${formatDate(person.lastInteractionAt)}`
-                            : "No recent activity"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleSelectPerson(person.id)
-                          }}
-                          className="text-[#f15a3a] hover:text-[#d04325] hover:underline flex items-center gap-0.5 font-medium cursor-pointer"
-                        >
-                          Details <ArrowUpRight className="size-3" />
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
+                {visiblePeople.map((person) => (
+                  <ContactCard
+                    key={person.id}
+                    person={person}
+                    onSelect={handleSelectPerson}
+                  />
+                ))}
               </div>
             )}
 

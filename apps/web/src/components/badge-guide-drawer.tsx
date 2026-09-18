@@ -84,7 +84,7 @@ export function BadgeGuideDrawer({
                     <span>Ball in their court</span>
                   </span>
                   <span className="text-[11px] font-medium text-sky-700 dark:text-sky-400">
-                    Awaiting Response
+                    You Commented Last
                   </span>
                 </div>
                 <p className="mt-2 text-xs text-sky-900/90 dark:text-sky-200/90 leading-relaxed">

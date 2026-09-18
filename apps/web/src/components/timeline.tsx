@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -157,6 +157,33 @@ export function Timeline({
     }
   }
 
+  type TimelineFilter = "all" | "comments" | "likes" | "restacks" | "inbound" | "outbound"
+  const [filter, setFilter] = useState<TimelineFilter>("all")
+
+  const commentCount = useMemo(
+    () => interactions.filter((i) => i.actionType === "comment" || i.actionType === "reply").length,
+    [interactions]
+  )
+  const likeCount = useMemo(
+    () => interactions.filter((i) => i.actionType === "like").length,
+    [interactions]
+  )
+  const restackCount = useMemo(
+    () => interactions.filter((i) => i.actionType === "restack").length,
+    [interactions]
+  )
+
+  const filteredInteractions = useMemo(() => {
+    return interactions.filter((item) => {
+      if (filter === "comments") return item.actionType === "comment" || item.actionType === "reply"
+      if (filter === "likes") return item.actionType === "like"
+      if (filter === "restacks") return item.actionType === "restack"
+      if (filter === "inbound") return item.direction === "inbound"
+      if (filter === "outbound") return item.direction === "outbound"
+      return true
+    })
+  }, [interactions, filter])
+
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-sm text-muted-foreground">
@@ -187,11 +214,100 @@ export function Timeline({
 
   return (
     <div className="space-y-4">
-      <div className="relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
-        {interactions.map((item) => {
-          const badge = actionBadge(item.actionType, item.body)
-          const Icon = badge.icon
-          const isInbound = item.direction === "inbound"
+      {/* Filter Chips Bar */}
+      <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-stone-100 dark:border-stone-800">
+        <button
+          type="button"
+          onClick={() => setFilter("all")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "all"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
+          }`}
+        >
+          All ({interactions.length})
+        </button>
+        {commentCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setFilter("comments")}
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+              filter === "comments"
+                ? "bg-[#191817] text-white shadow-2xs"
+                : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
+            }`}
+          >
+            💬 Comments ({commentCount})
+          </button>
+        )}
+        {likeCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setFilter("likes")}
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+              filter === "likes"
+                ? "bg-[#191817] text-white shadow-2xs"
+                : "bg-rose-50 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300"
+            }`}
+          >
+            ❤️ Likes ({likeCount})
+          </button>
+        )}
+        {restackCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setFilter("restacks")}
+            className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+              filter === "restacks"
+                ? "bg-[#191817] text-white shadow-2xs"
+                : "bg-violet-50 text-violet-800 hover:bg-violet-100 dark:bg-violet-950/50 dark:text-violet-300"
+            }`}
+          >
+            🔁 Restacks ({restackCount})
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => setFilter("inbound")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "inbound"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
+          }`}
+        >
+          📥 Inbound
+        </button>
+        <button
+          type="button"
+          onClick={() => setFilter("outbound")}
+          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+            filter === "outbound"
+              ? "bg-[#191817] text-white shadow-2xs"
+              : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
+          }`}
+        >
+          📤 Outbound
+        </button>
+      </div>
+
+      {filteredInteractions.length === 0 ? (
+        <div className="py-8 text-center text-xs text-stone-500">
+          <p>No interactions match this filter.</p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setFilter("all")}
+            className="mt-2 text-xs h-7 rounded-full"
+          >
+            Show All
+          </Button>
+        </div>
+      ) : (
+        <div className="relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
+          {filteredInteractions.map((item) => {
+            const badge = actionBadge(item.actionType, item.body)
+            const Icon = badge.icon
+            const isInbound = item.direction === "inbound"
 
           return (
             <div key={item.id} className="relative pb-6 last:pb-2">
@@ -264,6 +380,7 @@ export function Timeline({
           )
         })}
       </div>
+      )}
 
       {nextCursor && (
         <div className="pt-2 text-center">

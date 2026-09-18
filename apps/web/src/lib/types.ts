@@ -33,6 +33,13 @@ export interface Person {
   lastOutboundAt: string | null
   lastConversationAt: string | null
   driftStatus: "new" | "active" | "drifting" | "cold" | string
+  lastActionType?: string | null
+  lastActionDirection?: string | null
+  lastInboundCommentAt?: string | null
+  lastOutboundCommentAt?: string | null
+  likeCount?: number
+  restackCount?: number
+  commentCount?: number
   tags?: PersonTag[]
   lists?: PersonList[]
 }

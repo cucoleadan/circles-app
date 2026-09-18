@@ -24,19 +24,19 @@ const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] 
     id: "needs-reply",
     label: "Needs Your Reply",
     icon: Inbox,
-    desc: "Heard from them, waiting on you",
+    desc: "Needs Your Reply: Contacts who commented or replied to you where you haven't responded yet.",
   },
   {
     id: "awaiting-response",
-    label: "Awaiting Response",
+    label: "Ball in Their Court",
     icon: Send,
-    desc: "You reached out, waiting on them",
+    desc: "Ball in Their Court: Contacts where you reached out or replied last; awaiting their response.",
   },
   {
     id: "mutual",
     label: "Mutual Circle",
     icon: RefreshCw,
-    desc: "Active reciprocal conversations",
+    desc: "Mutual Circle: Active two-way relationships with regular reciprocal interactions.",
   },
 ]
 
@@ -45,37 +45,37 @@ const views: { id: PeopleView; label: string; icon: any; desc: string }[] = [
     id: "all",
     label: "All Contacts",
     icon: Users,
-    desc: "Everyone in your CRM",
+    desc: "All Contacts: Everyone in your CRM, regardless of activity status.",
   },
   {
     id: "conversations",
     label: "Conversations",
     icon: MessageSquare,
-    desc: "Exchanged replies & notes",
+    desc: "Conversations: Contacts with whom you have exchanged comments or replies in threads.",
   },
   {
     id: "inbound",
     label: "Inbound Touches",
     icon: ArrowDownLeft,
-    desc: "Reached out to you",
+    desc: "Inbound Touches: Contacts who reached out to you with likes, restacks, or comments.",
   },
   {
     id: "outbound",
     label: "Outbound Touches",
     icon: ArrowUpRight,
-    desc: "You engaged with them",
+    desc: "Outbound Touches: Contacts you have engaged with via likes, restacks, or replies.",
   },
   {
     id: "opportunities",
     label: "Opportunities",
     icon: Sparkles,
-    desc: "Advocates needing reconnection",
+    desc: "Opportunities: Past supporters with positive engagement who have drifted inactive (14+ days since last touch) — prime candidates to reconnect with!",
   },
   {
     id: "no-history",
     label: "No History",
     icon: Clock,
-    desc: "New additions without interactions",
+    desc: "No History: Newly imported contacts or subscribers with no recorded interactions yet.",
   },
 ]
 

@@ -66,6 +66,13 @@ export interface PersonWithStats extends Person {
   lastOutboundAt: string | null
   lastConversationAt: string | null
   driftStatus: string
+  lastActionType?: string | null
+  lastActionDirection?: string | null
+  lastInboundCommentAt?: string | null
+  lastOutboundCommentAt?: string | null
+  likeCount?: number
+  restackCount?: number
+  commentCount?: number
   tags?: PersonTag[]
   lists?: PersonList[]
 }
@@ -174,11 +181,11 @@ export async function listPeople(
     conditions.push("coalesce(s.conversation_count, 0) > 0")
   } else if (options.view === "needs-reply") {
     conditions.push(
-      "(coalesce(s.inbound_interaction_count, 0) > 0 and (coalesce(s.outbound_interaction_count, 0) = 0 or s.last_inbound_at > s.last_outbound_at))"
+      "(act_counts.\"lastInboundCommentAt\" is not null and (act_counts.\"lastOutboundCommentAt\" is null or act_counts.\"lastInboundCommentAt\" > act_counts.\"lastOutboundCommentAt\"))"
     )
   } else if (options.view === "awaiting-response") {
     conditions.push(
-      "(coalesce(s.outbound_interaction_count, 0) > 0 and (coalesce(s.inbound_interaction_count, 0) = 0 or s.last_outbound_at > s.last_inbound_at))"
+      "(act_counts.\"lastOutboundCommentAt\" is not null and (act_counts.\"lastInboundCommentAt\" is null or act_counts.\"lastOutboundCommentAt\" > act_counts.\"lastInboundCommentAt\"))"
     )
   } else if (options.view === "mutual") {
     conditions.push(
@@ -198,8 +205,8 @@ export async function listPeople(
 
   const dateColumn =
     options.view === "conversations" ? "s.last_conversation_at" :
-    options.view === "needs-reply" ? "s.last_inbound_at" :
-    options.view === "awaiting-response" ? "s.last_outbound_at" :
+    options.view === "needs-reply" ? "act_counts.\"lastInboundCommentAt\"" :
+    options.view === "awaiting-response" ? "act_counts.\"lastOutboundCommentAt\"" :
     options.view === "inbound" ? "s.last_inbound_at" :
     options.view === "outbound" ? "s.last_outbound_at" :
     "s.last_interaction_at"
@@ -215,8 +222,8 @@ export async function listPeople(
 
   const sort = options.sort ?? (
     options.view === "conversations" ? "recent_conversation" :
-    options.view === "needs-reply" ? "inbound" :
-    options.view === "awaiting-response" ? "outbound" :
+    options.view === "needs-reply" ? "needs_reply" :
+    options.view === "awaiting-response" ? "awaiting_response" :
     options.view === "inbound" ? "inbound" :
     options.view === "outbound" ? "outbound" :
     options.view === "opportunities" ? "engagement" :
@@ -226,6 +233,10 @@ export async function listPeople(
   let orderBy = "coalesce(s.engagement_score, 0) desc, s.last_interaction_at desc nulls last, lower(p.name)"
   if (sort === "recent_conversation") {
     orderBy = "s.last_conversation_at desc nulls last, s.last_interaction_at desc nulls last, lower(p.name)"
+  } else if (sort === "needs_reply" || options.view === "needs-reply") {
+    orderBy = "act_counts.\"lastInboundCommentAt\" desc nulls last, lower(p.name)"
+  } else if (sort === "awaiting_response" || options.view === "awaiting-response") {
+    orderBy = "act_counts.\"lastOutboundCommentAt\" desc nulls last, lower(p.name)"
   } else if (sort === "recent_interaction") {
     orderBy = "s.last_interaction_at desc nulls last, lower(p.name)"
   } else if (sort === "inbound") {
@@ -247,6 +258,13 @@ export async function listPeople(
 
   const result = await client.query(
     `select ${personColumns}, ${personStatsColumns},
+       last_act."lastActionType",
+       last_act."lastActionDirection",
+       act_counts."lastInboundCommentAt",
+       act_counts."lastOutboundCommentAt",
+       coalesce(act_counts."likeCount", 0)::int as "likeCount",
+       coalesce(act_counts."restackCount", 0)::int as "restackCount",
+       coalesce(act_counts."commentCount", 0)::int as "commentCount",
        coalesce((
          select json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color) order by lower(t.name))
          from person_tags pt join tags t on t.id = pt.tag_id
@@ -259,6 +277,23 @@ export async function listPeople(
        ), '[]'::json) as lists
       from people p
       left join relationship_stats s on s.person_id = p.id
+      left join lateral (
+        select action_type as "lastActionType", direction as "lastActionDirection"
+        from interactions
+        where person_id = p.id and removed_at is null
+        order by occurred_at desc, id desc
+        limit 1
+      ) last_act on true
+      left join lateral (
+        select
+          max(occurred_at) filter (where direction = 'inbound' and action_type in ('comment', 'reply')) as "lastInboundCommentAt",
+          max(occurred_at) filter (where direction = 'outbound' and action_type in ('comment', 'reply')) as "lastOutboundCommentAt",
+          count(*) filter (where action_type = 'like') as "likeCount",
+          count(*) filter (where action_type = 'restack') as "restackCount",
+          count(*) filter (where action_type in ('comment', 'reply')) as "commentCount"
+        from interactions
+        where person_id = p.id and removed_at is null
+      ) act_counts on true
       where ${conditions.join(" and ")}
       order by ${orderBy}
       limit $${limitParam}${offsetClause}`,
@@ -276,9 +311,33 @@ export async function getPerson(
   lists: PersonList[]
 } | null> {
   const person = await client.query(
-    `select ${personColumns}, ${personStatsColumns}
+    `select ${personColumns}, ${personStatsColumns},
+       last_act."lastActionType",
+       last_act."lastActionDirection",
+       act_counts."lastInboundCommentAt",
+       act_counts."lastOutboundCommentAt",
+       coalesce(act_counts."likeCount", 0)::int as "likeCount",
+       coalesce(act_counts."restackCount", 0)::int as "restackCount",
+       coalesce(act_counts."commentCount", 0)::int as "commentCount"
       from people p
       left join relationship_stats s on s.person_id = p.id
+      left join lateral (
+        select action_type as "lastActionType", direction as "lastActionDirection"
+        from interactions
+        where person_id = p.id and removed_at is null
+        order by occurred_at desc, id desc
+        limit 1
+      ) last_act on true
+      left join lateral (
+        select
+          max(occurred_at) filter (where direction = 'inbound' and action_type in ('comment', 'reply')) as "lastInboundCommentAt",
+          max(occurred_at) filter (where direction = 'outbound' and action_type in ('comment', 'reply')) as "lastOutboundCommentAt",
+          count(*) filter (where action_type = 'like') as "likeCount",
+          count(*) filter (where action_type = 'restack') as "restackCount",
+          count(*) filter (where action_type in ('comment', 'reply')) as "commentCount"
+        from interactions
+        where person_id = p.id and removed_at is null
+      ) act_counts on true
       where p.id = $1 and p.archived_at is null`,
     [personId]
   )
