@@ -490,10 +490,19 @@ export async function ingestActivityBatch(
       item.actorPhotoUrl ||
       item.actorAvatarUrl ||
       null
+    const isOwnerAuthor = (author: InteractionAuthorInput | null | undefined) => {
+      if (!author) return false
+      const normHandle = author.handle ? normalizeHandle(author.handle) : null
+      return Boolean(
+        (normalizedOwnerHandle && normHandle === normalizedOwnerHandle) ||
+        (normalizedOwnerId && author.id && String(author.id) === normalizedOwnerId)
+      )
+    }
+
     const counterparty = isOwner
       ? targetAuthor
       : { handle: actorHandle, name: actorName, id: actorId, photo_url: actorPhoto }
-    const personId = counterparty
+    const personId = counterparty && !isOwnerAuthor(counterparty)
       ? await ensurePerson(client, userId, personCache, counterparty)
       : null
 
@@ -672,6 +681,7 @@ export async function ingestConversationReplies(
       id: (raw.author_id ?? raw.authorId ?? raw.id) as string | number | null | undefined,
       name: (raw.author_name ?? raw.authorName ?? raw.name) as string | null | undefined,
       handle: (raw.author_handle ?? raw.authorHandle ?? raw.handle) as string | null | undefined,
+      photo_url: (raw.author_photo_url ?? raw.authorPhotoUrl ?? raw.photo_url ?? raw.photoUrl ?? raw.avatar_url ?? raw.avatarUrl) as string | null | undefined,
     }
   }
   const authorIsOwner = (author: InteractionAuthorInput | null): boolean => {
