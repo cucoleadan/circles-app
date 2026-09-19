@@ -15,6 +15,7 @@ export interface InteractionAuthorInput {
   name?: string | null
   handle?: string | null
   photo_url?: string | null
+  photoUrl?: string | null
   avatarUrl?: string | null
 }
 
@@ -62,6 +63,7 @@ export interface ActivityItemInput {
   actorHandle?: string | null
   actor_photo_url?: string | null
   actorPhotoUrl?: string | null
+  actorAvatarUrl?: string | null
 }
 
 export interface ConversationCommentInput {
@@ -115,8 +117,8 @@ function authorFromUnknown(value: unknown): InteractionAuthorInput | null {
     id: source.id ?? source.user_id ?? null,
     name: source.name ?? source.author_name ?? null,
     handle: handle ?? null,
-    photo_url: source.photo_url ?? null,
-    avatarUrl: source.avatarUrl ?? source.photoUrl ?? null,
+    photo_url: source.photo_url ?? source.photoUrl ?? source.avatar_url ?? null,
+    avatarUrl: source.avatarUrl ?? source.photoUrl ?? source.photo_url ?? null,
   }
 }
 
@@ -480,7 +482,14 @@ export async function ingestActivityBatch(
       (normalizedOwnerId && actorId && String(actorId) === normalizedOwnerId)
 
     const targetAuthor = targetAuthorFromItem(item)
-    const actorPhoto = item.actor?.photo_url || item.actor_photo_url || item.actorPhotoUrl || item.actor?.avatarUrl || null
+    const actorPhoto =
+      item.actor?.photo_url ||
+      item.actor?.photoUrl ||
+      item.actor?.avatarUrl ||
+      item.actor_photo_url ||
+      item.actorPhotoUrl ||
+      item.actorAvatarUrl ||
+      null
     const counterparty = isOwner
       ? targetAuthor
       : { handle: actorHandle, name: actorName, id: actorId, photo_url: actorPhoto }
