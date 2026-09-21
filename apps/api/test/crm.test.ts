@@ -1059,7 +1059,6 @@ describe("interactions", () => {
           id: "1110001",
           name: "Follower Only",
           subscription_type: "paid",
-          is_subscribed: true,
         },
       ])
     )
@@ -1084,4 +1083,3 @@ describe("interactions", () => {
     expect(overview.ignored).toBeGreaterThanOrEqual(1)
   })
 })
-

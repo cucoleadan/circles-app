@@ -1,5 +1,10 @@
 import { Hono } from "hono"
 
+import {
+  parseFollowerRunStartedAt,
+  parseSubscriberStatsPage,
+  shouldAbortFollowerSweep,
+} from "../../audience-sync.js"
 import { withTenant } from "../../db/tenant.js"
 import type { V1Env } from "./types.js"
 
@@ -83,8 +88,10 @@ syncRoutes.post("/sync/subscribers", async (c) => {
     let offset = 0
     const limit = 100
     let total = 0
+    let totalProcessed = 0
     let totalMatched = 0
     let totalCreated = 0
+    let totalSkipped = 0
 
     const { upsertSubscribersBatch } = await import("../../db/repositories.js")
 
@@ -100,30 +107,21 @@ syncRoutes.post("/sync/subscribers", async (c) => {
       })
 
       if (!resp.ok) {
-        const text = await resp.text().catch(() => "")
-        throw new Error(`Substack subscriber API returned ${resp.status}: ${text.slice(0, 100)}`)
+        throw new Error(`Substack subscriber API returned ${resp.status}`)
       }
 
-      const data = await resp.json()
-      total = data.total ?? total
-      const users = Array.isArray(data.users) ? data.users : []
-      if (users.length === 0) break
+      const page = parseSubscriberStatsPage(await resp.json())
+      total = page.total
+      totalSkipped += page.skipped
+      if (page.subscribers.length === 0) break
 
-      const subscribers = users.map((u: any) => ({
-        id: u.user_id,
-        name: u.user_name,
-        photo_url: u.user_photo_url,
-        handle: u.user_handle ?? null,
-        subscription_type: u.subscription_type,
-        subscription_created_at: u.subscription_created_at,
-        is_subscribed: u.is_subscribed !== false,
-      }))
-
-      const batchResult = await upsertSubscribersBatch(client, appUser, subscribers)
+      const batchResult = await upsertSubscribersBatch(client, appUser, page.subscribers)
       totalMatched += batchResult.matched
       totalCreated += batchResult.created
+      totalSkipped += batchResult.skipped
+      totalProcessed += page.subscribers.length
 
-      offset += users.length
+      offset += page.subscribers.length + page.skipped
       if (offset >= total) break
 
       await new Promise((r) => setTimeout(r, 100))
@@ -132,8 +130,10 @@ syncRoutes.post("/sync/subscribers", async (c) => {
     return {
       success: true,
       totalSubscribers: total,
+      processed: totalProcessed,
       matched: totalMatched,
       created: totalCreated,
+      skipped: totalSkipped,
     }
   })
 
@@ -144,7 +144,10 @@ syncRoutes.post("/sync/subscribers", async (c) => {
 syncRoutes.post("/sync/followers", async (c) => {
   const appUser = c.get("appUser")
   const body = await c.req.json().catch(() => ({}))
-  const maxContacts = typeof body.limit === "number" ? Math.min(body.limit, 100) : 50
+  const maxContacts = typeof body.limit === "number"
+    ? Math.max(1, Math.min(Math.trunc(body.limit), 100))
+    : 50
+  const runStartedAt = parseFollowerRunStartedAt(body.runStartedAt)
 
   const result = await withTenant({ appUserId: appUser }, async (client) => {
     const connRes = await client.query(
@@ -161,26 +164,27 @@ syncRoutes.post("/sync/followers", async (c) => {
     })
 
     const peopleRes = await client.query(
-      `select p.id, p.name, p.handle, p.substack_profile_id
+      `select p.id, p.name, p.normalized_handle, p.substack_profile_id
        from people p
        left join relationship_stats s on s.person_id = p.id
        where p.user_id = $1 and p.archived_at is null
          and (p.handle is not null or p.substack_profile_id is not null)
-       order by case when p.is_follower is null then 0 else 1 end,
+         and (p.follower_checked_at is null or p.follower_checked_at < $3::timestamptz)
+       order by p.follower_checked_at asc nulls first,
                 coalesce(s.engagement_score, 0) desc,
-                p.updated_at desc
+                p.id
        limit $2`,
-      [appUser, maxContacts]
+      [appUser, maxContacts, runStartedAt.toISOString()]
     )
 
     let updated = 0
-    let followersCount = 0
+    let failed = 0
 
     for (const person of peopleRes.rows) {
       try {
         let prof: any = null
-        if (person.handle) {
-          prof = await sdk.getPublicProfile(person.handle)
+        if (person.normalized_handle) {
+          prof = await sdk.getPublicProfile(person.normalized_handle)
         } else if (person.substack_profile_id) {
           prof = await sdk.getProfileById(person.substack_profile_id)
         }
@@ -189,24 +193,51 @@ syncRoutes.post("/sync/followers", async (c) => {
           await client.query(
             `update people
              set is_follower = $2,
+                 follower_checked_at = now(),
                  updated_at = now()
              where id = $1`,
             [person.id, prof.followsViewer]
           )
           updated++
-          if (prof.followsViewer) followersCount++
+        } else {
+          failed++
+          await client.query(
+            "update people set follower_checked_at = now() where id = $1",
+            [person.id]
+          )
         }
+      } catch (error) {
+        if (shouldAbortFollowerSweep(error)) throw error
+        failed++
+        await client.query(
+          "update people set follower_checked_at = now() where id = $1",
+          [person.id]
+        )
+      } finally {
         await new Promise((r) => setTimeout(r, 100))
-      } catch {
-        // Skip individual errors
       }
     }
+
+    const progressRes = await client.query(
+      `select
+         count(*) filter (
+           where follower_checked_at is null or follower_checked_at < $2::timestamptz
+         )::int as remaining,
+         count(*) filter (where is_follower = true)::int as followers
+       from people
+       where user_id = $1 and archived_at is null
+         and (handle is not null or substack_profile_id is not null)`,
+      [appUser, runStartedAt.toISOString()]
+    )
 
     return {
       success: true,
       checked: peopleRes.rows.length,
       updated,
-      followersCount,
+      failed,
+      followersCount: progressRes.rows[0]?.followers ?? 0,
+      remaining: progressRes.rows[0]?.remaining ?? 0,
+      runStartedAt: runStartedAt.toISOString(),
     }
   })
 

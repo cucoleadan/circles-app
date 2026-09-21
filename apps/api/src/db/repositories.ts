@@ -1077,31 +1077,39 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
 
 export interface SubscriberItem {
   id: number | string
-  name: string
+  name?: string | null
   photo_url?: string | null
   handle?: string | null
   subscription_type?: string | null
   subscription_created_at?: string | null
-  is_subscribed?: boolean
 }
 
 export async function upsertSubscribersBatch(
   client: PoolLike,
   userId: string,
   subscribers: SubscriberItem[]
-): Promise<{ matched: number; created: number }> {
+): Promise<{ matched: number; created: number; skipped: number }> {
   let matched = 0
   let created = 0
+  let skipped = 0
 
   for (const sub of subscribers) {
-    const substackProfileId = sub.id ? String(sub.id) : null
+    const substackProfileId = sub.id ? String(sub.id).trim() : null
+    if (!substackProfileId) {
+      skipped++
+      continue
+    }
     const rawHandle = sub.handle?.trim()
     const handle = rawHandle ? rawHandle.replace(/^@/, "") : null
     const normalized = handle ? normalizeHandle(handle) : null
     const name = sub.name?.trim() || handle || `Subscriber ${substackProfileId}`
     const avatarUrl = sub.photo_url || null
-    const isSubscribed = sub.is_subscribed !== false
-    const subscribedAt = sub.subscription_created_at ? new Date(sub.subscription_created_at).toISOString() : null
+    const parsedSubscribedAt = sub.subscription_created_at
+      ? new Date(sub.subscription_created_at)
+      : null
+    const subscribedAt = parsedSubscribedAt && !Number.isNaN(parsedSubscribedAt.getTime())
+      ? parsedSubscribedAt.toISOString()
+      : null
     const subscriptionTier = sub.subscription_type || "free"
 
     // Search for existing person
@@ -1138,12 +1146,12 @@ export async function upsertSubscribersBatch(
              avatar_url = coalesce(avatar_url, $6),
              updated_at = now()
          where id = $1`,
-        [existing.id, isSubscribed, subscribedAt, subscriptionTier, substackProfileId, avatarUrl]
+        [existing.id, true, subscribedAt, subscriptionTier, substackProfileId, avatarUrl]
       )
       matched++
     } else {
       const newId = randomUUID()
-      await client.query(
+      const inserted = await client.query(
         `insert into people
             (id, user_id, name, handle, normalized_handle, profile_url,
              substack_profile_id, avatar_url, is_subscriber, subscribed_at,
@@ -1159,20 +1167,24 @@ export async function upsertSubscribersBatch(
           normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null,
           substackProfileId,
           avatarUrl,
-          isSubscribed,
+          true,
           subscribedAt,
           subscriptionTier,
         ]
       )
-      await client.query(
-        `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
-         values ($1, $2, 'new', now())
-         on conflict (person_id) do nothing`,
-        [newId, userId]
-      )
-      created++
+      if (inserted.rowCount) {
+        await client.query(
+          `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
+           values ($1, $2, 'new', now())
+           on conflict (person_id) do nothing`,
+          [newId, userId]
+        )
+        created++
+      } else {
+        skipped++
+      }
     }
   }
 
-  return { matched, created }
+  return { matched, created, skipped }
 }

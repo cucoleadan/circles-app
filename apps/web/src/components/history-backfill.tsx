@@ -106,7 +106,9 @@ export function HistoryBackfill() {
       const res = await fetch("/api/v1/sync/subscribers", { method: "POST" })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || "Failed to sync subscribers")
-      setSyncSubsMsg(`Synced ${data.totalSubscribers} subscribers (${data.matched} matched, ${data.created} new contacts)`)
+      setSyncSubsMsg(
+        `Synced ${data.processed} of ${data.totalSubscribers} subscribers (${data.matched} matched, ${data.created} new contacts${data.skipped ? `, ${data.skipped} skipped` : ""})`
+      )
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -119,14 +121,42 @@ export function HistoryBackfill() {
     setSyncFollowersMsg(null)
     setError(null)
     try {
-      const res = await fetch("/api/v1/sync/followers", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ limit: 50 }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to check followers")
-      setSyncFollowersMsg(`Checked ${data.checked} contacts: found ${data.followersCount} followers`)
+      let runStartedAt: string | undefined
+      let remaining = 0
+      let checked = 0
+      let updated = 0
+      let failed = 0
+      let followersCount = 0
+
+      do {
+        const res = await fetch("/api/v1/sync/followers", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ limit: 50, runStartedAt }),
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.error || "Failed to check followers")
+
+        runStartedAt = data.runStartedAt
+        remaining = Number(data.remaining ?? 0)
+        checked += Number(data.checked ?? 0)
+        updated += Number(data.updated ?? 0)
+        failed += Number(data.failed ?? 0)
+        followersCount = Number(data.followersCount ?? 0)
+        setSyncFollowersMsg(
+          remaining > 0
+            ? `Checked ${checked} contacts · ${remaining} remaining…`
+            : `Checked ${checked} contacts · ${followersCount} followers${failed ? ` · ${failed} could not be verified` : ""}`
+        )
+
+        if (remaining > 0 && Number(data.checked ?? 0) === 0) {
+          throw new Error("Follower sync stopped before all contacts could be checked")
+        }
+      } while (remaining > 0)
+
+      if (updated === 0 && checked > 0 && failed === checked) {
+        throw new Error("Substack did not return follower status for any checked contact")
+      }
     } catch (e: any) {
       setError(e.message)
     } finally {
@@ -190,7 +220,7 @@ export function HistoryBackfill() {
                 variant="outline"
                 size="sm"
                 onClick={syncSubscribers}
-                disabled={syncSubsBusy}
+                disabled={syncSubsBusy || syncFollowersBusy}
                 className="text-xs h-8"
               >
                 {syncSubsBusy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <Database className="mr-1.5 size-3.5" />}
@@ -200,7 +230,7 @@ export function HistoryBackfill() {
                 variant="outline"
                 size="sm"
                 onClick={syncFollowers}
-                disabled={syncFollowersBusy}
+                disabled={syncFollowersBusy || syncSubsBusy}
                 className="text-xs h-8"
               >
                 {syncFollowersBusy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 size-3.5" />}
