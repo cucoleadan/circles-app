@@ -166,15 +166,11 @@ export function CirclesSidebar({
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  onListChange(null)
-                  onTagChange(null)
                   onViewChange(v.id)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault()
-                    onListChange(null)
-                    onTagChange(null)
                     onViewChange(v.id)
                   }
                 }}
@@ -236,15 +232,11 @@ export function CirclesSidebar({
                 role="button"
                 tabIndex={0}
                 onClick={() => {
-                  onListChange(null)
-                  onTagChange(null)
                   onViewChange(v.id)
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault()
-                    onListChange(null)
-                    onTagChange(null)
                     onViewChange(v.id)
                   }
                 }}

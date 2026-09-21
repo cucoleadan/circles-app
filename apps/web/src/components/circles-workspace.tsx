@@ -177,26 +177,78 @@ export function CirclesWorkspace({
     updateUrl({ person: id })
   }
 
-  // Handle View Change
+  // Handle View Change - reset all filters so nothing from previous view sticks
   function handleViewChange(view: PeopleView) {
     setCurrentView(view)
     setSelectedListId(null)
     setSelectedTagId(null)
-    updateUrl({ view: view === "all" ? null : view, list: null, tag: null })
+    setInteractionFilter("all")
+    setDateRange("all")
+    setSearch("")
+    setCurrentSort("engagement")
+    setVisibleLimit(48)
+    updateUrl({
+      view: view === "all" ? null : view,
+      list: null,
+      tag: null,
+      action: null,
+      range: null,
+      sort: null,
+      search: null,
+      person: selectedPersonId,
+    })
   }
 
-  // Handle List Change
+  // Handle List Change - resets action queue view and filters so previous view doesn't stick
   function handleListChange(listId: string | null) {
     setSelectedListId(listId)
     setSelectedTagId(null)
-    updateUrl({ list: listId, tag: null })
+    setInteractionFilter("all")
+    setDateRange("all")
+    setSearch("")
+    setCurrentSort("engagement")
+    setVisibleLimit(48)
+    if (listId) {
+      setCurrentView("all")
+      updateUrl({
+        view: null,
+        list: listId,
+        tag: null,
+        action: null,
+        range: null,
+        sort: null,
+        search: null,
+        person: selectedPersonId,
+      })
+    } else {
+      updateUrl({ list: null })
+    }
   }
 
-  // Handle Tag Change
+  // Handle Tag Change - resets action queue view and filters so previous view doesn't stick
   function handleTagChange(tagId: string | null) {
     setSelectedTagId(tagId)
     setSelectedListId(null)
-    updateUrl({ tag: tagId, list: null })
+    setInteractionFilter("all")
+    setDateRange("all")
+    setSearch("")
+    setCurrentSort("engagement")
+    setVisibleLimit(48)
+    if (tagId) {
+      setCurrentView("all")
+      updateUrl({
+        view: null,
+        tag: tagId,
+        list: null,
+        action: null,
+        range: null,
+        sort: null,
+        search: null,
+        person: selectedPersonId,
+      })
+    } else {
+      updateUrl({ tag: null })
+    }
   }
 
   // Handle Sort Change
@@ -209,6 +261,32 @@ export function CirclesWorkspace({
   function handleDateRangeChange(range: DateRangePreset) {
     setDateRange(range)
     updateUrl({ range: range === "all" ? null : range })
+  }
+
+  // Handle Action Filter Change
+  function handleInteractionFilterChange(val: "all" | "restack" | "comment" | "like") {
+    setInteractionFilter(val)
+    updateUrl({ action: val === "all" ? null : val })
+  }
+
+  // Reset all extra filters back to defaults for the current view
+  function handleResetAllFilters() {
+    setSelectedListId(null)
+    setSelectedTagId(null)
+    setInteractionFilter("all")
+    setDateRange("all")
+    setSearch("")
+    setCurrentSort("engagement")
+    setVisibleLimit(48)
+    updateUrl({
+      list: null,
+      tag: null,
+      action: null,
+      range: null,
+      sort: null,
+      search: null,
+      person: selectedPersonId,
+    })
   }
 
   // Refetch people when filters change
@@ -624,11 +702,7 @@ export function CirclesWorkspace({
               <button
                 key={v.id}
                 type="button"
-                onClick={() => {
-                  handleListChange(null)
-                  handleTagChange(null)
-                  handleViewChange(v.id)
-                }}
+                onClick={() => handleViewChange(v.id)}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
                   isActive
                     ? "bg-[#191817] text-white shadow-xs"
@@ -643,11 +717,7 @@ export function CirclesWorkspace({
 
           <button
             type="button"
-            onClick={() => {
-              handleListChange(null)
-              handleTagChange(null)
-              handleViewChange("all")
-            }}
+            onClick={() => handleViewChange("all")}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
               currentView === "all" && !selectedListId && !selectedTagId
                 ? "bg-[#191817] text-white shadow-xs"
@@ -711,6 +781,45 @@ export function CirclesWorkspace({
                   <span>
                     Showing {people.length} {people.length === 1 ? "person" : "people"}
                   </span>
+                  {selectedListId && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100/80 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 text-[11px] font-medium">
+                      List: {lists.find((l) => l.id === selectedListId)?.name ?? "List"}
+                      <button
+                        type="button"
+                        onClick={() => handleListChange(null)}
+                        className="ml-0.5 hover:opacity-75"
+                        title="Clear list filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {selectedTagId && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100/80 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 px-2 py-0.5 text-[11px] font-medium">
+                      #{tags.find((t) => t.id === selectedTagId)?.name ?? "Tag"}
+                      <button
+                        type="button"
+                        onClick={() => handleTagChange(null)}
+                        className="ml-0.5 hover:opacity-75"
+                        title="Clear tag filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {interactionFilter !== "all" && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+                      Action: {interactionFilter}
+                      <button
+                        type="button"
+                        onClick={() => handleInteractionFilterChange("all")}
+                        className="ml-0.5 text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
+                        title="Clear action filter"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
                   {dateRange !== "all" && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
                       Active: {dateRangeOptions.find((o) => o.id === dateRange)?.label}
@@ -723,6 +832,29 @@ export function CirclesWorkspace({
                         ×
                       </button>
                     </span>
+                  )}
+                  {search.trim() && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+                      Search: "{search.trim()}"
+                      <button
+                        type="button"
+                        onClick={() => setSearch("")}
+                        className="ml-0.5 text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
+                        title="Clear search"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  )}
+                  {(selectedListId || selectedTagId || interactionFilter !== "all" || dateRange !== "all" || search.trim()) && (
+                    <button
+                      type="button"
+                      onClick={handleResetAllFilters}
+                      className="text-[11px] font-semibold text-[#f15a3a] hover:underline ml-1 cursor-pointer"
+                      title="Reset all active filters"
+                    >
+                      Reset filters
+                    </button>
                   )}
                 </p>
               </div>
@@ -764,7 +896,7 @@ export function CirclesWorkspace({
                   </span>
                   <Select
                     value={interactionFilter}
-                    onValueChange={(v) => setInteractionFilter(v as any)}
+                    onValueChange={(v) => handleInteractionFilterChange(v as any)}
                   >
                     <SelectTrigger className="h-8 text-xs font-medium w-full lg:w-36 bg-white dark:bg-stone-900">
                       <SelectValue />
