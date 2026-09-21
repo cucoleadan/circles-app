@@ -1,101 +1,19 @@
 import { useEffect, useMemo, useState } from "react"
-import {
-  ArrowDownLeft,
-  ArrowUpRight,
-  ExternalLink,
-  Heart,
-  Loader2,
-  MessageCircle,
-  MessageSquare,
-  Repeat,
-  Sparkles,
-} from "lucide-react"
+import { Loader2 } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import type { Interaction } from "../lib/types"
+import {
+  actionBadge,
+  formatDate,
+  interactionLabel,
+  targetLabel,
+  TimelineItem,
+} from "./timeline/timeline-item"
 
-function actionBadge(action: string, body?: string | null) {
-  switch (action) {
-    case "like":
-      return {
-        label: "Like",
-        pts: 1,
-        icon: Heart,
-        color: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300",
-      }
-    case "restack":
-      if (body && body.trim().length > 0) {
-        return {
-          label: "Restack with note",
-          pts: 3,
-          icon: Repeat,
-          color: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/40 dark:text-purple-300",
-        }
-      }
-      return {
-        label: "Restack",
-        pts: 2,
-        icon: Repeat,
-        color: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/40 dark:text-violet-300",
-      }
-    case "comment":
-      return {
-        label: "Comment",
-        pts: 3,
-        icon: MessageCircle,
-        color: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300",
-      }
-    case "reply":
-      return {
-        label: "Reply",
-        pts: 3,
-        icon: MessageSquare,
-        color: "bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/40 dark:text-sky-300",
-      }
-    default:
-      return {
-        label: action,
-        pts: 1,
-        icon: Sparkles,
-        color: "bg-stone-100 text-stone-700 border-stone-200 dark:bg-stone-800 dark:text-stone-300",
-      }
-  }
-}
+export { actionBadge, formatDate, interactionLabel, targetLabel }
 
-function formatDate(iso: string) {
-  try {
-    const d = new Date(iso)
-    const now = new Date()
-    const diffHours = (now.getTime() - d.getTime()) / (1000 * 60 * 60)
-    if (diffHours < 24 && diffHours >= 0) {
-      if (diffHours < 1) return "Just now"
-      return `${Math.floor(diffHours)}h ago`
-    }
-    const diffDays = Math.floor(diffHours / 24)
-    if (diffDays < 7) return `${diffDays}d ago`
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: d.getFullYear() !== now.getFullYear() ? "numeric" : undefined,
-    })
-  } catch {
-    return iso
-  }
-}
-
-function targetLabel(targetType: string | null) {
-  if (targetType === "note") return "Note"
-  if (targetType === "comment") return "comment"
-  if (targetType === "post") return "post"
-  return "Substack content"
-}
-
-function interactionLabel(item: Interaction, personName: string) {
-  const actor = item.direction === "inbound" ? personName : "You"
-  if (item.actionType !== "like") return actor
-  const possessive = item.direction === "inbound" ? "your" : `${personName}’s`
-  return `${actor} liked ${possessive} ${targetLabel(item.targetType)}`
-}
+type TimelineFilter = "all" | "comments" | "likes" | "restacks" | "inbound" | "outbound"
 
 export function Timeline({
   personId,
@@ -109,6 +27,7 @@ export function Timeline({
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<TimelineFilter>("all")
 
   useEffect(() => {
     let cancelled = false
@@ -156,9 +75,6 @@ export function Timeline({
       setLoadingMore(false)
     }
   }
-
-  type TimelineFilter = "all" | "comments" | "likes" | "restacks" | "inbound" | "outbound"
-  const [filter, setFilter] = useState<TimelineFilter>("all")
 
   const commentCount = useMemo(
     () => interactions.filter((i) => i.actionType === "comment" || i.actionType === "reply").length,
@@ -298,82 +214,10 @@ export function Timeline({
         </div>
       ) : (
         <div className="relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
-          {filteredInteractions.map((item) => {
-            const badge = actionBadge(item.actionType, item.body)
-            const Icon = badge.icon
-            const isInbound = item.direction === "inbound"
-
-          return (
-            <div key={item.id} className="relative pb-6 last:pb-2">
-              <span
-                className={`absolute -left-6 top-1 flex size-5 items-center justify-center rounded-full border text-[10px] ${
-                  isInbound
-                    ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-                    : "border-sky-300 bg-sky-100 text-sky-800"
-                }`}
-                title={isInbound ? "Inbound (from them)" : "Outbound (from you)"}
-              >
-                {isInbound ? (
-                  <ArrowDownLeft className="size-3" />
-                ) : (
-                  <ArrowUpRight className="size-3" />
-                )}
-              </span>
-
-              <div className="rounded-xl border border-stone-200/80 bg-white/70 p-3.5 shadow-xs transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${badge.color}`}
-                    >
-                      <Icon className="size-3" />
-                      {badge.label}
-                      <span className="opacity-75 font-normal">+{badge.pts}</span>
-                    </span>
-                    <span className="text-[11px] font-medium text-stone-500">
-                      {interactionLabel(item, personName)}
-                    </span>
-                  </div>
-                  <span className="text-[11px] text-muted-foreground">
-                    {formatDate(item.occurredAt)}
-                  </span>
-                </div>
-
-                {item.body && (
-                  <p className="mt-2.5 whitespace-pre-wrap text-xs leading-relaxed text-stone-800 dark:text-stone-200 font-sans">
-                    {item.body}
-                  </p>
-                )}
-
-                {(item.targetTitle || item.targetBody || item.targetUrl || item.actionType === "like") && (
-                  <div className="mt-2.5 border-t border-stone-100 pt-2 text-[11px] text-muted-foreground dark:border-stone-800">
-                    <div className="flex items-center gap-1.5">
-                      <span className="truncate font-medium text-stone-600 dark:text-stone-400">
-                        {item.targetTitle || (item.targetBody ? targetLabel(item.targetType) : "Target content unavailable")}
-                      </span>
-                      {item.targetUrl && (
-                        <a
-                          href={item.targetUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[#f15a3a] hover:underline"
-                        >
-                          View <ExternalLink className="size-3" />
-                        </a>
-                      )}
-                    </div>
-                    {item.targetBody && (
-                      <blockquote className="mt-1.5 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-stone-200 pl-2 leading-relaxed text-stone-600 dark:border-stone-700 dark:text-stone-400">
-                        {item.targetBody}
-                      </blockquote>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )
-        })}
-      </div>
+          {filteredInteractions.map((item) => (
+            <TimelineItem key={item.id} item={item} personName={personName} />
+          ))}
+        </div>
       )}
 
       {nextCursor && (
@@ -383,16 +227,9 @@ export function Timeline({
             size="sm"
             onClick={loadMore}
             disabled={loadingMore}
-            className="w-full text-xs"
+            className="text-xs rounded-full h-8 px-4 font-medium"
           >
-            {loadingMore ? (
-              <>
-                <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                Loading older history…
-              </>
-            ) : (
-              "Load older interactions"
-            )}
+            {loadingMore ? "Loading older interactions…" : "Load older interactions"}
           </Button>
         </div>
       )}

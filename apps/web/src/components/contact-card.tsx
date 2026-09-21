@@ -1,208 +1,18 @@
-import { ArrowDownLeft, ArrowUpRight, Bookmark, Clock, MessageSquare, Sparkles } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, Bookmark, Clock, MessageSquare } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import type { Person } from "../lib/types"
+import {
+  formatDate,
+  getPriorityReason,
+  getReciprocityBadge,
+  initials,
+  ReciprocityBadgePill,
+  type ReciprocityInfo,
+  statusColors,
+} from "./contact-card/contact-card-badges"
 
-const statusColors: Record<string, string> = {
-  new: "bg-amber-400",
-  active: "bg-sky-500",
-  close: "bg-emerald-500",
-  dormant: "bg-stone-400",
-}
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-}
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return "Never"
-  try {
-    const d = new Date(iso)
-    const now = new Date()
-    const diffMs = now.getTime() - d.getTime()
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffDays === 0) return "Today"
-    if (diffDays === 1) return "Yesterday"
-    if (diffDays > 1 && diffDays < 7) return `${diffDays}d ago`
-    if (diffDays >= 7 && diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`
-
-    const sameYear = d.getFullYear() === now.getFullYear()
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      ...(sameYear ? {} : { year: "numeric" }),
-    })
-  } catch {
-    return ""
-  }
-}
-
-export interface ReciprocityInfo {
-  label: string
-  sublabel: string
-  variant: "amber" | "sky" | "emerald" | "rose" | "violet" | "stone"
-  icon: string
-}
-
-export function getPriorityReason(person: Person): { label: string; icon: string } | null {
-  const inbound = person.inboundInteractionCount ?? 0
-  const outbound = person.outboundInteractionCount ?? 0
-  const restacks = person.restackCount ?? 0
-  const score = person.engagementScore ?? 0
-
-  if (
-    restacks > 0 &&
-    (!person.lastOutboundAt || (person.lastInboundAt && person.lastOutboundAt < person.lastInboundAt))
-  ) {
-    return {
-      label: `Restacked ${restacks > 1 ? `${restacks} notes` : "your note"} (no touch back)`,
-      icon: "🔁",
-    }
-  }
-  if (inbound >= 2 && outbound <= 1) {
-    return {
-      label: `Unreciprocated supporter (${inbound} received · ${outbound} given)`,
-      icon: "❤️",
-    }
-  }
-  if (score >= 12 && (person.driftStatus === "drifting" || person.driftStatus === "cold")) {
-    return {
-      label: `Top supporter drifting (${score} pts · inactive)`,
-      icon: "✨",
-    }
-  }
-  return null
-}
-
-export function getReciprocityBadge(person: Person): ReciprocityInfo | null {
-  const inbound = person.inboundInteractionCount ?? 0
-  const outbound = person.outboundInteractionCount ?? 0
-  const lastInboundComment = person.lastInboundCommentAt
-    ? new Date(person.lastInboundCommentAt).getTime()
-    : 0
-  const lastOutboundComment = person.lastOutboundCommentAt
-    ? new Date(person.lastOutboundCommentAt).getTime()
-    : 0
-  const lastOutboundLike = person.lastOutboundLikeAt
-    ? new Date(person.lastOutboundLikeAt).getTime()
-    : 0
-  const lastAction = person.lastActionType
-  const lastDir = person.lastActionDirection
-
-  if (inbound === 0 && outbound === 0) {
-    return null
-  }
-
-  // If you liked last (or liked after their comment), convo is ended/acknowledged
-  const iLikedLast =
-    (lastDir === "outbound" && lastAction === "like") ||
-    (lastOutboundLike > 0 && lastInboundComment > 0 && lastOutboundLike > lastInboundComment)
-
-  // 1. Comments and replies are triggers for "Needs your reply" and "Ball in their court"
-  if (lastInboundComment > 0 && lastInboundComment > lastOutboundComment) {
-    if (iLikedLast) {
-      return {
-        label: "You liked last",
-        sublabel: "Convo acknowledged",
-        variant: "stone",
-        icon: "❤️",
-      }
-    }
-    return {
-      label: "Needs your reply",
-      sublabel: "Commented last",
-      variant: "amber",
-      icon: "💬",
-    }
-  }
-
-  if (lastOutboundComment > 0 && lastOutboundComment > lastInboundComment) {
-    const isWithinWeek = Date.now() - lastOutboundComment <= 7 * 24 * 60 * 60 * 1000
-    if (isWithinWeek) {
-      return {
-        label: "Ball in their court",
-        sublabel: "You commented last",
-        variant: "sky",
-        icon: "📤",
-      }
-    }
-    return {
-      label: "No reply (7d+)",
-      sublabel: "Engage on new note",
-      variant: "stone",
-      icon: "💬",
-    }
-  }
-
-  // 2. If no unreplied comment, check last action type
-  if (lastAction === "like") {
-    if (lastDir === "inbound") {
-      return {
-        label: "Liked last",
-        sublabel: `${inbound} received`,
-        variant: "rose",
-        icon: "❤️",
-      }
-    } else {
-      return {
-        label: "You liked last",
-        sublabel: `${outbound} given`,
-        variant: "stone",
-        icon: "❤️",
-      }
-    }
-  }
-
-  if (lastAction === "restack") {
-    if (lastDir === "inbound") {
-      return {
-        label: "Restacked last",
-        sublabel: `${inbound} received`,
-        variant: "violet",
-        icon: "🔁",
-      }
-    } else {
-      return {
-        label: "You restacked last",
-        sublabel: `${outbound} given`,
-        variant: "stone",
-        icon: "🔁",
-      }
-    }
-  }
-
-  // 3. Mutual circle
-  if ((person.conversationCount ?? 0) > 0 || (inbound > 0 && outbound > 0)) {
-    return {
-      label: "Mutual circle",
-      sublabel: `${inbound} in · ${outbound} out`,
-      variant: "emerald",
-      icon: "🔄",
-    }
-  }
-
-  // 4. Fallback
-  if (inbound > 0) {
-    return {
-      label: "Interacted last",
-      sublabel: `${inbound} received`,
-      variant: "stone",
-      icon: "⚡️",
-    }
-  }
-
-  return {
-    label: "Outreach given",
-    sublabel: `${outbound} given`,
-    variant: "stone",
-    icon: "📤",
-  }
-}
+export { formatDate, getPriorityReason, getReciprocityBadge, initials, statusColors }
+export type { ReciprocityInfo }
 
 export function ContactCard({
   person,
@@ -260,58 +70,54 @@ export function ContactCard({
               <p className="font-bold text-sm tracking-tight text-stone-900 dark:text-stone-100 truncate group-hover:text-[#f15a3a] transition-colors">
                 {person.name}
               </p>
-              <p className="text-xs text-stone-500 font-mono truncate">
-                {person.handle ? `@${person.handle}` : "—"}
-              </p>
+              {person.handle ? (
+                <p className="text-xs text-muted-foreground truncate font-mono">
+                  @{person.handle}
+                </p>
+              ) : (
+                <p className="text-xs text-stone-400 truncate italic">
+                  Substack profile
+                </p>
+              )}
             </div>
           </div>
 
-          {/* Engagement Score Pill */}
-          <div
-            className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-bold ${
-              isHighAdvocate
-                ? "bg-amber-100 text-amber-900 border border-amber-300 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800"
-                : hasEngagement
-                  ? "bg-orange-50 text-[#f15a3a] border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300"
-                  : "bg-stone-100 text-stone-500 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
-            }`}
-            title={`Engagement score: ${person.engagementScore} pts`}
-          >
-            <Sparkles className="size-3 text-amber-500" />
-            <span>{person.engagementScore}</span>
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span
+              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                hasEngagement
+                  ? isHighAdvocate
+                    ? "bg-[#f15a3a] text-white shadow-2xs"
+                    : "bg-[#f15a3a]/10 text-[#f15a3a] dark:bg-[#f15a3a]/20"
+                  : "bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400"
+              }`}
+              title="Calculated relationship score"
+            >
+              {person.engagementScore ?? 0} pts
+            </span>
+
+            {person.driftStatus === "drifting" && (
+              <span
+                className="rounded-full bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-900/50 px-1.5 py-0.2 text-[9px] font-medium"
+                title="Drifting supporter: No touch in 21+ days"
+              >
+                Drifting
+              </span>
+            )}
+            {person.driftStatus === "cold" && (
+              <span
+                className="rounded-full bg-stone-100 text-stone-500 border border-stone-200 dark:bg-stone-800 dark:text-stone-400 px-1.5 py-0.2 text-[9px] font-medium"
+                title="Cold: No touch in 90+ days"
+              >
+                Cold
+              </span>
+            )}
           </div>
         </div>
 
-        {/* Prominent List Badges */}
-        {person.lists && person.lists.length > 0 && (
-          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-            {person.lists.map((l) => {
-              const isIgnored = l.name.toLowerCase() === "ignored"
-              return (
-                <span
-                  key={l.id}
-                  className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold tracking-tight shadow-2xs ${
-                    isIgnored
-                      ? "bg-rose-100 text-rose-800 border border-rose-300 dark:bg-rose-950/80 dark:text-rose-200 dark:border-rose-800"
-                      : "bg-[#191817] text-white border border-[#191817] dark:bg-stone-100 dark:text-stone-900 dark:border-stone-200"
-                  }`}
-                  title={isIgnored ? "Contact is Ignored" : `In list: ${l.name}`}
-                >
-                  {isIgnored ? (
-                    <span>🚫</span>
-                  ) : (
-                    <Bookmark className="size-3 text-[#f15a3a] fill-[#f15a3a] shrink-0" />
-                  )}
-                  <span className="truncate max-w-[150px]">{l.name}</span>
-                </span>
-              )
-            })}
-          </div>
-        )}
-
-        {/* Follower / Subscriber Audience Chips */}
-        {(person.isSubscriber || person.isFollower) && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        {/* Audience / Follower & Subscriber Badges */}
+        {(person.isFollower || person.isSubscriber) && (
+          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
             {person.isFollower && !person.isSubscriber && (
               <span
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs"
@@ -340,31 +146,7 @@ export function ContactCard({
         )}
 
         {/* Reciprocity State Chip */}
-        {reciprocity && (
-          <div className="mt-2.5 flex items-center">
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10.5px] font-semibold tracking-tight ${
-                reciprocity.variant === "amber"
-                  ? "bg-amber-100/90 text-amber-900 border border-amber-300/80 dark:bg-amber-950/70 dark:text-amber-300 dark:border-amber-800"
-                  : reciprocity.variant === "emerald"
-                    ? "bg-emerald-100/90 text-emerald-900 border border-emerald-300/80 dark:bg-emerald-950/70 dark:text-emerald-300 dark:border-emerald-800"
-                    : reciprocity.variant === "sky"
-                      ? "bg-sky-50 text-sky-800 border border-sky-200 dark:bg-sky-950/60 dark:text-sky-300 dark:border-sky-800"
-                      : reciprocity.variant === "rose"
-                        ? "bg-rose-50 text-rose-800 border border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800"
-                        : reciprocity.variant === "violet"
-                          ? "bg-violet-50 text-violet-800 border border-violet-200 dark:bg-violet-950/60 dark:text-violet-300 dark:border-violet-800"
-                          : "bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
-              }`}
-            >
-              <span>{reciprocity.icon}</span>
-              <span>{reciprocity.label}</span>
-              <span className="opacity-60 text-[9.5px] font-normal">
-                • {reciprocity.sublabel}
-              </span>
-            </span>
-          </div>
-        )}
+        <ReciprocityBadgePill reciprocity={reciprocity} />
 
         {/* Priority Reason Highlight */}
         {priorityReason && currentView === "priority" && (
@@ -389,76 +171,65 @@ export function ContactCard({
             {person.outboundInteractionCount ?? 0} given
           </span>
           {(person.conversationCount ?? 0) > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-md bg-sky-50 dark:bg-sky-950/50 text-sky-700 dark:text-sky-300 px-2 py-0.5 font-medium">
+            <span className="inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 font-medium text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300">
               <MessageSquare className="size-2.5" />
-              {person.conversationCount} threads
+              {person.conversationCount} convos
             </span>
           )}
-          <span className="capitalize text-[10px] text-stone-400 ml-auto">
-            {person.driftStatus}
+          {(person.restackCount ?? 0) > 0 && (
+            <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-0.5 font-medium text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
+              🔁 {person.restackCount}
+            </span>
+          )}
+        </div>
+
+        {/* Timestamps */}
+        <div className="mt-2.5 flex items-center justify-between text-[10.5px] text-muted-foreground">
+          <span className="flex items-center gap-1" title="Last interaction heard from them">
+            <ArrowDownLeft className="size-3 text-emerald-600 dark:text-emerald-400" />
+            {formatDate(person.lastInboundAt) || "Never"}
+          </span>
+          <span className="flex items-center gap-1" title="Last outreach interaction given by you">
+            <ArrowUpRight className="size-3 text-sky-600 dark:text-sky-400" />
+            {formatDate(person.lastOutboundAt) || "Never"}
           </span>
         </div>
 
-        {/* Notes Snippet */}
+        {/* Relationship Status Note / Preview */}
         {person.notes && (
-          <p className="mt-2.5 text-xs text-stone-600 dark:text-stone-400 line-clamp-2 italic font-serif">
+          <p className="mt-2 text-xs text-stone-600 dark:text-stone-300 italic line-clamp-1 bg-stone-50/80 dark:bg-stone-950/50 px-2 py-1 rounded-md border border-stone-100 dark:border-stone-800">
             "{person.notes}"
           </p>
         )}
       </div>
 
-      {/* Card Footer: Dual Touchpoints (Them vs Me) & Details */}
-      <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-stone-800/80 space-y-2 text-[11px]">
-        {/* Last Engaged By Them & By Me */}
-        <div className="grid grid-cols-2 gap-2">
-          {/* Last engaged by them (inbound) */}
-          <div
-            className="flex items-center gap-1.5 min-w-0"
-            title={person.lastInboundAt ? `Last received from them: ${new Date(person.lastInboundAt).toLocaleString()}` : "Never received engagement"}
-          >
-            <ArrowDownLeft className="size-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="truncate">
-              <span className="text-stone-400 dark:text-stone-500 font-normal">Them: </span>
-              <span className="font-semibold text-stone-800 dark:text-stone-200">
-                {person.lastInboundAt ? formatDate(person.lastInboundAt) : "Never"}
-              </span>
+      {/* Card Footer: Lists and Tags */}
+      {((person.lists && person.lists.length > 0) || (person.tags && person.tags.length > 0)) && (
+        <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-stone-800/80 flex flex-wrap items-center gap-1">
+          {(person.lists ?? []).map((l) => (
+            <span
+              key={l.id}
+              className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:text-stone-300"
+            >
+              <Bookmark className="size-2.5 text-stone-400" />
+              {l.name}
             </span>
-          </div>
+          ))}
 
-          {/* Last engaged by me (outbound) */}
-          <div
-            className="flex items-center gap-1.5 min-w-0"
-            title={person.lastOutboundAt ? `Your last touch: ${new Date(person.lastOutboundAt).toLocaleString()}` : "Never reached out"}
-          >
-            <ArrowUpRight className="size-3 text-sky-600 dark:text-sky-400 shrink-0" />
-            <span className="truncate">
-              <span className="text-stone-400 dark:text-stone-500 font-normal">Me: </span>
-              <span className="font-semibold text-stone-800 dark:text-stone-200">
-                {person.lastOutboundAt ? formatDate(person.lastOutboundAt) : "Never"}
-              </span>
+          {(person.tags ?? []).map((t) => (
+            <span
+              key={t.id}
+              className="rounded-full px-1.5 py-0.2 text-[9.5px] font-medium"
+              style={{
+                backgroundColor: t.color ? `${t.color}15` : "#635bff15",
+                color: t.color || "#635bff",
+              }}
+            >
+              #{t.name}
             </span>
-          </div>
+          ))}
         </div>
-
-        {/* Recency Timestamp & Explicit Details Button */}
-        <div className="pt-1 border-t border-stone-100/60 dark:border-stone-800/40 flex items-center justify-between text-[11px] text-stone-400">
-          <span className="truncate text-[10.5px]">
-            {person.lastInteractionAt
-              ? `Active ${formatDate(person.lastInteractionAt)}`
-              : "No recent activity"}
-          </span>
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onSelect(person.id)
-            }}
-            className="text-[#f15a3a] hover:text-[#d04325] hover:underline flex items-center gap-0.5 font-semibold text-xs cursor-pointer shrink-0 ml-2"
-          >
-            Details <ArrowUpRight className="size-3" />
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   )
 }
