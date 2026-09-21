@@ -17,6 +17,7 @@ export interface Person {
   relationshipStatus: "new" | "active" | "close" | "dormant" | string | null
   substackProfileId: string | null
   profileUrl: string | null
+  publicationUrl?: string | null
   avatarUrl?: string | null
   source: string
   createdAt: string

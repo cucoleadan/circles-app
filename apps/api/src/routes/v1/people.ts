@@ -23,14 +23,33 @@ const relationshipStatus = z.enum([
   "archived",
 ])
 
+const optionalText = z
+  .string()
+  .trim()
+  .max(1000)
+  .optional()
+  .nullable()
+  .transform((val) => (val && val.length > 0 ? val : null))
+
 const personInput = z.object({
   name: z.string().trim().min(1).max(120),
-  handle: z.string().trim().max(120).optional().nullable(),
+  handle: z
+    .string()
+    .trim()
+    .max(120)
+    .optional()
+    .nullable()
+    .transform((val) => {
+      if (!val) return null
+      const cleaned = val.replace(/^@/, "").trim()
+      return cleaned.length > 0 ? cleaned : null
+    }),
   notes: z.string().max(10000).optional().nullable(),
   relationshipStatus: relationshipStatus.optional().nullable(),
-  substackProfileId: z.string().max(200).optional().nullable(),
-  profileUrl: z.string().url().max(500).optional().nullable(),
-  avatarUrl: z.string().url().max(1000).optional().nullable(),
+  substackProfileId: optionalText,
+  profileUrl: optionalText,
+  publicationUrl: optionalText,
+  avatarUrl: optionalText,
 })
 
 peopleRoutes.get("/people", async (c) => {
@@ -75,11 +94,18 @@ peopleRoutes.get("/people/:personId", async (c) => {
 peopleRoutes.patch("/people/:personId", async (c) => {
   const parsed = personInput.partial().safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: "Invalid person" }, 400)
-  const person = await withTenant({ appUserId: c.get("appUser") }, (client) =>
-    updatePerson(client, c.req.param("personId"), parsed.data)
-  )
-  if (!person) return c.json({ error: "Person not found" }, 404)
-  return c.json({ person })
+  try {
+    const person = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+      updatePerson(client, c.req.param("personId"), parsed.data)
+    )
+    if (!person) return c.json({ error: "Person not found" }, 404)
+    return c.json({ person })
+  } catch (err: any) {
+    if (err?.code === "23505") {
+      return c.json({ error: "A contact with this handle already exists." }, 409)
+    }
+    throw err
+  }
 })
 
 peopleRoutes.delete("/people/:personId", async (c) => {

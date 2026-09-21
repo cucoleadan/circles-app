@@ -1,5 +1,5 @@
 import { useEffect, useState, type SyntheticEvent } from "react"
-import { Plus, Tag, X } from "lucide-react"
+import { Edit2, ExternalLink, Globe, Plus, Tag, User, X } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
@@ -34,12 +34,14 @@ export function ContactDetailsTab({
   allTags,
   onPersonUpdated,
   onCreateList,
+  onOpenEditProfile,
 }: {
   person: Person
   allLists: ListRecord[]
   allTags: TagRecord[]
   onPersonUpdated: (updated: Person) => void
   onCreateList?: (name: string) => Promise<ListRecord | void>
+  onOpenEditProfile?: () => void
 }) {
   const [notes, setNotes] = useState(person.notes ?? "")
   const [savingNotes, setSavingNotes] = useState(false)
@@ -377,6 +379,97 @@ export function ContactDetailsTab({
             </Select>
           </div>
         )}
+      </div>
+
+      <Separator />
+
+      {/* Profile & Substack Identity */}
+      <div className="space-y-3 rounded-xl border border-stone-200/80 bg-white/70 p-4 dark:border-stone-800 dark:bg-stone-900/40">
+        <div className="flex items-center justify-between">
+          <h4 className="text-xs font-semibold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+            <User className="size-3.5 text-stone-500" /> Profile & Substack Info
+          </h4>
+          {onOpenEditProfile && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={onOpenEditProfile}
+              className="h-7 text-[11px] px-2 gap-1 border-stone-200 dark:border-stone-700 hover:text-[#f15a3a]"
+            >
+              <Edit2 className="size-3 text-[#f15a3a]" /> Edit Profile
+            </Button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+            <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
+              Substack Handle
+            </span>
+            <div className="mt-0.5 font-mono text-stone-800 dark:text-stone-200 truncate">
+              {person.handle ? (
+                `@${person.handle}`
+              ) : (
+                <span className="text-muted-foreground italic font-sans">None set</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+            <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
+              Substack Profile ID
+            </span>
+            <div className="mt-0.5 font-mono text-stone-800 dark:text-stone-200 truncate">
+              {person.substackProfileId || (
+                <span className="text-muted-foreground italic font-sans">None</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+            <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
+              Profile URL
+            </span>
+            <div className="mt-0.5 truncate">
+              {person.profileUrl ? (
+                <a
+                  href={person.profileUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-stone-700 dark:text-stone-300 hover:text-[#f15a3a] inline-flex items-center gap-1"
+                >
+                  <span className="truncate max-w-[180px]">{person.profileUrl}</span>
+                  <ExternalLink className="size-3 shrink-0" />
+                </a>
+              ) : (
+                <span className="text-muted-foreground italic">None</span>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+            <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
+              Publication URL
+            </span>
+            <div className="mt-0.5 truncate">
+              {person.publicationUrl ? (
+                <a
+                  href={person.publicationUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-stone-700 dark:text-stone-300 hover:text-[#f15a3a] inline-flex items-center gap-1"
+                >
+                  <Globe className="size-3 shrink-0 text-stone-400" />
+                  <span className="truncate max-w-[170px]">{person.publicationUrl}</span>
+                  <ExternalLink className="size-3 shrink-0" />
+                </a>
+              ) : (
+                <span className="text-muted-foreground italic">None</span>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       <Separator />

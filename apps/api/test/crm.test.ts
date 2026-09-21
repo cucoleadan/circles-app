@@ -946,4 +946,64 @@ describe("interactions", () => {
     expect(peopleAfter[0].id).toBe(person.id)
     expect(peopleAfter[0].lists ?? []).toHaveLength(0)
   })
+
+  test("PATCH /people/:id edits person profile fields without altering interactions", async () => {
+    // 1. Create a person without handle
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "No Handle User" })
+    )
+    expect(person.handle).toBeNull()
+
+    // 2. Edit profile fields: add handle, publicationUrl, avatarUrl, etc.
+    const patchRes = await v1.fetch(
+      new Request(`http://localhost:3000/people/${person.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({
+          name: "Updated Name",
+          handle: "@newhandle",
+          avatarUrl: "https://substackcdn.com/avatar.jpg",
+          profileUrl: "https://substack.com/@newhandle",
+          publicationUrl: "https://newhandle.substack.com",
+          substackProfileId: "98765432",
+          relationshipStatus: "conversation",
+        }),
+      })
+    )
+    expect(patchRes.status).toBe(200)
+    const patchData = (await patchRes.json()) as any
+    expect(patchData.person.name).toBe("Updated Name")
+    expect(patchData.person.handle).toBe("newhandle")
+    expect(patchData.person.avatarUrl).toBe("https://substackcdn.com/avatar.jpg")
+    expect(patchData.person.profileUrl).toBe("https://substack.com/@newhandle")
+    expect(patchData.person.publicationUrl).toBe("https://newhandle.substack.com")
+    expect(patchData.person.substackProfileId).toBe("98765432")
+    expect(patchData.person.relationshipStatus).toBe("conversation")
+
+    // 3. Create another person with handle @other
+    await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Other User", handle: "@other" })
+    )
+
+    // 4. Try to update person's handle to @other -> should return 409
+    const conflictRes = await v1.fetch(
+      new Request(`http://localhost:3000/people/${person.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({
+          handle: "@other",
+        }),
+      })
+    )
+    expect(conflictRes.status).toBe(409)
+    const conflictData = (await conflictRes.json()) as any
+    expect(conflictData.error).toContain("handle already exists")
+  })
 })
+

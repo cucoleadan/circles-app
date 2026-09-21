@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Archive, Ban, ExternalLink, EyeOff, Plus, Sparkles } from "lucide-react"
+import { Archive, Ban, Edit2, ExternalLink, EyeOff, Plus, Sparkles } from "lucide-react"
 
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
@@ -18,6 +18,7 @@ import {
 } from "@workspace/ui/components/sheet"
 import type { ListRecord, Person, TagRecord } from "../lib/types"
 import { ContactDetailsTab } from "./contact-details-tab"
+import { EditContactDialog } from "./edit-contact-dialog"
 import { ProfileBreakdown } from "./profile-breakdown"
 import { Timeline } from "./timeline"
 
@@ -66,6 +67,13 @@ export function ContactDrawer({
   if (!person) return null
 
   const [activeTab, setActiveTab] = useState<"timeline" | "details">("timeline")
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [editFocusField, setEditFocusField] = useState<"name" | "handle">("name")
+
+  function openEditModal(focus: "name" | "handle" = "name") {
+    setEditFocusField(focus)
+    setIsEditingProfile(true)
+  }
 
   const isIgnored = (person.lists ?? []).some((l) => l.name.toLowerCase() === "ignored")
 
@@ -193,9 +201,16 @@ export function ContactDrawer({
 
                 <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
                   {person.handle ? (
-                    <span className="font-mono text-stone-500">@{person.handle}</span>
+                    <span className="font-mono text-stone-600 dark:text-stone-300 font-medium">@{person.handle}</span>
                   ) : (
-                    <span>No handle</span>
+                    <button
+                      type="button"
+                      onClick={() => openEditModal("handle")}
+                      className="inline-flex items-center gap-1 text-[11px] font-medium text-[#f15a3a] hover:underline"
+                      title="Add Substack handle"
+                    >
+                      <Plus className="size-3" /> Add handle
+                    </button>
                   )}
                   <span>·</span>
                   <span
@@ -227,6 +242,16 @@ export function ContactDrawer({
 
             {/* Quick Actions & Lists */}
             <div className="shrink-0 flex items-center gap-1.5">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => openEditModal("name")}
+                className="h-8 rounded-full text-xs font-medium px-2.5 gap-1.5 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 bg-white dark:bg-stone-800 hover:bg-stone-100 hover:text-stone-900 shadow-2xs"
+                title="Edit profile details (name, handle, Substack URLs, ID)"
+              >
+                <Edit2 className="size-3 text-[#f15a3a]" /> Edit
+              </Button>
+
               <Button
                 variant="outline"
                 size="sm"
@@ -366,6 +391,7 @@ export function ContactDrawer({
               allTags={allTags}
               onPersonUpdated={onPersonUpdated}
               onCreateList={onCreateList}
+              onOpenEditProfile={() => openEditModal("name")}
             />
           )}
         </div>
@@ -390,6 +416,14 @@ export function ContactDrawer({
             Close
           </Button>
         </div>
+
+        <EditContactDialog
+          open={isEditingProfile}
+          onOpenChange={setIsEditingProfile}
+          person={person}
+          onPersonUpdated={onPersonUpdated}
+          initialFocus={editFocusField}
+        />
       </SheetContent>
     </Sheet>
   )

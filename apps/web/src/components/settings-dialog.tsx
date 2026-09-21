@@ -333,63 +333,64 @@ export function SettingsDialog({
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex gap-2 pt-3 border-t border-stone-100 dark:border-stone-800 mt-3 -mb-1 overflow-x-auto scrollbar-none">
+          <div className="grid grid-cols-4 gap-1 p-1 bg-stone-100/90 dark:bg-stone-800/80 rounded-xl mt-3 text-xs border border-stone-200/60 dark:border-stone-800">
             <button
               type="button"
               onClick={() => setActiveTab("connection")}
-              className={`pb-2 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all shrink-0 ${
+              className={`py-1.5 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "connection"
-                  ? "border-[#f15a3a] text-[#f15a3a]"
-                  : "border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                  ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                  : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
+              title="Substack Connection"
             >
-              <Key className="size-3.5" />
-              Substack Connection
+              <Key className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <span className="truncate">Connection</span>
               {connection?.status === "expired" && (
-                <span className="size-1.5 rounded-full bg-rose-500 animate-pulse" />
+                <span className="size-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
               )}
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("queue")}
-              className={`pb-2 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all shrink-0 ${
+              className={`py-1.5 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "queue"
-                  ? "border-[#f15a3a] text-[#f15a3a]"
-                  : "border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                  ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                  : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
+              title="Smart Queue Rules"
             >
-              <Sparkles className="size-3.5" />
-              Smart Queue Rules
+              <Sparkles className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <span className="truncate">Queue</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("lists")}
-              className={`pb-2 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all shrink-0 ${
+              className={`py-1.5 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "lists"
-                  ? "border-[#f15a3a] text-[#f15a3a]"
-                  : "border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                  ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                  : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
+              title="Manage Contact Lists"
             >
-              <Bookmark className="size-3.5" />
-              Contact Lists
-              <span className="rounded-full bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700 px-1.5 py-0.2 text-[9px] font-bold">
+              <Bookmark className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <span className="truncate">Lists</span>
+              <span className="rounded-full bg-stone-200/80 dark:bg-stone-700 px-1.5 py-0.2 text-[9px] font-bold shrink-0">
                 {lists.length}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("extension")}
-              className={`pb-2 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-all shrink-0 ${
+              className={`py-1.5 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "extension"
-                  ? "border-[#f15a3a] text-[#f15a3a]"
-                  : "border-transparent text-stone-500 hover:text-stone-800 dark:hover:text-stone-200"
+                  ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                  : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
+              title="Chrome Companion Extension"
             >
-              <Puzzle className="size-3.5" />
-              Chrome Extension
-              <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80 px-1.5 py-0.2 text-[9px] font-bold">
-                Store
-              </span>
+              <Puzzle className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <span className="truncate">Extension</span>
             </button>
           </div>
         </SheetHeader>

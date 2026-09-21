@@ -9,6 +9,7 @@ export type PoolLike = PoolClient
 const personColumns = `p.id, p.name, p.handle, p.notes,
     p.relationship_status as "relationshipStatus",
     p.substack_profile_id as "substackProfileId", p.profile_url as "profileUrl",
+    p.publication_url as "publicationUrl",
     p.avatar_url as "avatarUrl",
     p.source, p.created_at as "createdAt", p.updated_at as "updatedAt",
     p.archived_at as "archivedAt"`
@@ -48,6 +49,7 @@ export interface Person {
   relationshipStatus: string | null
   substackProfileId: string | null
   profileUrl: string | null
+  publicationUrl?: string | null
   avatarUrl?: string | null
   source: string
   createdAt: string
@@ -87,6 +89,7 @@ export interface PersonInput {
   relationshipStatus?: string | null
   substackProfileId?: string | null
   profileUrl?: string | null
+  publicationUrl?: string | null
   avatarUrl?: string | null
 }
 
@@ -558,6 +561,10 @@ export async function updatePerson(
   if (input.profileUrl !== undefined) {
     params.push(input.profileUrl)
     updates.push(`profile_url = $${params.length}`)
+  }
+  if (input.publicationUrl !== undefined) {
+    params.push(input.publicationUrl)
+    updates.push(`publication_url = $${params.length}`)
   }
   if (input.avatarUrl !== undefined) {
     params.push(input.avatarUrl)

@@ -39,13 +39,15 @@ What exists:
 - Advanced Filters & Bi-directional Sorting: Filter contacts by interaction type (restacks, comments, likes); sort by newest/oldest activity by them (inbound) or by me (outbound), as well as lowest/highest engagement.
 - Profile Card & Mobile View Enhancements: List badges displayed prominently under contact name/handle with high-contrast pills; dual engagement timestamps ("By them" and "By me") with relative time formatting; responsive mobile layout with quick queue navigation strip, slide-over navigation drawer, 2-column mobile toolbar filters, and overflow-free navbar.
 - List Management & Safe Deletion: Dedicated Contact Lists settings panel in Settings Dialog and sidebar shortcut for creating, searching, renaming, and safely deleting lists. Deleting a list unlinks contact memberships via PostgreSQL cascade while strictly preserving contacts and interaction histories; includes an explicit confirmation modal and reactive state updates across sidebar, contacts, and active filters. Direct URL routing supported via `/settings?tab=lists` and `?settings=lists`.
+- Settings Slide-In Menu Fix: Replaced overflowing horizontal tab bar in `SettingsDialog` with a sleek 4-column responsive segmented control (`Connection`, `Queue`, `Lists`, `Extension`) that eliminates text truncation and visual clipping across all viewport widths.
+- Contact Profile Editing from Detailed View: Added comprehensive profile editing directly from the Contact Drawer and Notes & Memberships tab (`EditContactDialog`). Allows users to update full name, add/update Substack handles (including quick `+ Add handle` shortcut for contacts missing a handle), live-preview avatar URLs, Substack profile URLs, publication URLs, Substack profile IDs, and relationship statuses without modifying interaction histories or engagement scores. API validates handle uniqueness and prevents collisions.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
   - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), exact target excerpts for Likes, honest unavailable-content fallbacks, Substack external links, cursor pagination.
   - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.
   - Accessible card triggers and explicit "Details" button with keyboard navigation (`Enter`/`Space`).
   - Base theme: global `cursor: pointer` on all buttons, links, roles, tabs, and interactive elements.
   - URL-addressable navigation (`?view=`, `?sort=`, `?person=`).
-- Targeted automated coverage: 34/34 tests passing (19 API/database, 12
+- Targeted automated coverage: 35/35 tests passing (21 API/database, 11
   ingestion/worker, 3 extension outbound-capture tests).
 - Typecheck: 0 errors across 6 packages (`bun run typecheck`).
 
