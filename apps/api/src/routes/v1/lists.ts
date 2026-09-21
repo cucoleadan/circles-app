@@ -28,27 +28,41 @@ listsRoutes.get("/lists", async (c) => {
 listsRoutes.post("/lists", async (c) => {
   const parsed = namedInput.safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: "Invalid list" }, 400)
-  const list = await withTenant({ appUserId: c.get("appUser") }, (client) =>
-    createList(client, c.get("appUser"), parsed.data.name, parsed.data.description)
-  )
+  const appUser = c.get("appUser")
+  const list = await withTenant({ appUserId: appUser }, async (client) => {
+    const created = await createList(client, appUser, parsed.data.name, parsed.data.description)
+    await audit(client, appUser, "list.create", "list", created.id)
+    return created
+  })
   return c.json({ list }, 201)
 })
 
 listsRoutes.patch("/lists/:listId", async (c) => {
   const parsed = namedInput.safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: "Invalid list" }, 400)
-  const list = await withTenant({ appUserId: c.get("appUser") }, (client) =>
-    updateList(client, c.req.param("listId"), parsed.data.name, parsed.data.description)
-  )
+  const appUser = c.get("appUser")
+  const listId = c.req.param("listId")
+  const list = await withTenant({ appUserId: appUser }, async (client) => {
+    const updated = await updateList(client, listId, parsed.data.name, parsed.data.description)
+    if (updated) {
+      await audit(client, appUser, "list.update", "list", listId)
+    }
+    return updated
+  })
   if (!list) return c.json({ error: "List not found" }, 404)
   return c.json({ list })
 })
 
 listsRoutes.delete("/lists/:listId", async (c) => {
   const appUser = c.get("appUser")
-  const deleted = await withTenant({ appUserId: appUser }, (client) =>
-    deleteList(client, c.req.param("listId"))
-  )
+  const listId = c.req.param("listId")
+  const deleted = await withTenant({ appUserId: appUser }, async (client) => {
+    const ok = await deleteList(client, listId)
+    if (ok) {
+      await audit(client, appUser, "list.delete", "list", listId)
+    }
+    return ok
+  })
   if (!deleted) return c.json({ error: "List not found" }, 404)
   return c.body(null, 204)
 })

@@ -857,4 +857,93 @@ describe("interactions", () => {
     expect(apiBody.people).toHaveLength(1)
     expect(apiBody.people[0].name).toBe("Alice")
   })
+
+  test("list CRUD, description support, and deletion cascades membership without deleting people", async () => {
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Test Contact", handle: "@testcontact" })
+    )
+
+    // 1. Create list via API with description
+    const createRes = await v1.fetch(
+      new Request("http://localhost:3000/lists", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({ name: "Mentors", description: "Trusted mentors" }),
+      })
+    )
+    expect(createRes.status).toBe(201)
+    const { list } = (await createRes.json()) as any
+    expect(list.name).toBe("Mentors")
+
+    // 2. Add member to list
+    const addMemberRes = await v1.fetch(
+      new Request(`http://localhost:3000/lists/${list.id}/members`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({ personId: person.id }),
+      })
+    )
+    expect(addMemberRes.status).toBe(204)
+
+    // 3. Verify GET /lists includes description and count = 1
+    const getListsRes = await v1.fetch(
+      new Request("http://localhost:3000/lists", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(getListsRes.status).toBe(200)
+    const { lists } = (await getListsRes.json()) as any
+    const found = lists.find((l: any) => l.id === list.id)
+    expect(found).toBeDefined()
+    expect(found.name).toBe("Mentors")
+    expect(found.description).toBe("Trusted mentors")
+    expect(found.count).toBe(1)
+
+    // 4. Update list via PATCH
+    const patchRes = await v1.fetch(
+      new Request(`http://localhost:3000/lists/${list.id}`, {
+        method: "PATCH",
+        headers: {
+          "content-type": "application/json",
+          cookie: signedCookieA,
+        },
+        body: JSON.stringify({ name: "Senior Mentors", description: "Key strategic advisors" }),
+      })
+    )
+    expect(patchRes.status).toBe(200)
+    const patched = (await patchRes.json()) as any
+    expect(patched.list.name).toBe("Senior Mentors")
+
+    // 5. Delete list via DELETE
+    const deleteRes = await v1.fetch(
+      new Request(`http://localhost:3000/lists/${list.id}`, {
+        method: "DELETE",
+        headers: { cookie: signedCookieA },
+      })
+    )
+    expect(deleteRes.status).toBe(204)
+
+    // 6. Verify list is gone
+    const getListsAfter = await v1.fetch(
+      new Request("http://localhost:3000/lists", {
+        headers: { cookie: signedCookieA },
+      })
+    )
+    const listsAfter = (await getListsAfter.json()) as any
+    expect(listsAfter.lists.some((l: any) => l.id === list.id)).toBe(false)
+
+    // 7. Verify person STILL exists and has no lists
+    const peopleAfter = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { search: "Test Contact" })
+    )
+    expect(peopleAfter).toHaveLength(1)
+    expect(peopleAfter[0].id).toBe(person.id)
+    expect(peopleAfter[0].lists ?? []).toHaveLength(0)
+  })
 })

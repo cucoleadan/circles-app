@@ -1,3 +1,5 @@
+import { authorInfoFromElement, parseAuthorLink } from "./lib/author-parser";
+
 const ADD_BTN_MARKER = "data-circles-crm";
 
 const USER_PLUS_ICON =
@@ -40,32 +42,6 @@ function injectStyles() {
   (document.head ?? document.documentElement).append(style);
 }
 
-function parseAuthorLink(href: string): string | null {
-  const match = href.match(/(?:substack\.com\/@|\/@|^@?)([a-zA-Z0-9_-]+)/);
-  return match?.[1] ? match[1].toLocaleLowerCase("en") : null;
-}
-
-function authorInfoFromElement(container: Element): { handle: string; name: string } | null {
-  const links = [
-    ...container.querySelectorAll<HTMLAnchorElement>(
-      'a[href*="/@"], a[href^="/@"], a[href^="https://substack.com/@"]',
-    ),
-  ];
-  if (links.length === 0) return null;
-
-  const avatar = links.find((link) => link.querySelector("img") !== null);
-  const named = links.find((link) => (link.textContent ?? "").trim().length > 0);
-  const targetLink = avatar ?? named ?? links[0];
-  const href = targetLink?.getAttribute("href") ?? "";
-  const handle = parseAuthorLink(href);
-  if (!handle) return null;
-
-  const rawName = (named?.textContent ?? "").trim();
-  const titleAttr = container.querySelector<HTMLElement>("[title]")?.getAttribute("title")?.trim();
-  const name = (rawName && !rawName.startsWith("@") ? rawName : titleAttr) || handle;
-
-  return { handle, name };
-}
 
 function setButtonState(
   button: HTMLButtonElement,
@@ -329,12 +305,14 @@ function processNote(note: Element) {
   if (note.querySelector(`[${ADD_BTN_MARKER}]`)) return;
 
   const moreOptions = note.querySelector<HTMLButtonElement>('button[aria-label="More options"]');
-  const info = authorInfoFromElement(note);
-  if (!moreOptions || !info) return;
+  if (!moreOptions) return;
 
   const moreContainer = moreOptions.parentElement;
   const row = moreContainer?.parentElement;
   if (!row || !moreContainer) return;
+
+  const info = authorInfoFromElement(row) ?? authorInfoFromElement(note);
+  if (!info) return;
 
   const button = document.createElement("button");
   button.type = "button";
@@ -350,7 +328,12 @@ function processNote(note: Element) {
 function processSavedOrFeedPost(card: Element) {
   if (card.querySelector(`[${ADD_BTN_MARKER}]`)) return;
 
-  const info = authorInfoFromElement(card);
+  const byline =
+    card.querySelector('[class*="byline"]') ??
+    card.querySelector('[class*="post-header"]') ??
+    card.querySelector("header");
+
+  const info = (byline ? authorInfoFromElement(byline) : null) ?? authorInfoFromElement(card);
   if (!info) return;
 
   const targetContainer =

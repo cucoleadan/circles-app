@@ -1,0 +1,3 @@
+---
+return Astro.redirect(`/?settings=${encodeURIComponent(Astro.url.searchParams.get("tab") || "lists")}`)
+---

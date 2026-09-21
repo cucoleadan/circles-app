@@ -821,13 +821,14 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
 export interface NamedRecord {
   id: string
   name: string
+  description?: string | null
   createdAt: string
   count: number
 }
 
 export async function listLists(client: PoolLike): Promise<NamedRecord[]> {
   const result = await client.query(
-    `select l.id, l.name, l.created_at as "createdAt",
+    `select l.id, l.name, l.description, l.created_at as "createdAt",
         count(lm.person_id)::int as count
       from lists l left join list_members lm on lm.list_id = l.id
       group by l.id order by lower(l.name)`

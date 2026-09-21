@@ -49,6 +49,7 @@ export interface Person {
 export interface ListRecord {
   id: string
   name: string
+  description?: string | null
   createdAt: string
   count: number
 }

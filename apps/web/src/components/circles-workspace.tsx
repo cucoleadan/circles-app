@@ -24,6 +24,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@workspace/ui/components/sheet"
 import type {
   CirclesOverview,
   DateRangePreset,
@@ -36,7 +42,7 @@ import type {
 import { AddContactDialog } from "./add-contact-dialog"
 import { BadgeGuideDrawer } from "./badge-guide-drawer"
 import { CirclesMetricsRibbon } from "./circles-metrics-ribbon"
-import { CirclesSidebar } from "./circles-sidebar"
+import { actionViews, CirclesSidebar } from "./circles-sidebar"
 import { ContactCard } from "./contact-card"
 import { ContactDrawer } from "./contact-drawer"
 import { HistoryBackfill } from "./history-backfill"
@@ -95,7 +101,8 @@ export function CirclesWorkspace({
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isBadgeGuideOpen, setIsBadgeGuideOpen] = useState(false)
   const [isSettingsOpen, setIsSettingsOpen] = useState(false)
-  const [settingsInitialTab, setSettingsInitialTab] = useState<"connection" | "queue">("connection")
+  const [settingsInitialTab, setSettingsInitialTab] = useState<"connection" | "queue" | "extension" | "lists">("connection")
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<"active" | "expired" | "none">("active")
   const [refreshKey, setRefreshKey] = useState(0)
   const [isSyncing, setIsSyncing] = useState(false)
@@ -135,6 +142,12 @@ export function CirclesWorkspace({
 
     const tagParam = params.get("tag")
     if (tagParam) setSelectedTagId(tagParam)
+
+    const settingsParam = params.get("settings")
+    if (settingsParam && ["connection", "queue", "extension", "lists"].includes(settingsParam)) {
+      setSettingsInitialTab(settingsParam as "connection" | "queue" | "extension" | "lists")
+      setIsSettingsOpen(true)
+    }
 
     const sortParam = params.get("sort") as PeopleSort | null
     if (sortParam) setCurrentSort(sortParam)
@@ -253,18 +266,22 @@ export function CirclesWorkspace({
   }
 
   // Create List
-  async function handleCreateList(name: string): Promise<ListRecord | void> {
+  async function handleCreateList(name: string, description?: string | null): Promise<ListRecord | void> {
     try {
       const res = await fetch("/api/v1/lists", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ name }),
+        body: JSON.stringify({ name, description }),
       })
-      if (!res.ok) throw new Error("Failed to create list")
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || "Failed to create list")
+      }
       const data = await res.json()
       const newList: ListRecord = {
         id: data.list.id,
         name: data.list.name,
+        description: description ?? null,
         count: 0,
         createdAt: new Date().toISOString(),
       }
@@ -274,6 +291,77 @@ export function CirclesWorkspace({
       return newList
     } catch (err: any) {
       setNotice(`Error: ${err.message}`)
+      throw err
+    }
+  }
+
+  // Update List
+  async function handleUpdateList(
+    listId: string,
+    name: string,
+    description?: string | null
+  ): Promise<ListRecord | void> {
+    try {
+      const res = await fetch(`/api/v1/lists/${listId}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name, description }),
+      })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || "Failed to update list")
+      }
+      const data = await res.json()
+      setLists((prev) =>
+        prev.map((l) =>
+          l.id === listId
+            ? { ...l, name: data.list.name, description: description !== undefined ? description : l.description }
+            : l
+        )
+      )
+      // Update any loaded person who belongs to this list
+      setPeople((prev) =>
+        prev.map((p) => ({
+          ...p,
+          lists: (p.lists ?? []).map((l) => (l.id === listId ? { ...l, name: data.list.name } : l)),
+        }))
+      )
+      setNotice(`Updated list "${data.list.name}"`)
+      setTimeout(() => setNotice(null), 3000)
+      return data.list
+    } catch (err: any) {
+      setNotice(`Error: ${err.message}`)
+      throw err
+    }
+  }
+
+  // Delete List
+  async function handleDeleteList(listId: string): Promise<boolean> {
+    try {
+      const res = await fetch(`/api/v1/lists/${listId}`, { method: "DELETE" })
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}))
+        throw new Error(errData.error || "Failed to delete list")
+      }
+      setLists((prev) => prev.filter((l) => l.id !== listId))
+      // If currently filtering by this list, reset list filter
+      if (selectedListId === listId) {
+        setSelectedListId(null)
+        updateUrl({ list: null })
+      }
+      // Remove this list from all loaded contacts' lists
+      setPeople((prev) =>
+        prev.map((p) => ({
+          ...p,
+          lists: (p.lists ?? []).filter((l) => l.id !== listId),
+        }))
+      )
+      setNotice("List deleted.")
+      setTimeout(() => setNotice(null), 3000)
+      return true
+    } catch (err: any) {
+      setNotice(`Error: ${err.message}`)
+      return false
     }
   }
 
@@ -370,44 +458,46 @@ export function CirclesWorkspace({
     <main className="min-h-screen bg-[#f7f5f1] text-[#191817] dark:bg-stone-950 dark:text-stone-100 flex flex-col">
       {/* Top Navbar */}
       <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 dark:border-stone-800 dark:bg-stone-900/80 backdrop-blur-md">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 sm:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <div className="flex items-center gap-2 font-bold tracking-tight text-sm sm:text-base">
               <span className="flex size-7 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
                 <CircleDot className="size-4" />
               </span>
               <span>Circles</span>
             </div>
-            <span className="hidden sm:inline-block rounded-full bg-stone-100 dark:bg-stone-800 px-2.5 py-0.5 text-[11px] font-medium text-stone-600 dark:text-stone-300">
+            <span className="hidden md:inline-block rounded-full bg-stone-100 dark:bg-stone-800 px-2.5 py-0.5 text-[11px] font-medium text-stone-600 dark:text-stone-300">
               CRM & Relationships
             </span>
           </div>
 
           {/* Search */}
-          <div className="flex-1 max-w-md mx-2 sm:mx-4">
+          <div className="flex-1 max-w-md mx-1 sm:mx-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-stone-400" />
               <Input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Search by name or @handle…"
-                className="pl-9 h-9 text-xs bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded-full"
+                placeholder="Search name or @handle…"
+                className="pl-9 h-8.5 sm:h-9 text-xs bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded-full"
               />
             </div>
           </div>
 
           {/* Actions */}
-          <div className="flex items-center gap-2">
-            <HistoryBackfill />
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
+            <div className="hidden sm:inline-flex">
+              <HistoryBackfill />
+            </div>
             <Button
               variant="outline"
               size="sm"
               onClick={() => setIsBadgeGuideOpen(true)}
-              className="h-8.5 rounded-full text-xs font-medium border-stone-200"
+              className="hidden sm:inline-flex h-8.5 rounded-full text-xs font-medium border-stone-200"
               title="Badge & Scoring Guide"
             >
               <HelpCircle className="size-3.5 mr-1 text-stone-500" />
-              <span className="hidden sm:inline">Guide</span>
+              <span>Guide</span>
             </Button>
 
             <Button
@@ -415,11 +505,11 @@ export function CirclesWorkspace({
               size="sm"
               onClick={triggerSync}
               disabled={isSyncing}
-              className="h-8.5 rounded-full text-xs font-medium border-stone-200"
+              className="h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3"
               title="Sync latest Substack activity"
             >
               <RefreshCw
-                className={`size-3.5 mr-1.5 ${isSyncing ? "animate-spin text-[#f15a3a]" : ""}`}
+                className={`size-3.5 ${isSyncing ? "animate-spin text-[#f15a3a]" : ""} sm:mr-1.5`}
               />
               <span className="hidden sm:inline">Sync</span>
             </Button>
@@ -431,7 +521,7 @@ export function CirclesWorkspace({
                 setSettingsInitialTab("connection")
                 setIsSettingsOpen(true)
               }}
-              className={`h-8.5 rounded-full text-xs font-medium border-stone-200 relative ${
+              className={`h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3 relative ${
                 connectionStatus === "expired"
                   ? "border-rose-300 text-rose-700 bg-rose-50/70 dark:bg-rose-950/30 dark:border-rose-800"
                   : ""
@@ -439,9 +529,9 @@ export function CirclesWorkspace({
               title="Settings & Substack Connection"
             >
               <Settings
-                className={`size-3.5 mr-1 text-stone-500 ${
-                  connectionStatus === "expired" ? "text-rose-600 dark:text-rose-400" : ""
-                }`}
+                className={`size-3.5 ${
+                  connectionStatus === "expired" ? "text-rose-600 dark:text-rose-400" : "text-stone-500"
+                } sm:mr-1`}
               />
               <span className="hidden sm:inline">Settings</span>
               {connectionStatus === "expired" && (
@@ -452,9 +542,10 @@ export function CirclesWorkspace({
             <Button
               size="sm"
               onClick={() => setIsAddOpen(true)}
-              className="h-8.5 rounded-full bg-[#191817] hover:bg-[#302e2c] text-white text-xs font-semibold px-3.5 shadow-xs"
+              className="h-8 sm:h-8.5 rounded-full bg-[#191817] hover:bg-[#302e2c] text-white text-xs font-semibold px-2.5 sm:px-3.5 shadow-xs"
+              title="Add Person"
             >
-              <Plus className="size-3.5 mr-1" />
+              <Plus className="size-3.5 sm:mr-1" />
               <span className="hidden sm:inline">Add Person</span>
             </Button>
 
@@ -463,7 +554,7 @@ export function CirclesWorkspace({
               size="icon"
               onClick={logout}
               aria-label="Sign out"
-              className="size-8.5 rounded-full text-stone-500 hover:text-stone-800"
+              className="size-8 sm:size-8.5 rounded-full text-stone-500 hover:text-stone-800"
             >
               <LogOut className="size-4" />
             </Button>
@@ -502,30 +593,88 @@ export function CirclesWorkspace({
       )}
 
       {/* Main Content Area */}
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex-1 w-full">
+      <div className="mx-auto max-w-7xl px-3 sm:px-6 lg:px-8 py-4 sm:py-8 flex-1 w-full">
         {/* Metric Ribbon */}
         <CirclesMetricsRibbon overview={overview} people={people} topScore={topScore} />
 
-        {/* Workspace Layout */}
-        <div className="flex flex-col lg:flex-row items-start gap-8">
-          {/* Sidebar */}
-          <CirclesSidebar
-            currentView={currentView}
-            onViewChange={handleViewChange}
-            selectedListId={selectedListId}
-            onListChange={handleListChange}
-            selectedTagId={selectedTagId}
-            onTagChange={handleTagChange}
-            lists={lists}
-            tags={tags}
-            overview={overview}
-            onCreateList={handleCreateList}
-            onOpenBadgeGuide={() => setIsBadgeGuideOpen(true)}
-            onOpenSettings={() => {
-              setSettingsInitialTab("queue")
-              setIsSettingsOpen(true)
+        {/* Mobile Quick Queue Strip (< lg) */}
+        <div className="lg:hidden mb-4 flex items-center gap-1.5 overflow-x-auto pb-1.5 no-scrollbar -mx-3 px-3">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsMobileNavOpen(true)}
+            className="h-8 rounded-full text-xs font-semibold shrink-0 bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700 shadow-2xs gap-1.5 text-stone-800 dark:text-stone-200"
+          >
+            <SlidersHorizontal className="size-3 text-[#f15a3a]" />
+            <span>Views &amp; Lists</span>
+          </Button>
+
+          <div className="h-4 w-[1px] bg-stone-300 dark:bg-stone-700 shrink-0 mx-0.5" />
+
+          {actionViews.map((v) => {
+            const Icon = v.icon
+            const isActive = currentView === v.id && !selectedListId && !selectedTagId
+            return (
+              <button
+                key={v.id}
+                type="button"
+                onClick={() => {
+                  handleListChange(null)
+                  handleTagChange(null)
+                  handleViewChange(v.id)
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
+                  isActive
+                    ? "bg-[#191817] text-white shadow-xs"
+                    : "bg-white text-stone-700 border border-stone-200/90 hover:bg-stone-100 dark:bg-stone-900 dark:text-stone-300 dark:border-stone-800"
+                }`}
+              >
+                <Icon className={`size-3 shrink-0 ${isActive ? "text-[#f15a3a]" : "text-stone-400"}`} />
+                <span>{v.label}</span>
+              </button>
+            )
+          })}
+
+          <button
+            type="button"
+            onClick={() => {
+              handleListChange(null)
+              handleTagChange(null)
+              handleViewChange("all")
             }}
-          />
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
+              currentView === "all" && !selectedListId && !selectedTagId
+                ? "bg-[#191817] text-white shadow-xs"
+                : "bg-white text-stone-700 border border-stone-200/90 hover:bg-stone-100 dark:bg-stone-900 dark:text-stone-300 dark:border-stone-800"
+            }`}
+          >
+            <Users className={`size-3 shrink-0 ${currentView === "all" && !selectedListId && !selectedTagId ? "text-[#f15a3a]" : "text-stone-400"}`} />
+            <span>All</span>
+          </button>
+        </div>
+
+        {/* Workspace Layout */}
+        <div className="flex flex-col lg:flex-row items-start gap-6 lg:gap-8">
+          {/* Desktop Left Sidebar (hidden on mobile) */}
+          <div className="hidden lg:block shrink-0">
+            <CirclesSidebar
+              currentView={currentView}
+              onViewChange={handleViewChange}
+              selectedListId={selectedListId}
+              onListChange={handleListChange}
+              selectedTagId={selectedTagId}
+              onTagChange={handleTagChange}
+              lists={lists}
+              tags={tags}
+              overview={overview}
+              onCreateList={handleCreateList}
+              onOpenBadgeGuide={() => setIsBadgeGuideOpen(true)}
+              onOpenSettings={(tab) => {
+                setSettingsInitialTab(tab || "queue")
+                setIsSettingsOpen(true)
+              }}
+            />
+          </div>
 
           {/* Cards Section */}
           <section className="flex-1 w-full min-w-0">
@@ -573,18 +722,18 @@ export function CirclesWorkspace({
               </div>
 
               {/* Toolbar Controls: List Filter, Action Type, Date Range & Sort */}
-              <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+              <div className="grid grid-cols-2 gap-2 w-full lg:flex lg:w-auto lg:flex-wrap lg:items-center lg:gap-2.5">
                 {/* List Filter Selector */}
                 {lists.length > 0 && (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-1 w-full lg:w-auto">
+                    <span className="text-[11px] sm:text-xs font-medium text-stone-500 flex items-center gap-1 shrink-0">
                       <Bookmark className="size-3" /> List:
                     </span>
                     <Select
                       value={selectedListId ?? "all"}
                       onValueChange={(val) => handleListChange(val === "all" ? null : val)}
                     >
-                      <SelectTrigger className="h-8 text-xs font-medium min-w-32 bg-white dark:bg-stone-900">
+                      <SelectTrigger className="h-8 text-xs font-medium w-full lg:min-w-32 bg-white dark:bg-stone-900">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -603,15 +752,15 @@ export function CirclesWorkspace({
                 )}
 
                 {/* Interaction / Action Type Filter */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 w-full lg:w-auto">
+                  <span className="text-[11px] sm:text-xs font-medium text-stone-500 flex items-center gap-1 shrink-0">
                     <Filter className="size-3" /> Action:
                   </span>
                   <Select
                     value={interactionFilter}
                     onValueChange={(v) => setInteractionFilter(v as any)}
                   >
-                    <SelectTrigger className="h-8 text-xs font-medium w-36 bg-white dark:bg-stone-900">
+                    <SelectTrigger className="h-8 text-xs font-medium w-full lg:w-36 bg-white dark:bg-stone-900">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -632,15 +781,15 @@ export function CirclesWorkspace({
                 </div>
 
                 {/* Date Range Selector */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 w-full lg:w-auto">
+                  <span className="text-[11px] sm:text-xs font-medium text-stone-500 flex items-center gap-1 shrink-0">
                     <Calendar className="size-3" /> Activity:
                   </span>
                   <Select
                     value={dateRange}
                     onValueChange={(v) => handleDateRangeChange(v as DateRangePreset)}
                   >
-                    <SelectTrigger className="h-8 text-xs font-medium w-36 bg-white dark:bg-stone-900">
+                    <SelectTrigger className="h-8 text-xs font-medium w-full lg:w-36 bg-white dark:bg-stone-900">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -664,15 +813,15 @@ export function CirclesWorkspace({
                 </div>
 
                 {/* Sort Selector */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-medium text-stone-500 flex items-center gap-1">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 w-full lg:w-auto">
+                  <span className="text-[11px] sm:text-xs font-medium text-stone-500 flex items-center gap-1 shrink-0">
                     <SlidersHorizontal className="size-3" /> Sort:
                   </span>
                   <Select
                     value={currentSort}
                     onValueChange={(v) => handleSortChange(v as PeopleSort)}
                   >
-                    <SelectTrigger className="h-8 text-xs font-medium min-w-44 bg-white dark:bg-stone-900">
+                    <SelectTrigger className="h-8 text-xs font-medium w-full lg:min-w-44 bg-white dark:bg-stone-900">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -796,12 +945,63 @@ export function CirclesWorkspace({
         open={isSettingsOpen}
         onOpenChange={setIsSettingsOpen}
         initialTab={settingsInitialTab}
+        lists={lists}
+        onCreateList={handleCreateList}
+        onUpdateList={handleUpdateList}
+        onDeleteList={handleDeleteList}
         onSaved={refetchPeople}
         onConnectionUpdated={() => {
           void checkConnection()
           refetchPeople()
         }}
       />
+
+      {/* Mobile Views & Lists Sheet Drawer */}
+      <Sheet open={isMobileNavOpen} onOpenChange={setIsMobileNavOpen}>
+        <SheetContent
+          side="left"
+          className="w-[85vw] max-w-xs p-5 overflow-y-auto bg-stone-50 dark:bg-stone-950 border-r border-stone-200 dark:border-stone-800"
+        >
+          <SheetHeader className="pb-3 border-b border-stone-200 dark:border-stone-800 mb-4">
+            <SheetTitle className="text-sm font-bold flex items-center gap-2 text-stone-900 dark:text-stone-100">
+              <span className="flex size-6 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
+                <CircleDot className="size-3.5" />
+              </span>
+              Circles Navigation
+            </SheetTitle>
+          </SheetHeader>
+          <CirclesSidebar
+            currentView={currentView}
+            onViewChange={(v) => {
+              handleViewChange(v)
+              setIsMobileNavOpen(false)
+            }}
+            selectedListId={selectedListId}
+            onListChange={(l) => {
+              handleListChange(l)
+              setIsMobileNavOpen(false)
+            }}
+            selectedTagId={selectedTagId}
+            onTagChange={(t) => {
+              handleTagChange(t)
+              setIsMobileNavOpen(false)
+            }}
+            lists={lists}
+            tags={tags}
+            overview={overview}
+            onCreateList={handleCreateList}
+            onOpenBadgeGuide={() => {
+              setIsMobileNavOpen(false)
+              setIsBadgeGuideOpen(true)
+            }}
+            onOpenSettings={(tab) => {
+              setIsMobileNavOpen(false)
+              setSettingsInitialTab(tab || "queue")
+              setIsSettingsOpen(true)
+            }}
+          />
+        </SheetContent>
+      </Sheet>
     </main>
   )
 }

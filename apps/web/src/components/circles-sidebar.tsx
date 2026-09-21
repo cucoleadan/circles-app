@@ -26,7 +26,7 @@ import {
 } from "@workspace/ui/components/tooltip"
 import type { CirclesOverview, ListRecord, PeopleView, TagRecord } from "../lib/types"
 
-const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
+export const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
   {
     id: "priority",
     label: "Priority to Engage",
@@ -117,7 +117,7 @@ export function CirclesSidebar({
   overview: CirclesOverview | null
   onCreateList: (name: string) => Promise<ListRecord | void>
   onOpenBadgeGuide?: () => void
-  onOpenSettings?: () => void
+  onOpenSettings?: (tab?: "connection" | "queue" | "extension" | "lists") => void
 }) {
   const [isCreatingList, setIsCreatingList] = useState(false)
   const [newListName, setNewListName] = useState("")
@@ -293,14 +293,24 @@ export function CirclesSidebar({
           <p className="text-[11px] font-semibold uppercase tracking-wider text-stone-400 dark:text-stone-500">
             Lists
           </p>
-          <button
-            type="button"
-            onClick={() => setIsCreatingList((prev) => !prev)}
-            className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors"
-            title="Create list"
-          >
-            <Plus className="size-3.5" />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => onOpenSettings?.("lists")}
+              className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors p-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-800"
+              title="Manage lists"
+            >
+              <Settings className="size-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsCreatingList((prev) => !prev)}
+              className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors p-0.5 rounded hover:bg-stone-100 dark:hover:bg-stone-800"
+              title="Create list"
+            >
+              <Plus className="size-3.5" />
+            </button>
+          </div>
         </div>
 
         {isCreatingList && (
@@ -414,7 +424,7 @@ export function CirclesSidebar({
         {onOpenSettings && (
           <button
             type="button"
-            onClick={onOpenSettings}
+            onClick={() => onOpenSettings()}
             title="Configure Workspace Settings & Substack Connection"
             className="w-full flex items-center justify-between gap-2.5 px-3 py-2 rounded-xl text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 dark:text-stone-400 dark:hover:text-stone-100 dark:hover:bg-stone-800 transition-colors group cursor-pointer"
           >
