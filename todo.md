@@ -41,13 +41,18 @@ What exists:
 - List Management & Safe Deletion: Dedicated Contact Lists settings panel in Settings Dialog and sidebar shortcut for creating, searching, renaming, and safely deleting lists. Deleting a list unlinks contact memberships via PostgreSQL cascade while strictly preserving contacts and interaction histories; includes an explicit confirmation modal and reactive state updates across sidebar, contacts, and active filters. Direct URL routing supported via `/settings?tab=lists` and `?settings=lists`.
 - Settings Slide-In Menu Fix: Replaced overflowing horizontal tab bar in `SettingsDialog` with a sleek 4-column responsive segmented control (`Connection`, `Queue`, `Lists`, `Extension`) that eliminates text truncation and visual clipping across all viewport widths.
 - Contact Profile Editing from Detailed View: Added comprehensive profile editing directly from the Contact Drawer and Notes & Memberships tab (`EditContactDialog`). Allows users to update full name, add/update Substack handles (including quick `+ Add handle` shortcut for contacts missing a handle), live-preview avatar URLs, Substack profile URLs, publication URLs, Substack profile IDs, and relationship statuses without modifying interaction histories or engagement scores. API validates handle uniqueness and prevents collisions.
+- Duplicate Contact Merging (Migration `016_merge_avatar_and_name_duplicate_contacts.sql`): Merged duplicate contacts sharing identical names and custom avatar URLs (e.g. Dipankar Sarkar), transferring all 12 interactions, re-linking list memberships and tags, recalculating relationship stats, and archiving duplicate profiles. Core ingestion deduplication updated to safely match existing contacts by normalized name and custom avatar URL, preventing future duplicates.
+- Follower & Subscriber Data Layer (Migration `015_people_followers_subscribers.sql`): Added `is_follower`, `is_subscriber`, `subscribed_at`, and `subscription_tier` fields to `people` table. Added `POST /api/v1/sync/subscribers` for paginated publication subscriber import, and `POST /api/v1/sync/followers` for checking follower status.
+- "Follows · Not Subscribed" View: Dedicated directory view and sidebar navigation item with count badge displaying contacts who follow on Substack Notes/profile but have not subscribed to the publication. Visual badges (`Follows · No Sub`, `Subscriber`, `Follower`) rendered on contact cards and contact drawer.
+- App-Wide Ignored Contact Isolation: Contacts in the "Ignored" list are now completely excluded from all CRM views, counts, and queries across the app, appearing exclusively in a dedicated "Ignored" directory tab.
+- Configurable History Backfill Timeframes: Added flexible timeframe presets (1 week, 2 weeks, 1 month, 2 months, 3 months) and a custom date picker in `HistoryBackfill` sheet (`POST /api/v1/imports` accepts `days`, `months`, or `cutoffDate`). Added publication audience sync controls directly inside the history sheet.
   - Interactive Contact Drawer: profile detail, relationship status, private CRM notes with auto-save, list/tag chips.
   - Interaction Timeline: thread conversation grouping, action badges (1/2/3/3 points), exact target excerpts for Likes, honest unavailable-content fallbacks, Substack external links, cursor pagination.
   - Client-only island mount (`client:only="react"`) bypassing SSR hydration overhead for pure, instant React interactivity.
   - Accessible card triggers and explicit "Details" button with keyboard navigation (`Enter`/`Space`).
   - Base theme: global `cursor: pointer` on all buttons, links, roles, tabs, and interactive elements.
   - URL-addressable navigation (`?view=`, `?sort=`, `?person=`).
-- Targeted automated coverage: 35/35 tests passing (21 API/database, 11
+- Targeted automated coverage: 36/36 tests passing (22 API/database, 11
   ingestion/worker, 3 extension outbound-capture tests).
 - Typecheck: 0 errors across 6 packages (`bun run typecheck`).
 

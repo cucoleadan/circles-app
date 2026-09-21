@@ -14,6 +14,7 @@ import {
   Send,
   Settings,
   Sparkles,
+  UserCheck,
   Users,
 } from "lucide-react"
 
@@ -89,6 +90,18 @@ const views: { id: PeopleView; label: string; icon: any; desc: string }[] = [
     label: "No History",
     icon: Clock,
     desc: "No History: Newly imported contacts or subscribers with no recorded interactions yet.",
+  },
+  {
+    id: "follows-not-subscribed",
+    label: "Follows · Not Subscribed",
+    icon: UserCheck,
+    desc: "Follows · Not Subscribed: People who follow your Substack profile/Notes but haven't subscribed to your publication.",
+  },
+  {
+    id: "ignored",
+    label: "Ignored",
+    icon: EyeOff,
+    desc: "Ignored: Contacts hidden from all action queues and directory views.",
   },
 ]
 
@@ -258,6 +271,24 @@ export function CirclesSidebar({
                       }`}
                     >
                       {overview.people}
+                    </span>
+                  )}
+                  {v.id === "follows-not-subscribed" && overview?.followsNotSubscribed !== undefined && overview.followsNotSubscribed > 0 && (
+                    <span
+                      className={`text-[11px] px-1.5 py-0.2 rounded-full font-semibold ${
+                        isActive ? "bg-white/20 text-white" : "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300"
+                      }`}
+                    >
+                      {overview.followsNotSubscribed}
+                    </span>
+                  )}
+                  {v.id === "ignored" && overview?.ignored !== undefined && overview.ignored > 0 && (
+                    <span
+                      className={`text-[11px] px-1.5 py-0.2 rounded-full font-semibold ${
+                        isActive ? "bg-white/20 text-white" : "bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300"
+                      }`}
+                    >
+                      {overview.ignored}
                     </span>
                   )}
                   <Tooltip>

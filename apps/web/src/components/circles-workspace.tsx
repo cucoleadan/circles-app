@@ -430,6 +430,12 @@ export function CirclesWorkspace({
       case "no-history":
         base = "New & No History"
         break
+      case "follows-not-subscribed":
+        base = "Follows · Not Subscribed"
+        break
+      case "ignored":
+        base = "Ignored Contacts"
+        break
       default:
         base = "All Contacts"
     }

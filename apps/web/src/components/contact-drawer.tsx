@@ -237,6 +237,27 @@ export function ContactDrawer({
                     ))}
                   </div>
                 )}
+
+                {/* Follower / Subscriber Audience Chips */}
+                {(person.isSubscriber || person.isFollower) && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {person.isFollower && !person.isSubscriber && (
+                      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800">
+                        👤 Follows · Not Subscribed
+                      </span>
+                    )}
+                    {person.isSubscriber && (
+                      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800">
+                        📬 {person.subscriptionTier ? `${person.subscriptionTier.toUpperCase()} Subscriber` : "Subscriber"}
+                      </span>
+                    )}
+                    {person.isFollower && person.isSubscriber && (
+                      <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-400">
+                        Follower
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 

@@ -24,6 +24,8 @@ import {
   recordInteraction,
   refreshPersonStats,
   getPerson,
+  upsertSubscribersBatch,
+  circlesOverview,
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
 import {
@@ -1004,6 +1006,82 @@ describe("interactions", () => {
     expect(conflictRes.status).toBe(409)
     const conflictData = (await conflictRes.json()) as any
     expect(conflictData.error).toContain("handle already exists")
+  })
+
+  test("follows-not-subscribed view, ignored isolation, and subscriber batch upsert", async () => {
+    // 1. Create a follower who is not subscribed
+    const follower = await withTenant({ appUserId: userA }, async (client) => {
+      const p = await createPerson(client, userA, {
+        name: "Follower Only",
+        handle: "@follower_only",
+        substackProfileId: "1110001",
+      })
+      await client.query("update people set is_follower = true, is_subscriber = false where id = $1", [p.id])
+      return p
+    })
+
+    // 2. Create an ignored person
+    const ignoredPerson = await withTenant({ appUserId: userA }, async (client) => {
+      const p = await createPerson(client, userA, {
+        name: "Spammer Account",
+        handle: "@spammer",
+      })
+      const ignoredList = await createList(client, userA, "Ignored", "Ignored users")
+      await addListMember(client, userA, ignoredList.id, p.id)
+      return p
+    })
+
+    // 3. Verify ignoredPerson does NOT appear in listPeople with view "all"
+    const allPeople = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "all" })
+    )
+    expect(allPeople.some((p) => p.id === ignoredPerson.id)).toBe(false)
+    expect(allPeople.some((p) => p.id === follower.id)).toBe(true)
+
+    // 4. Verify ignoredPerson DOES appear in listPeople with view "ignored"
+    const ignoredOnly = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "ignored" })
+    )
+    expect(ignoredOnly.some((p) => p.id === ignoredPerson.id)).toBe(true)
+    expect(ignoredOnly.some((p) => p.id === follower.id)).toBe(false)
+
+    // 5. Verify follower appears in listPeople with view "follows-not-subscribed"
+    const followsNotSub = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "follows-not-subscribed" })
+    )
+    expect(followsNotSub.some((p) => p.id === follower.id)).toBe(true)
+    expect(followsNotSub.some((p) => p.id === ignoredPerson.id)).toBe(false)
+
+    // 6. Test upsertSubscribersBatch - converts follower to subscriber
+    const batchRes = await withTenant({ appUserId: userA }, (client) =>
+      upsertSubscribersBatch(client, userA, [
+        {
+          id: "1110001",
+          name: "Follower Only",
+          subscription_type: "paid",
+          is_subscribed: true,
+        },
+      ])
+    )
+    expect(batchRes.matched).toBe(1)
+
+    // 7. Verify follower is now subscribed and no longer in follows-not-subscribed view
+    const updatedFollower = await withTenant({ appUserId: userA }, (client) =>
+      getPerson(client, follower.id)
+    )
+    expect(updatedFollower?.person.isSubscriber).toBe(true)
+    expect(updatedFollower?.person.subscriptionTier).toBe("paid")
+
+    const followsNotSubAfter = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { view: "follows-not-subscribed" })
+    )
+    expect(followsNotSubAfter.some((p) => p.id === follower.id)).toBe(false)
+
+    // 8. Verify circlesOverview counts
+    const overview = await withTenant({ appUserId: userA }, (client) =>
+      circlesOverview(client)
+    )
+    expect(overview.ignored).toBeGreaterThanOrEqual(1)
   })
 })
 

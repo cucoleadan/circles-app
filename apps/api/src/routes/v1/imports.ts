@@ -64,11 +64,28 @@ importsRoutes.post("/imports", async (c) => {
     }
 
     const importRunId = crypto.randomUUID()
-    await client.query(
-      `insert into import_runs (id, user_id, connection_id, status, cutoff)
-       values ($1, $2, $3, 'running', case when $4::boolean then '1970-01-01'::timestamptz else now() - ($5 || ' months')::interval end)`,
-      [importRunId, appUser, connId, full, months]
-    )
+  const full = body.full === true
+  let cutoffExpr = "now() - interval '3 months'"
+  const cutoffParams: unknown[] = [importRunId, appUser, connId]
+
+  if (full) {
+    cutoffExpr = "'1970-01-01'::timestamptz"
+  } else if (typeof body.cutoffDate === "string" && body.cutoffDate.trim().length > 0) {
+    cutoffParams.push(new Date(body.cutoffDate).toISOString())
+    cutoffExpr = `$${cutoffParams.length}::timestamptz`
+  } else if (typeof body.days === "number" && body.days > 0) {
+    cutoffParams.push(Math.round(body.days))
+    cutoffExpr = `now() - ($${cutoffParams.length} || ' days')::interval`
+  } else if (typeof body.months === "number" && body.months > 0) {
+    cutoffParams.push(Math.round(body.months))
+    cutoffExpr = `now() - ($${cutoffParams.length} || ' months')::interval`
+  }
+
+  await client.query(
+    `insert into import_runs (id, user_id, connection_id, status, cutoff)
+     values ($1, $2, $3, 'running', ${cutoffExpr})`,
+    cutoffParams
+  )
 
     await client.query(
       `insert into import_run_streams

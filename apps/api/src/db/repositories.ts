@@ -11,6 +11,10 @@ const personColumns = `p.id, p.name, p.handle, p.notes,
     p.substack_profile_id as "substackProfileId", p.profile_url as "profileUrl",
     p.publication_url as "publicationUrl",
     p.avatar_url as "avatarUrl",
+    coalesce(p.is_follower, false) as "isFollower",
+    coalesce(p.is_subscriber, false) as "isSubscriber",
+    p.subscribed_at as "subscribedAt",
+    p.subscription_tier as "subscriptionTier",
     p.source, p.created_at as "createdAt", p.updated_at as "updatedAt",
     p.archived_at as "archivedAt"`
 
@@ -51,6 +55,10 @@ export interface Person {
   profileUrl: string | null
   publicationUrl?: string | null
   avatarUrl?: string | null
+  isFollower?: boolean
+  isSubscriber?: boolean
+  subscribedAt?: string | null
+  subscriptionTier?: string | null
   source: string
   createdAt: string
   updatedAt: string
@@ -91,6 +99,10 @@ export interface PersonInput {
   profileUrl?: string | null
   publicationUrl?: string | null
   avatarUrl?: string | null
+  isFollower?: boolean
+  isSubscriber?: boolean
+  subscribedAt?: string | null
+  subscriptionTier?: string | null
 }
 
 export const normalizeHandle = (handle: string) =>
@@ -192,6 +204,8 @@ export type PeopleView =
   | "outbound"
   | "no-history"
   | "opportunities"
+  | "follows-not-subscribed"
+  | "ignored"
 
 export type PeopleSort =
   | "engagement"
@@ -247,9 +261,18 @@ export async function listPeople(
     )
   }
 
-  // Automatically exclude people in the "Ignored" list from Action Queues
-  const isActionQueue = ["priority", "needs-reply", "awaiting-response", "mutual"].includes(options.view ?? "")
-  if (isActionQueue) {
+  // Ignored contacts isolation:
+  // Contacts in the "Ignored" list are hidden from the entire CRM,
+  // appearing ONLY when explicitly viewing the "ignored" tab.
+  if (options.view === "ignored") {
+    conditions.push(
+      `exists (
+        select 1 from list_members lm
+        join lists l on l.id = lm.list_id
+        where lm.person_id = p.id and lower(l.name) = 'ignored'
+      )`
+    )
+  } else {
     conditions.push(
       `not exists (
         select 1 from list_members lm
@@ -310,6 +333,8 @@ export async function listPeople(
     conditions.push(
       "(coalesce(s.engagement_score, 0) > 0 and (s.drift_status in ('drifting', 'cold') or s.last_interaction_at < now() - interval '14 days'))"
     )
+  } else if (options.view === "follows-not-subscribed") {
+    conditions.push("(p.is_follower = true and coalesce(p.is_subscriber, false) = false)")
   }
 
   // Advanced Interaction Filters
@@ -569,6 +594,22 @@ export async function updatePerson(
   if (input.avatarUrl !== undefined) {
     params.push(input.avatarUrl)
     updates.push(`avatar_url = $${params.length}`)
+  }
+  if (input.isFollower !== undefined) {
+    params.push(input.isFollower)
+    updates.push(`is_follower = $${params.length}`)
+  }
+  if (input.isSubscriber !== undefined) {
+    params.push(input.isSubscriber)
+    updates.push(`is_subscriber = $${params.length}`)
+  }
+  if (input.subscribedAt !== undefined) {
+    params.push(input.subscribedAt)
+    updates.push(`subscribed_at = $${params.length}::timestamptz`)
+  }
+  if (input.subscriptionTier !== undefined) {
+    params.push(input.subscriptionTier)
+    updates.push(`subscription_tier = $${params.length}`)
   }
 
   const result = await client.query(
@@ -982,19 +1023,43 @@ export interface CirclesOverview {
   byStatus: Record<string, number>
   byDrift: Record<string, number>
   interactions: number
+  followsNotSubscribed: number
+  ignored: number
 }
 
 export async function circlesOverview(client: PoolLike): Promise<CirclesOverview> {
   const people = await client.query(
     `select relationship_status as status, count(*)::int as count
-       from people where archived_at is null group by relationship_status`
+       from people
+       where archived_at is null
+         and not exists (
+           select 1 from list_members lm join lists l on l.id = lm.list_id where lm.person_id = people.id and lower(l.name) = 'ignored'
+         )
+       group by relationship_status`
   )
   const stats = await client.query(
-    `select drift_status as status, count(*)::int as count
-       from relationship_stats group by drift_status`
+    `select s.drift_status as status, count(*)::int as count
+       from relationship_stats s
+       join people p on p.id = s.person_id
+       where p.archived_at is null
+         and not exists (
+           select 1 from list_members lm join lists l on l.id = lm.list_id where lm.person_id = p.id and lower(l.name) = 'ignored'
+         )
+       group by s.drift_status`
   )
   const interactions = await client.query(
     "select count(*)::int as count from interactions where removed_at is null"
+  )
+  const specialCounts = await client.query(
+    `select
+       count(*) filter (where p.is_follower = true and coalesce(p.is_subscriber, false) = false and not exists (
+         select 1 from list_members lm join lists l on l.id = lm.list_id where lm.person_id = p.id and lower(l.name) = 'ignored'
+       ))::int as follows_not_subscribed,
+       count(*) filter (where exists (
+         select 1 from list_members lm join lists l on l.id = lm.list_id where lm.person_id = p.id and lower(l.name) = 'ignored'
+       ))::int as ignored
+     from people p
+     where p.archived_at is null`
   )
   const byStatus: Record<string, number> = {}
   for (const row of people.rows) byStatus[row.status ?? "new"] = row.count
@@ -1005,5 +1070,109 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
     byStatus,
     byDrift,
     interactions: interactions.rows[0].count,
+    followsNotSubscribed: specialCounts.rows[0]?.follows_not_subscribed ?? 0,
+    ignored: specialCounts.rows[0]?.ignored ?? 0,
   }
+}
+
+export interface SubscriberItem {
+  id: number | string
+  name: string
+  photo_url?: string | null
+  handle?: string | null
+  subscription_type?: string | null
+  subscription_created_at?: string | null
+  is_subscribed?: boolean
+}
+
+export async function upsertSubscribersBatch(
+  client: PoolLike,
+  userId: string,
+  subscribers: SubscriberItem[]
+): Promise<{ matched: number; created: number }> {
+  let matched = 0
+  let created = 0
+
+  for (const sub of subscribers) {
+    const substackProfileId = sub.id ? String(sub.id) : null
+    const rawHandle = sub.handle?.trim()
+    const handle = rawHandle ? rawHandle.replace(/^@/, "") : null
+    const normalized = handle ? normalizeHandle(handle) : null
+    const name = sub.name?.trim() || handle || `Subscriber ${substackProfileId}`
+    const avatarUrl = sub.photo_url || null
+    const isSubscribed = sub.is_subscribed !== false
+    const subscribedAt = sub.subscription_created_at ? new Date(sub.subscription_created_at).toISOString() : null
+    const subscriptionTier = sub.subscription_type || "free"
+
+    // Search for existing person
+    const found = await client.query(
+      `select id, substack_profile_id, handle, normalized_handle, avatar_url from people
+       where user_id = $1 and archived_at is null
+         and (($2::text is not null and substack_profile_id = $2)
+           or ($3::text is not null and normalized_handle = $3)
+           or (
+             $4::text is not null and length($4) > 1
+             and lower(trim(name)) = lower(trim($4))
+             and $5::text is not null
+             and avatar_url = $5
+             and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
+             and $5 not like '%default%'
+           ))
+       order by case
+         when substack_profile_id = $2 then 0
+         when normalized_handle = $3 then 1
+         else 2
+       end
+       limit 1`,
+      [userId, substackProfileId, normalized, name, avatarUrl]
+    )
+
+    if (found.rows[0]) {
+      const existing = found.rows[0]
+      await client.query(
+        `update people
+         set is_subscriber = $2,
+             subscribed_at = coalesce(subscribed_at, $3::timestamptz),
+             subscription_tier = coalesce($4, subscription_tier),
+             substack_profile_id = coalesce(substack_profile_id, $5),
+             avatar_url = coalesce(avatar_url, $6),
+             updated_at = now()
+         where id = $1`,
+        [existing.id, isSubscribed, subscribedAt, subscriptionTier, substackProfileId, avatarUrl]
+      )
+      matched++
+    } else {
+      const newId = randomUUID()
+      await client.query(
+        `insert into people
+            (id, user_id, name, handle, normalized_handle, profile_url,
+             substack_profile_id, avatar_url, is_subscriber, subscribed_at,
+             subscription_tier, source)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11, 'subscribers')
+         on conflict do nothing`,
+        [
+          newId,
+          userId,
+          name,
+          handle,
+          normalized,
+          normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null,
+          substackProfileId,
+          avatarUrl,
+          isSubscribed,
+          subscribedAt,
+          subscriptionTier,
+        ]
+      )
+      await client.query(
+        `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
+         values ($1, $2, 'new', now())
+         on conflict (person_id) do nothing`,
+        [newId, userId]
+      )
+      created++
+    }
+  }
+
+  return { matched, created }
 }

@@ -19,6 +19,10 @@ export interface Person {
   profileUrl: string | null
   publicationUrl?: string | null
   avatarUrl?: string | null
+  isFollower?: boolean
+  isSubscriber?: boolean
+  subscribedAt?: string | null
+  subscriptionTier?: string | null
   source: string
   createdAt: string
   updatedAt: string
@@ -67,6 +71,8 @@ export interface CirclesOverview {
   byStatus: Record<string, number>
   byDrift: Record<string, number>
   interactions: number
+  followsNotSubscribed?: number
+  ignored?: number
 }
 
 export interface Interaction {
@@ -100,6 +106,8 @@ export type PeopleView =
   | "outbound"
   | "opportunities"
   | "no-history"
+  | "follows-not-subscribed"
+  | "ignored"
 
 export type PeopleSort =
   | "engagement"

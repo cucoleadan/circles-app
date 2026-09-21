@@ -269,6 +269,7 @@ function classifyAction(kind: string | undefined, body: string | null | undefine
   if (k.includes("reply")) return "reply"
   if (k.includes("like") || k.includes("heart") || k.includes("reaction")) return "like"
   if (k.includes("subscribe")) return "subscribe"
+  if (k.includes("follow")) return "follow"
   if (k.includes("mention")) return "mention"
   if (body && body.trim().length > 0) return "comment"
   return "other"
@@ -299,20 +300,38 @@ export async function ensurePerson(
   const cached = personCache.get(cacheKey)
   if (cached) return cached
 
+  const name = author.name?.trim() || handle || `Substack user ${substackProfileId}`
+  const profileUrl = normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null
+
   // Stable Substack profile IDs take precedence because reply payloads often
   // omit handles entirely. Handle lookup remains the compatibility fallback.
+  // When Substack omits both handle or profile ID across different feeds,
+  // exact name + avatar URL (for custom, non-default avatars) merges them safely.
   const found = await client.query(
-    `select id, substack_profile_id, avatar_url from people
+    `select id, substack_profile_id, handle, normalized_handle, avatar_url from people
      where user_id = $1 and archived_at is null
        and (($2::text is not null and substack_profile_id = $2)
-         or ($3::text is not null and normalized_handle = $3))
-     order by case when substack_profile_id = $2 then 0 else 1 end
+         or ($3::text is not null and normalized_handle = $3)
+         or (
+           $4::text is not null and length($4) > 1
+           and lower(trim(name)) = lower(trim($4))
+           and $5::text is not null
+           and avatar_url = $5
+           and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
+           and $5 not like '%default%'
+         ))
+     order by case
+       when substack_profile_id = $2 then 0
+       when normalized_handle = $3 then 1
+       else 2
+     end
      limit 1`,
-    [userId, substackProfileId, normalized]
+    [userId, substackProfileId, normalized, author.name?.trim() || null, avatarUrl]
   )
   if (found.rows[0]) {
-    const id = found.rows[0].id as string
-    if (substackProfileId && !found.rows[0].substack_profile_id) {
+    const existing = found.rows[0]
+    const id = existing.id as string
+    if (substackProfileId && !existing.substack_profile_id) {
       await client.query(
         `update people
          set substack_profile_id = $3, updated_at = now()
@@ -325,7 +344,21 @@ export async function ensurePerson(
         [id, userId, substackProfileId],
       )
     }
-    if (avatarUrl && !found.rows[0].avatar_url) {
+    if (handle && !existing.handle) {
+      await client.query(
+        `update people
+         set handle = $3, normalized_handle = $4,
+             profile_url = coalesce(profile_url, $5), updated_at = now()
+         where id = $1 and user_id = $2 and handle is null
+           and not exists (
+             select 1 from people other
+             where other.user_id = $2 and other.normalized_handle = $4
+               and other.archived_at is null and other.id <> $1
+           )`,
+        [id, userId, handle, normalized, profileUrl],
+      )
+    }
+    if (avatarUrl && !existing.avatar_url) {
       await client.query(
         `update people
          set avatar_url = $3, updated_at = now()
@@ -334,13 +367,13 @@ export async function ensurePerson(
       )
     }
     personCache.set(cacheKey, id)
+    if (substackProfileId) personCache.set(`profile:${substackProfileId}`, id)
+    if (normalized) personCache.set(`handle:${normalized}`, id)
     return id
   }
 
   // Create new person
   const newId = randomUUID()
-  const name = author.name?.trim() || handle || `Substack user ${substackProfileId}`
-  const profileUrl = normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null
 
   await client.query(
     `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, avatar_url, source)
@@ -353,12 +386,27 @@ export async function ensurePerson(
     `select id from people
      where user_id = $1 and archived_at is null
        and (($2::text is not null and substack_profile_id = $2)
-         or ($3::text is not null and normalized_handle = $3))
+         or ($3::text is not null and normalized_handle = $3)
+         or (
+           $4::text is not null and length($4) > 1
+           and lower(trim(name)) = lower(trim($4))
+           and $5::text is not null
+           and avatar_url = $5
+           and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
+           and $5 not like '%default%'
+         ))
+     order by case
+       when substack_profile_id = $2 then 0
+       when normalized_handle = $3 then 1
+       else 2
+     end
      limit 1`,
-    [userId, substackProfileId, normalized]
+    [userId, substackProfileId, normalized, author.name?.trim() || null, avatarUrl]
   )
   const finalId = (check.rows[0]?.id as string) ?? newId
   personCache.set(cacheKey, finalId)
+  if (substackProfileId) personCache.set(`profile:${substackProfileId}`, finalId)
+  if (normalized) personCache.set(`handle:${normalized}`, finalId)
   return finalId
 }
 
@@ -551,6 +599,25 @@ export async function ingestActivityBatch(
     // Raw capture evidence remains in ingestion_batches even when Substack does
     // not expose enough identity to attach the action to a CRM person.
     if (!personId) continue
+
+    if (actionType === "subscribe") {
+      await client.query(
+        `update people
+         set is_subscriber = true,
+             subscribed_at = coalesce(subscribed_at, $2::timestamptz),
+             updated_at = now()
+         where id = $1 and user_id = $3`,
+        [personId, occurredAt, userId]
+      )
+    } else if (actionType === "follow") {
+      await client.query(
+        `update people
+         set is_follower = true,
+             updated_at = now()
+         where id = $1 and user_id = $2`,
+        [personId, userId]
+      )
+    }
 
     const inserted = await client.query(
       `insert into interactions
