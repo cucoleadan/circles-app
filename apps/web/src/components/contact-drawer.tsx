@@ -129,8 +129,11 @@ export function ContactDrawer({
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent className="w-full sm:max-w-xl p-0 flex flex-col h-full bg-stone-50/95 dark:bg-stone-950 backdrop-blur-md overflow-hidden border-l border-stone-200 dark:border-stone-800">
-          <SheetHeader className="p-6 pb-4 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800 space-y-0">
+        <SheetContent
+          className="w-full sm:max-w-[864px] p-0 flex flex-col h-full bg-stone-50/95 dark:bg-stone-950 backdrop-blur-md overflow-hidden border-l border-stone-200 dark:border-stone-800"
+          showCloseButton={false}
+        >
+          <SheetHeader className="p-0 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800 space-y-0">
             <ContactDrawerHeader
               person={person}
               allLists={allLists}
@@ -138,32 +141,35 @@ export function ContactDrawer({
               onOpenEdit={openEditModal}
               onToggleIgnore={toggleIgnore}
               onAddToList={addToList}
+              onClose={() => onOpenChange(false)}
             />
 
             {/* Navigation Tabs */}
-            <div className="grid grid-cols-2 gap-1 p-1 bg-stone-100/80 dark:bg-stone-800/60 rounded-xl mt-4 text-xs">
-              <button
-                type="button"
-                onClick={() => setActiveTab("timeline")}
-                className={`py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === "timeline"
-                    ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
-                    : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
-                }`}
-              >
-                Interaction Timeline
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveTab("details")}
-                className={`py-1.5 rounded-lg font-medium transition-all ${
-                  activeTab === "details"
-                    ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
-                    : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
-                }`}
-              >
-                Details &amp; Notes
-              </button>
+            <div className="px-6 pb-4 pt-1">
+              <div className="grid grid-cols-2 gap-1 p-1 bg-stone-100/80 dark:bg-stone-800/60 rounded-xl text-xs">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("timeline")}
+                  className={`py-1.5 rounded-lg font-medium transition-all ${
+                    activeTab === "timeline"
+                      ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                      : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
+                  }`}
+                >
+                  Interaction Timeline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("details")}
+                  className={`py-1.5 rounded-lg font-medium transition-all ${
+                    activeTab === "details"
+                      ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                      : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
+                  }`}
+                >
+                  Details &amp; Notes
+                </button>
+              </div>
             </div>
           </SheetHeader>
 
