@@ -1,13 +1,14 @@
 import { createHash, randomUUID } from "node:crypto"
 import type { Pool, PoolClient } from "pg"
 import {
+  applyFollowerSnapshot,
   createSubstackClient,
   ingestActivityBatch,
   normalizeActivityPage,
   parseFollowerRunStartedAt,
+  parseFollowerList,
   parseSubscriberStatsPage,
   reconcileSubscriberSnapshot,
-  shouldAbortFollowerSweep,
   upsertSubscribersBatch,
   type ActivityItemInput,
 } from "@workspace/core"
@@ -107,29 +108,31 @@ export async function processSubscriberSyncPage(
   runStartedAtValue?: unknown,
 ) {
   const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
-  return withTenant(client, userId, async () => {
+  const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
       `select ciphertext, publication_url, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
-    const conn = connection.rows[0]
-    if (!conn || conn.status !== "active") return { completed: true, skipped: true }
-    const publicationUrl = String(conn.publication_url ?? "").replace(/\/$/, "")
-    if (!publicationUrl) throw new Error("Publication URL is not set on the active connection")
+    return connection.rows[0]
+  })
+  if (!conn || conn.status !== "active") return { completed: true, skipped: true }
+  const publicationUrl = String(conn.publication_url ?? "").replace(/\/$/, "")
+  if (!publicationUrl) throw new Error("Publication URL is not set on the active connection")
 
-    const response = await fetch(`${publicationUrl}/api/v1/subscriber-stats`, {
-      method: "POST",
-      headers: {
-        cookie: `substack.sid=${conn.ciphertext}`,
-        "content-type": "application/json",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
-      },
-      body: JSON.stringify({ limit: 100, offset }),
-    })
-    if (!response.ok) throw substackResponseError("Substack subscriber API failed", response.status)
+  const response = await fetch(`${publicationUrl}/api/v1/subscriber-stats`, {
+    method: "POST",
+    headers: {
+      cookie: `substack.sid=${conn.ciphertext}`,
+      "content-type": "application/json",
+      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+    },
+    body: JSON.stringify({ limit: 100, offset }),
+  })
+  if (!response.ok) throw substackResponseError("Substack subscriber API failed", response.status)
 
-    const page = parseSubscriberStatsPage(await response.json())
+  const page = parseSubscriberStatsPage(await response.json())
+  return withTenant(client, userId, async () => {
     const batch = await upsertSubscribersBatch(
       client,
       userId,
@@ -164,77 +167,35 @@ export async function processFollowerSyncBatch(
   limit = 20,
 ) {
   const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
-  return withTenant(client, userId, async () => {
+  const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, publication_url, status
+      `select ciphertext, profile_id, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
-    const conn = connection.rows[0]
-    if (!conn || conn.status !== "active") {
-      return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0, remaining: 0 }
-    }
-    const sdk = createSubstackClient({
-      sessionToken: conn.ciphertext,
-      publicationUrl: conn.publication_url,
-    })
-    const people = await client.query(
-      `select p.id, p.normalized_handle, p.substack_profile_id
-       from people p
-       left join relationship_stats s on s.person_id = p.id
-       where p.user_id = $1 and p.archived_at is null
-         and (p.normalized_handle is not null or p.substack_profile_id is not null)
-         and (p.follower_checked_at is null or p.follower_checked_at < $3::timestamptz)
-       order by p.follower_checked_at asc nulls first,
-                coalesce(s.engagement_score, 0) desc, p.id
-       limit $2`,
-      [userId, Math.max(1, Math.min(limit, 50)), runStartedAt.toISOString()],
-    )
+    return connection.rows[0]
+  })
+  if (!conn || conn.status !== "active") {
+    return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0, remaining: 0 }
+  }
+  if (!conn.profile_id) throw new Error("Substack profile ID is missing from the active connection")
 
-    let updated = 0
-    let failed = 0
-    for (const person of people.rows) {
-      try {
-        const profile: any = person.normalized_handle
-          ? await sdk.getPublicProfile(person.normalized_handle)
-          : await sdk.getProfileById(person.substack_profile_id)
-        if (typeof profile?.followsViewer === "boolean") {
-          await client.query(
-            `update people set is_follower = $2, follower_checked_at = now(), updated_at = now()
-             where id = $1`,
-            [person.id, profile.followsViewer],
-          )
-          updated++
-        } else {
-          failed++
-          await client.query("update people set follower_checked_at = now() where id = $1", [person.id])
-        }
-      } catch (error) {
-        if (shouldAbortFollowerSweep(error)) throw error
-        failed++
-        await client.query("update people set follower_checked_at = now() where id = $1", [person.id])
-      } finally {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-      }
-    }
+  const response = await fetch(
+    `https://substack.com/api/v1/user/${encodeURIComponent(conn.profile_id)}/subscriber-lists?lists=followers`,
+    { headers: { cookie: `substack.sid=${conn.ciphertext}`, accept: "application/json" } },
+  )
+  if (!response.ok) throw substackResponseError("Substack follower-list API failed", response.status)
+  const page = parseFollowerList(await response.json())
 
-    const progress = await client.query(
-      `select count(*) filter (
-         where follower_checked_at is null or follower_checked_at < $2::timestamptz
-       )::int as remaining
-       from people
-       where user_id = $1 and archived_at is null
-         and (normalized_handle is not null or substack_profile_id is not null)`,
-      [userId, runStartedAt.toISOString()],
-    )
-    const remaining = progress.rows[0]?.remaining ?? 0
+  return withTenant(client, userId, async () => {
+    const result = await applyFollowerSnapshot(client, userId, page.followers)
     return {
-      completed: remaining === 0,
+      completed: true,
       skipped: false,
-      checked: people.rows.length,
-      updated,
-      failed,
-      remaining,
+      checked: result.checked,
+      updated: result.followers,
+      failed: page.skipped,
+      remaining: 0,
       runStartedAt: runStartedAt.toISOString(),
     }
   })

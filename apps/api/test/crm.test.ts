@@ -28,6 +28,7 @@ import {
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
 import {
+  applyFollowerSnapshot,
   ingestActivityBatch,
   ingestConversationReplies,
   upsertSubscribersBatch,
@@ -1061,6 +1062,24 @@ describe("interactions", () => {
     )
     expect(followsNotSub.some((p) => p.id === follower.id)).toBe(true)
     expect(followsNotSub.some((p) => p.id === ignoredPerson.id)).toBe(false)
+
+    const formerFollower = await withTenant({ appUserId: userA }, async (client) => {
+      const p = await createPerson(client, userA, {
+        name: "Former Follower",
+        handle: "@former_follower",
+        substackProfileId: "1110003",
+      })
+      await client.query("update people set is_follower = true where id = $1", [p.id])
+      return p
+    })
+    const followerSnapshot = await withTenant({ appUserId: userA }, (client) =>
+      applyFollowerSnapshot(client, userA, [{ id: "1110001", handle: "follower_only" }])
+    )
+    expect(followerSnapshot.followers).toBe(1)
+    const updatedFormerFollower = await withTenant({ appUserId: userA }, (client) =>
+      getPerson(client, formerFollower.id)
+    )
+    expect(updatedFormerFollower?.person.isFollower).toBe(false)
 
     // 6. Test an authoritative subscriber sweep in both directions.
     const staleSubscriber = await withTenant({ appUserId: userA }, async (client) => {

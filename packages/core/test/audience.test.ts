@@ -1,12 +1,29 @@
 import { describe, expect, test } from "bun:test"
 
 import {
+  parseFollowerList,
   parseFollowerRunStartedAt,
   parseSubscriberStatsPage,
   shouldAbortFollowerSweep,
 } from "../src/audience.js"
 
 describe("audience sync response normalization", () => {
+  test("parses and deduplicates the authenticated follower list", () => {
+    const page = parseFollowerList({
+      subscriberLists: [{
+        id: "followers",
+        groups: [{ users: [
+          { id: 42, handle: "reader", email: "private@example.com" },
+          { id: 42, handle: "reader" },
+          { handle: "missing-id" },
+        ] }],
+      }],
+    })
+    expect(page.followers).toEqual([{ id: "42", handle: "reader" }])
+    expect(page.skipped).toBe(1)
+    expect(page.followers[0]).not.toHaveProperty("email")
+  })
+
   test("parses the current subscriber shape without retaining private fields", () => {
     const page = parseSubscriberStatsPage({
       count: 2,

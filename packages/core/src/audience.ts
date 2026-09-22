@@ -20,6 +20,75 @@ export interface SubscriberStatsPage {
   skipped: number
 }
 
+export interface FollowerListItem {
+  id: string
+  handle: string | null
+}
+
+/** Normalize the authenticated owner's complete follower list. */
+export function parseFollowerList(payload: unknown) {
+  if (!isRecord(payload) || !Array.isArray(payload.subscriberLists)) {
+    throw new Error("Substack returned an invalid follower-list response")
+  }
+
+  const followers = new Map<string, FollowerListItem>()
+  let skipped = 0
+  for (const list of payload.subscriberLists) {
+    if (!isRecord(list) || !Array.isArray(list.groups)) continue
+    for (const group of list.groups) {
+      if (!isRecord(group) || !Array.isArray(group.users)) continue
+      for (const user of group.users) {
+        if (!isRecord(user)) { skipped++; continue }
+        const rawId = user.id
+        const id = typeof rawId === "number" || typeof rawId === "string"
+          ? String(rawId).trim()
+          : ""
+        if (!id) { skipped++; continue }
+        followers.set(id, { id, handle: optionalString(user.handle) })
+      }
+    }
+  }
+  return { followers: [...followers.values()], skipped }
+}
+
+/** Apply a complete follower snapshot to existing CRM contacts atomically. */
+export async function applyFollowerSnapshot(
+  client: PoolClient,
+  userId: string,
+  followers: FollowerListItem[],
+) {
+  const profileIds = followers.map((follower) => follower.id)
+  const handles = followers
+    .map((follower) => follower.handle ? normalizeHandle(follower.handle) : null)
+    .filter((handle): handle is string => Boolean(handle))
+  await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
+  const result = await client.query(
+    `with updated as (
+       update people p
+       set is_follower = (
+             (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
+             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+           ),
+           follower_checked_at = now(),
+           updated_at = case when p.is_follower is distinct from (
+             (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
+             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+           ) then now() else p.updated_at end
+       where p.user_id = $1 and p.archived_at is null
+         and (p.normalized_handle is not null or p.substack_profile_id is not null)
+       returning is_follower
+     )
+     select count(*)::int as checked,
+            count(*) filter (where is_follower)::int as followers
+     from updated`,
+    [userId, profileIds, handles],
+  )
+  return {
+    checked: result.rows[0]?.checked ?? 0,
+    followers: result.rows[0]?.followers ?? 0,
+  }
+}
+
 const isRecord = (value: unknown): value is UnknownRecord =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
@@ -113,6 +182,7 @@ export async function upsertSubscribersBatch(
   subscribers: SubscriberItem[],
   observedAt?: string,
 ): Promise<{ matched: number; created: number; skipped: number }> {
+  await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
   let matched = 0
   let created = 0
   let skipped = 0
