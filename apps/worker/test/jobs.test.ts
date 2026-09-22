@@ -278,6 +278,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       payload: JSON.stringify({
         userId: "user-1",
         connectionId: "conn-1",
+        importRunId: "import-1",
+        stream: "subscribers",
         offset: 0,
         runStartedAt: "2026-09-21T10:00:00.000Z",
       }),
@@ -288,6 +290,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       query: async (sql: string, params: any[] = []) => {
         executedQueries.push({ sql, params })
         if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        if (sql.includes("update import_run_streams") && sql.includes("returning status")) {
+          return { rows: [{ status: "running" }] }
+        }
         return { rows: [] }
       },
       release: () => {},
@@ -350,6 +355,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       payload: JSON.stringify({
         userId: "user-1",
         connectionId: "conn-1",
+        importRunId: "import-1",
+        stream: "subscribers",
         offset: 0,
         runStartedAt: "2026-09-21T10:00:00.000Z",
       }),
@@ -360,6 +367,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       query: async (sql: string, params: any[] = []) => {
         executedQueries.push({ sql, params })
         if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        if (sql.includes("update import_run_streams") && sql.includes("returning status")) {
+          return { rows: [{ status: "running" }] }
+        }
         return { rows: [] }
       },
       release: () => {},
@@ -384,12 +394,15 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     )
     expect(nextPage).toBeDefined()
     expect(JSON.parse(nextPage?.params?.[0] ?? "{}")).toMatchObject({
+      importRunId: "import-1",
+      stream: "subscribers",
       offset: 100,
       processed: 100,
       matched: 80,
       created: 20,
       runStartedAt: "2026-09-21T10:00:00.000Z",
     })
+    expect(executedQueries.some((query) => query.sql.includes("update import_run_streams"))).toBe(true)
   })
 
   test("manual follower sweeps continue in paced background batches", async () => {

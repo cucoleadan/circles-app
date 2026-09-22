@@ -5,6 +5,60 @@ import type { V1Env } from "./types.js"
 
 export const importsRoutes = new Hono<V1Env>()
 
+const historyStreams = ["activity", "outbound_actions", "owned_notes", "owned_posts"] as const
+const audienceStreams = ["subscribers", "followers"] as const
+const allowedStreams = new Set<string>([...historyStreams, ...audienceStreams])
+
+function selectedStreams(body: any): string[] {
+  if (!Array.isArray(body.streams)) return [...historyStreams]
+  const requested: unknown[] = body.streams
+  return [...new Set(requested.filter((stream): stream is string =>
+    typeof stream === "string" && allowedStreams.has(stream)
+  ))]
+}
+
+function audienceCheckpoint(cursor: unknown) {
+  if (typeof cursor !== "string" || !cursor) return {}
+  try { return JSON.parse(cursor) as Record<string, unknown> } catch { return {} }
+}
+
+async function enqueueStream(
+  client: any,
+  userId: string,
+  connectionId: string,
+  importRunId: string,
+  stream: string,
+  cursor: unknown = null,
+  delay = 0,
+) {
+  const checkpoint = audienceCheckpoint(cursor)
+  const type = stream === "subscribers"
+    ? "sync:subscribers"
+    : stream === "followers" ? "sync:followers" : "import:history"
+  const runStartedAt = typeof checkpoint.runStartedAt === "string"
+    ? checkpoint.runStartedAt
+    : new Date().toISOString()
+  const payload = {
+    userId,
+    connectionId,
+    importRunId,
+    stream,
+    ...(stream === "subscribers" && {
+      offset: Number(checkpoint.offset ?? 0), runStartedAt,
+    }),
+    ...(stream === "followers" && {
+      runStartedAt, fullSweep: true, limit: 20,
+    }),
+  }
+  const job = await client.query(
+    `insert into jobs (type, payload, status, run_at)
+     values ($1, $2, 'pending', now() + ($3 || ' seconds')::interval)
+     returning id`,
+    [type, JSON.stringify(payload), delay],
+  )
+  return job.rows[0]?.id
+}
+
 importsRoutes.get("/imports", async (c) => {
   const appUser = c.get("appUser")
   const imports = await withTenant({ appUserId: appUser }, async (client) => {
@@ -17,7 +71,10 @@ importsRoutes.get("/imports", async (c) => {
                 'items', s.items, 'newInteractions', s.new_interactions,
                 'newPeople', s.new_people, 'completeness', s.completeness,
                 'finishReason', s.finish_reason, 'error', s.error
-              ) order by s.stream)
+              ) order by array_position(
+                array['activity', 'outbound_actions', 'owned_notes', 'owned_posts', 'subscribers', 'followers'],
+                s.stream
+              ))
               from import_run_streams s where s.import_run_id = r.id), '[]'::json) as streams
        from import_runs r
        where user_id = $1
@@ -32,8 +89,8 @@ importsRoutes.get("/imports", async (c) => {
 importsRoutes.post("/imports", async (c) => {
   const appUser = c.get("appUser")
   const body = await c.req.json().catch(() => ({}))
-  const months = typeof body.months === "number" && body.months > 0 ? body.months : 3
-  const full = body.full === true
+  const streams = selectedStreams(body)
+  if (streams.length === 0) return c.json({ error: "Select at least one stream" }, 400)
 
   const result = await withTenant({ appUserId: appUser }, async (client) => {
     const connRes = await client.query(
@@ -58,58 +115,50 @@ importsRoutes.post("/imports", async (c) => {
         [prior.id]
       )
       await client.query(
-        "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+        "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
         [prior.id]
       )
     }
 
     const importRunId = crypto.randomUUID()
-  const full = body.full === true
-  let cutoffExpr = "now() - interval '3 months'"
-  const cutoffParams: unknown[] = [importRunId, appUser, connId]
+    const full = body.full === true
+    let cutoffExpr = "now() - interval '3 months'"
+    const cutoffParams: unknown[] = [importRunId, appUser, connId]
 
-  if (full) {
-    cutoffExpr = "'1970-01-01'::timestamptz"
-  } else if (typeof body.cutoffDate === "string" && body.cutoffDate.trim().length > 0) {
-    cutoffParams.push(new Date(body.cutoffDate).toISOString())
-    cutoffExpr = `$${cutoffParams.length}::timestamptz`
-  } else if (typeof body.days === "number" && body.days > 0) {
-    cutoffParams.push(Math.round(body.days))
-    cutoffExpr = `now() - ($${cutoffParams.length} || ' days')::interval`
-  } else if (typeof body.months === "number" && body.months > 0) {
-    cutoffParams.push(Math.round(body.months))
-    cutoffExpr = `now() - ($${cutoffParams.length} || ' months')::interval`
-  }
+    if (full) {
+      cutoffExpr = "'1970-01-01'::timestamptz"
+    } else if (typeof body.cutoffDate === "string" && body.cutoffDate.trim().length > 0) {
+      const cutoff = new Date(body.cutoffDate)
+      if (Number.isNaN(cutoff.getTime())) return { error: "Invalid cutoff date" }
+      cutoffParams.push(cutoff.toISOString())
+      cutoffExpr = `$${cutoffParams.length}::timestamptz`
+    } else if (typeof body.days === "number" && body.days > 0) {
+      cutoffParams.push(Math.round(body.days))
+      cutoffExpr = `now() - ($${cutoffParams.length} || ' days')::interval`
+    } else if (typeof body.months === "number" && body.months > 0) {
+      cutoffParams.push(Math.round(body.months))
+      cutoffExpr = `now() - ($${cutoffParams.length} || ' months')::interval`
+    }
 
-  await client.query(
-    `insert into import_runs (id, user_id, connection_id, status, cutoff)
-     values ($1, $2, $3, 'running', ${cutoffExpr})`,
-    cutoffParams
-  )
+    await client.query(
+      `insert into import_runs (id, user_id, connection_id, status, cutoff)
+       values ($1, $2, $3, 'running', ${cutoffExpr})`,
+      cutoffParams
+    )
 
     await client.query(
       `insert into import_run_streams
           (import_run_id, user_id, connection_id, stream, status, completeness, finish_reason)
-       values
-          ($1, $2, $3, 'activity', 'running', 'partial', null),
-          ($1, $2, $3, 'owned_notes', 'running', 'partial', null),
-          ($1, $2, $3, 'owned_posts', 'running', 'partial', null),
-          ($1, $2, $3, 'outbound_actions', 'running', 'partial', null)`,
-      [importRunId, appUser, connId],
+       select $1, $2, $3, stream, 'running', 'partial', null
+       from unnest($4::text[]) as stream`,
+      [importRunId, appUser, connId, streams],
     )
 
-    const jobs = await client.query(
-      `insert into jobs (type, payload, status, run_at)
-       select 'import:history',
-              json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
-              'pending', now() + (position * interval '2 seconds')
-       from unnest(array['activity', 'owned_notes', 'owned_posts', 'outbound_actions'])
-         with ordinality as queued(stream, position)
-       returning id`,
-      [appUser, connId, importRunId],
-    )
-
-    const jobIds = jobs.rows.map((row) => row.id)
+    const jobIds: string[] = []
+    for (const [index, stream] of streams.entries()) {
+      const jobId = await enqueueStream(client, appUser, connId, importRunId, stream, null, index * 2)
+      if (jobId) jobIds.push(jobId)
+    }
     return { importRunId, jobId: jobIds[0], jobIds }
   })
 
@@ -131,7 +180,7 @@ importsRoutes.post("/imports/:id/pause", async (c) => {
       [importId],
     )
     await client.query(
-      "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
       [importId]
     )
     return true
@@ -154,7 +203,7 @@ importsRoutes.post("/imports/:id/cancel", async (c) => {
       [importId],
     )
     await client.query(
-      "delete from jobs where type = 'import:history' and status = 'pending' and payload->>'importRunId' = $1",
+      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
       [importId]
     )
     return true
@@ -176,19 +225,14 @@ importsRoutes.post("/imports/:id/resume", async (c) => {
 
     const streams = await client.query(
       `update import_run_streams set status = 'running', updated_at = now()
-       where import_run_id = $1 and status = 'paused' returning stream`,
+       where import_run_id = $1 and status = 'paused' returning stream, cursor`,
       [importId],
     )
-    const job = await client.query(
-      `insert into jobs (type, payload, status, run_at)
-       select 'import:history',
-              json_build_object('userId', $1::text, 'connectionId', $2::text, 'importRunId', $3::text, 'stream', stream),
-              'pending', now()
-       from unnest($4::text[]) as stream
-       returning id`,
-      [appUser, connId, importId, streams.rows.map((row) => row.stream)],
-    )
-    const jobIds = job.rows.map((row) => row.id)
+    const jobIds: string[] = []
+    for (const row of streams.rows) {
+      const jobId = await enqueueStream(client, appUser, connId, importId, row.stream, row.cursor)
+      if (jobId) jobIds.push(jobId)
+    }
     return { jobId: jobIds[0], jobIds }
   })
   if ("error" in result) return c.json(result, 400)

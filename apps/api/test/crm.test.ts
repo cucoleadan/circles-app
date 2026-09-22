@@ -704,7 +704,13 @@ describe("interactions", () => {
           "content-type": "application/json",
           cookie: signedCookieA,
         },
-        body: JSON.stringify({ months: 6 }),
+        body: JSON.stringify({
+          months: 6,
+          streams: [
+            "activity", "outbound_actions", "owned_notes", "owned_posts",
+            "subscribers", "followers",
+          ],
+        }),
       })
     )
     expect(importRes.status).toBe(201)
@@ -723,6 +729,9 @@ describe("interactions", () => {
     expect(listImportsBody.imports).toHaveLength(1)
     expect(listImportsBody.imports[0].id).toBe(importBody.importRunId)
     expect(listImportsBody.imports[0].status).toBe("running")
+    expect(listImportsBody.imports[0].streams.map((stream: any) => stream.stream)).toEqual([
+      "activity", "outbound_actions", "owned_notes", "owned_posts", "subscribers", "followers",
+    ])
 
     // 8. POST /imports/:id/pause
     const pauseRes = await v1.fetch(

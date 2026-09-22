@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Database, Pause, Play, RefreshCw, Square } from "lucide-react"
+import { Check, Database, Pause, Play, RefreshCw, Square } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import {
@@ -37,10 +37,21 @@ type ImportRun = {
 
 const streamNames: Record<string, string> = {
   activity: "Activity feed",
+  outbound_actions: "Your likes, restacks + replies",
   owned_notes: "Your Notes + replies",
   owned_posts: "Your posts + comments",
-  outbound_actions: "Your likes, restacks + replies",
+  subscribers: "All subscribers",
+  followers: "All followers",
 }
+
+const streamOptions = [
+  { id: "activity", description: "Notifications and inbound activity", history: true },
+  { id: "outbound_actions", description: "Your outbound engagement", history: true },
+  { id: "owned_notes", description: "Notes and their conversations", history: true },
+  { id: "owned_posts", description: "Posts and their comments", history: true },
+  { id: "subscribers", description: "Current publication audience", history: false },
+  { id: "followers", description: "Current follower status for every contact", history: false },
+] as const
 
 export function HistoryBackfill() {
   const [open, setOpen] = useState(false)
@@ -50,10 +61,9 @@ export function HistoryBackfill() {
 
   const [selectedTimeframe, setSelectedTimeframe] = useState<number | "custom">(90)
   const [customDate, setCustomDate] = useState("")
-  const [syncSubsBusy, setSyncSubsBusy] = useState(false)
-  const [syncSubsMsg, setSyncSubsMsg] = useState<string | null>(null)
-  const [syncFollowersBusy, setSyncFollowersBusy] = useState(false)
-  const [syncFollowersMsg, setSyncFollowersMsg] = useState<string | null>(null)
+  const [selectedStreams, setSelectedStreams] = useState<string[]>(
+    streamOptions.filter((stream) => stream.history).map((stream) => stream.id)
+  )
 
   const load = useCallback(async () => {
     const response = await fetch("/api/v1/imports")
@@ -67,17 +77,28 @@ export function HistoryBackfill() {
     void load().catch((err) => setError(err.message))
     const timer = window.setInterval(() => void load().catch(() => {}), 3_000)
     return () => window.clearInterval(timer)
-  }, [open, runs, load])
+  }, [open, load])
+
+  const hasHistory = streamOptions.some((stream) =>
+    stream.history && selectedStreams.includes(stream.id)
+  )
+
+  function toggleStream(stream: string) {
+    setSelectedStreams((current) => current.includes(stream)
+      ? current.filter((item) => item !== stream)
+      : [...current, stream])
+  }
 
   async function startBackfill() {
     setBusy(true)
     setError(null)
     try {
-      const payload: Record<string, unknown> = { full: false }
-      if (selectedTimeframe === "custom") {
+      if (selectedStreams.length === 0) throw new Error("Select at least one data source")
+      const payload: Record<string, unknown> = { full: false, streams: selectedStreams }
+      if (hasHistory && selectedTimeframe === "custom") {
         if (!customDate) throw new Error("Please select a cutoff date")
         payload.cutoffDate = customDate
-      } else {
+      } else if (hasHistory) {
         payload.days = selectedTimeframe
       }
 
@@ -95,42 +116,6 @@ export function HistoryBackfill() {
       setError(err.message)
     } finally {
       setBusy(false)
-    }
-  }
-
-  async function syncSubscribers() {
-    setSyncSubsBusy(true)
-    setSyncSubsMsg(null)
-    setError(null)
-    try {
-      const res = await fetch("/api/v1/sync/subscribers", { method: "POST" })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to sync subscribers")
-      setSyncSubsMsg(data.enqueued
-        ? "Subscriber sync queued. It will finish in the background."
-        : data.message || "Subscriber sync is already running.")
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSyncSubsBusy(false)
-    }
-  }
-
-  async function syncFollowers() {
-    setSyncFollowersBusy(true)
-    setSyncFollowersMsg(null)
-    setError(null)
-    try {
-      const res = await fetch("/api/v1/sync/followers", { method: "POST" })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error || "Failed to check followers")
-      setSyncFollowersMsg(data.enqueued
-        ? "Full follower sweep queued. It will continue safely in the background."
-        : data.message || "Follower sync is already running.")
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setSyncFollowersBusy(false)
     }
   }
 
@@ -177,56 +162,52 @@ export function HistoryBackfill() {
         </SheetHeader>
 
         <div className="space-y-5 p-6">
-          {/* Audience Sync Section */}
+          {/* Unified backfill setup */}
           <div className="rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900 space-y-3">
             <div>
-              <p className="text-xs font-bold text-stone-900 dark:text-stone-100">Publication Audience</p>
+              <p className="text-xs font-bold text-stone-900 dark:text-stone-100">Choose what to backfill</p>
               <p className="text-[11px] text-stone-500 mt-0.5">
-                Import all subscribers from your publication and check follower status on Substack.
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={syncSubscribers}
-                disabled={syncSubsBusy || syncFollowersBusy}
-                className="text-xs h-8"
-              >
-                {syncSubsBusy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <Database className="mr-1.5 size-3.5" />}
-                Sync Subscribers
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={syncFollowers}
-                disabled={syncFollowersBusy || syncSubsBusy}
-                className="text-xs h-8"
-              >
-                {syncFollowersBusy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <RefreshCw className="mr-1.5 size-3.5" />}
-                Check Follower Status
-              </Button>
-            </div>
-            {syncSubsMsg && (
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">{syncSubsMsg}</p>
-            )}
-            {syncFollowersMsg && (
-              <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">{syncFollowersMsg}</p>
-            )}
-          </div>
-
-          {/* Timeframe Backfill Section */}
-          <div className="rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900 space-y-3">
-            <div>
-              <p className="text-xs font-bold text-stone-900 dark:text-stone-100">Interaction History Backfill</p>
-              <p className="text-[11px] text-stone-500 mt-0.5">
-                Choose a specific timeframe to import past activity, notes, comments, and restacks.
+                Select any combination. Each source runs independently in the background.
               </p>
             </div>
 
-            {/* Timeframe selector pills */}
-            <div className="space-y-2">
-              <span className="text-[11px] font-semibold text-stone-600 dark:text-stone-400">Timeframe:</span>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {streamOptions.map((stream) => {
+                const selected = selectedStreams.includes(stream.id)
+                return (
+                  <button
+                    key={stream.id}
+                    type="button"
+                    role="checkbox"
+                    aria-checked={selected}
+                    onClick={() => toggleStream(stream.id)}
+                    className={`flex min-h-16 items-start gap-2.5 rounded-lg border p-3 text-left transition-colors ${selected
+                      ? "border-stone-900 bg-stone-50 dark:border-stone-200 dark:bg-stone-800"
+                      : "border-stone-200 hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800/60"
+                    }`}
+                  >
+                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${selected
+                      ? "border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900"
+                      : "border-stone-300 dark:border-stone-600"
+                    }`}>
+                      {selected && <Check className="size-3" />}
+                    </span>
+                    <span>
+                      <span className="block text-xs font-semibold">{streamNames[stream.id]}</span>
+                      <span className="mt-0.5 block text-[10px] leading-4 text-stone-500">{stream.description}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex gap-3 text-[11px] font-medium">
+              <button type="button" onClick={() => setSelectedStreams(streamOptions.map((stream) => stream.id))} className="text-stone-700 hover:underline dark:text-stone-300">Select all</button>
+              <button type="button" onClick={() => setSelectedStreams([])} className="text-stone-500 hover:underline">Clear</button>
+            </div>
+
+            <div className={`space-y-2 border-t border-stone-100 pt-3 dark:border-stone-800 ${hasHistory ? "" : "opacity-45"}`}>
+              <span className="text-[11px] font-semibold text-stone-600 dark:text-stone-400">History timeframe</span>
               <div className="flex flex-wrap gap-1.5">
                 {[
                   { label: "1 week", value: 7 },
@@ -241,6 +222,7 @@ export function HistoryBackfill() {
                     <button
                       key={String(item.value)}
                       type="button"
+                      disabled={!hasHistory}
                       onClick={() => setSelectedTimeframe(item.value as any)}
                       className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
                         isSel
@@ -262,9 +244,10 @@ export function HistoryBackfill() {
                     value={customDate}
                     onChange={(e) => setCustomDate(e.target.value)}
                     max={new Date().toISOString().split("T")[0]}
+                    disabled={!hasHistory}
                     className="h-7 px-2 text-xs rounded-md border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900"
                   />
-                  <span className="text-[11px] text-stone-400">(Imports activity back to this date)</span>
+                  <span className="text-[11px] text-stone-400">Audience sweeps always use current state.</span>
                 </div>
               )}
             </div>
@@ -272,12 +255,12 @@ export function HistoryBackfill() {
             <div className="flex items-center gap-2 pt-1">
               <Button
                 onClick={startBackfill}
-                disabled={busy || latest?.status === "running" || (selectedTimeframe === "custom" && !customDate)}
+                disabled={busy || selectedStreams.length === 0 || latest?.status === "running" || (hasHistory && selectedTimeframe === "custom" && !customDate)}
                 size="sm"
                 className="text-xs"
               >
                 {busy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <Database className="mr-1.5 size-3.5" />}
-                Backfill ({timeframeLabel})
+                Start selected{hasHistory ? ` (${timeframeLabel})` : ""}
               </Button>
               {latest?.status === "running" && (
                 <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "pause")} className="text-xs">
@@ -323,7 +306,11 @@ export function HistoryBackfill() {
                     }`}>{stream.status}</span>
                   </div>
                   <p className="mt-2 text-[11px] text-stone-500">
-                    {stream.items} items · {stream.newInteractions} new interactions · {stream.newPeople} people
+                    {stream.stream === "subscribers"
+                      ? `${stream.items} subscribers checked · ${stream.newPeople} new people`
+                      : stream.stream === "followers"
+                        ? `${stream.items} contacts checked`
+                        : `${stream.items} items · ${stream.newInteractions} new interactions · ${stream.newPeople} people`}
                   </p>
                   {stream.error && (
                     <p className="mt-1 text-[11px] text-stone-500">

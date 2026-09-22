@@ -240,6 +240,43 @@ export async function processFollowerSyncBatch(
   })
 }
 
+async function recordAudienceImportProgress(
+  client: PoolClient,
+  userId: string,
+  importRunId: string,
+  stream: "subscribers" | "followers",
+  result: any,
+) {
+  return withTenant(client, userId, async () => {
+    const checked = Number(stream === "subscribers" ? result.processed : result.checked) || 0
+    const newPeople = Number(stream === "subscribers" ? result.created : 0) || 0
+    const invalid = Number(stream === "subscribers" ? result.invalid : result.failed) || 0
+    const cursor = JSON.stringify({
+      runStartedAt: result.runStartedAt,
+      ...(stream === "subscribers" && { offset: result.nextOffset }),
+    })
+    const warning = invalid > 0
+      ? `${invalid} ${stream === "subscribers" ? "subscriber records" : "profiles"} could not be verified`
+      : null
+    const updated = await client.query(
+      `update import_run_streams
+       set pages = pages + 1, items = items + $3, new_people = new_people + $4,
+           cursor = $5,
+           status = case when $6 then 'failed' when $7 then 'complete' else 'running' end,
+           completeness = case when $7 and not $6 then 'complete' else 'partial' end,
+           finish_reason = case when $6 then 'connection_inactive'
+                                when $7 then 'current_state_checked' else finish_reason end,
+           error = case when $6 then 'Substack connection is inactive or expired' else $8 end,
+           updated_at = now()
+       where import_run_id = $1 and stream = $2 and status = 'running'
+       returning status`,
+      [importRunId, stream, checked, newPeople, cursor, result.skipped === true, result.completed === true, warning],
+    )
+    await finishImportIfReady(client, importRunId)
+    return updated.rows[0]?.status === "running"
+  })
+}
+
 export async function processActivitySync(
   client: PoolClient,
   userId: string,
@@ -997,7 +1034,10 @@ export async function claimAndRunJob(
           invalid: Number(payload.invalid ?? 0) + Number(result.invalid ?? 0),
           deactivated: Number(payload.deactivated ?? 0) + Number(result.deactivated ?? 0),
         }
-        if (!result.completed) {
+        const continueImport = importRunId && stream === "subscribers"
+          ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
+          : !result.completed && !result.skipped
+        if (continueImport) {
           await client.query(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:subscribers', $1, 'pending', now() + interval '2 seconds')`,
@@ -1025,7 +1065,10 @@ export async function claimAndRunJob(
           updated: Number(payload.updated ?? 0) + Number(result.updated ?? 0),
           failed: Number(payload.failed ?? 0) + Number(result.failed ?? 0),
         }
-        if (fullSweep === true && !result.completed) {
+        const continueImport = importRunId && stream === "followers"
+          ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
+          : fullSweep === true && !result.completed && !result.skipped
+        if (continueImport) {
           await client.query(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:followers', $1, 'pending', now() + interval '5 seconds')`,
@@ -1149,7 +1192,7 @@ export async function claimAndRunJob(
           "update jobs set status = 'dead', last_error = $2, updated_at = now() where id = $1",
           [job.id, failureMessage]
         )
-        if (job.type === "import:history" && userId && importRunId) {
+        if (importRunId && stream && userId) {
           await withTenant(client, userId, async () => {
             await client.query(
               `update import_run_streams
@@ -1178,7 +1221,7 @@ export async function claimAndRunJob(
            where id = $1`,
           [job.id, retryDelaySeconds, failureMessage]
         )
-        if (job.type === "import:history" && userId && importRunId) {
+        if (importRunId && stream && userId) {
           await withTenant(client, userId, async () => {
             await client.query(
               `update import_run_streams
