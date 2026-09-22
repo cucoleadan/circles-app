@@ -490,4 +490,54 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       fullSweep: true,
     })
   })
+
+  test("missing handles backfill advances afterId and schedules next job", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-handles",
+      type: "enrich:missing-handles",
+      payload: JSON.stringify({
+        userId: "user-1",
+        connectionId: "conn-1",
+        importRunId: "run-1",
+        stream: "missing_handles",
+        afterId: null,
+      }),
+      attempts: 0,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        if (sql.includes("update import_run_streams") && sql.includes("returning status")) {
+          return { rows: [{ status: "running" }] }
+        }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onMissingHandleBackfill: async () => ({
+        completed: false,
+        skipped: false,
+        checked: 1,
+        recovered: 1,
+        failed: 0,
+        afterId: "person-uuid-1",
+      }),
+    })
+
+    const nextJob = executedQueries.find((query) =>
+      query.sql.includes("'enrich:missing-handles'") && query.sql.includes("2 seconds")
+    )
+    expect(nextJob).toBeDefined()
+    expect(JSON.parse(nextJob?.params?.[0] ?? "{}")).toMatchObject({
+      afterId: "person-uuid-1",
+      importRunId: "run-1",
+    })
+    expect(executedQueries.some((query) => query.sql.includes("update import_run_streams"))).toBe(true)
+  })
 })
+

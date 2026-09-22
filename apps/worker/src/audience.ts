@@ -213,7 +213,7 @@ export async function processMissingHandleBackfill(
        from people
        where user_id = $1 and archived_at is null and normalized_handle is null
          and substack_profile_id is not null
-         and ($2::uuid is null or id > $2::uuid)
+         and ($2::text is null or id > $2::text)
        order by id limit 1`,
       [userId, afterId ?? null],
     )
@@ -289,8 +289,9 @@ export async function recordMissingHandleProgress(
            completeness = case when $7 and $8::text is null then 'complete' else 'partial' end,
            finish_reason = case when $6 then 'connection_inactive'
                                 when $7 then 'stable_ids_exhausted' else finish_reason end,
-           error = coalesce($8, error), updated_at = now()
-       where import_run_id = $1 and stream = 'missing_handles' and status = 'running'
+           error = case when $6 then 'Substack connection is inactive or expired' else $8 end,
+           updated_at = now()
+       where import_run_id = $1 and stream = $2 and status = 'running'
        returning status`,
       [
         importRunId,
