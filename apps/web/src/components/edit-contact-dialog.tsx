@@ -53,6 +53,10 @@ export function EditContactDialog({
   const [profileUrl, setProfileUrl] = useState(person.profileUrl ?? "")
   const [publicationUrl, setPublicationUrl] = useState(person.publicationUrl ?? "")
   const [substackProfileId, setSubstackProfileId] = useState(person.substackProfileId ?? "")
+  const [isFollower, setIsFollower] = useState(Boolean(person.isFollower))
+  const [isFollowing, setIsFollowing] = useState(Boolean(person.isFollowing))
+  const [isSubscriber, setIsSubscriber] = useState(Boolean(person.isSubscriber))
+  const [isSubscribedTo, setIsSubscribedTo] = useState(Boolean(person.isSubscribedTo))
   const [relationshipStatus, setRelationshipStatus] = useState<string>(
     person.relationshipStatus || "active"
   )
@@ -69,6 +73,10 @@ export function EditContactDialog({
       setProfileUrl(person.profileUrl ?? "")
       setPublicationUrl(person.publicationUrl ?? "")
       setSubstackProfileId(person.substackProfileId ?? "")
+      setIsFollower(Boolean(person.isFollower))
+      setIsFollowing(Boolean(person.isFollowing))
+      setIsSubscriber(Boolean(person.isSubscriber))
+      setIsSubscribedTo(Boolean(person.isSubscribedTo))
       setRelationshipStatus(person.relationshipStatus || "active")
       setError(null)
       setSuccessNotice(false)
@@ -99,6 +107,10 @@ export function EditContactDialog({
           publicationUrl: publicationUrl.trim() || null,
           substackProfileId: substackProfileId.trim() || null,
           relationshipStatus: relationshipStatus || "active",
+          isFollower,
+          isFollowing,
+          isSubscriber,
+          isSubscribedTo,
         }),
       })
 
@@ -118,6 +130,10 @@ export function EditContactDialog({
         publicationUrl: publicationUrl.trim() || null,
         substackProfileId: substackProfileId.trim() || null,
         relationshipStatus,
+        isFollower,
+        isFollowing,
+        isSubscriber,
+        isSubscribedTo,
       }
 
       onPersonUpdated(updated)
@@ -170,6 +186,30 @@ export function EditContactDialog({
               <span>{error}</span>
             </div>
           )}
+
+          <fieldset className="rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-950/40">
+            <legend className="px-1 text-[11px] font-bold text-stone-800 dark:text-stone-200">
+              Substack relationship
+            </legend>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {[
+                ["Follows you", isFollower, setIsFollower],
+                ["You follow", isFollowing, setIsFollowing],
+                ["Subscribed to you", isSubscriber, setIsSubscriber],
+                ["You subscribe", isSubscribedTo, setIsSubscribedTo],
+              ].map(([label, checked, setChecked]) => (
+                <label key={String(label)} className="flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 font-medium dark:border-stone-800 dark:bg-stone-900">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(checked)}
+                    onChange={(event) => (setChecked as (value: boolean) => void)(event.target.checked)}
+                    className="size-4 accent-stone-900"
+                  />
+                  {label as string}
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
           {/* Name & Handle Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">

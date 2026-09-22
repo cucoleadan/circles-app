@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import type { Pool, PoolClient } from "pg"
 import {
   applyFollowerSnapshot,
+  applyFollowingSnapshot,
   createSubstackClient,
   ingestActivityBatch,
   normalizeActivityPage,
@@ -201,11 +202,46 @@ export async function processFollowerSyncBatch(
   })
 }
 
+export async function processFollowingSync(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+) {
+  const conn = await withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select ciphertext, publication_url, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    return connection.rows[0]
+  })
+  if (!conn || conn.status !== "active") {
+    return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0 }
+  }
+
+  const sdk = createSubstackClient({
+    sessionToken: conn.ciphertext,
+    publicationUrl: conn.publication_url,
+  })
+  const page = parseFollowerList(await sdk.getFollowing())
+  return withTenant(client, userId, async () => {
+    const result = await applyFollowingSnapshot(client, userId, page.followers)
+    return {
+      completed: true,
+      skipped: false,
+      checked: result.checked,
+      updated: result.following,
+      subscribed: result.subscribed,
+      failed: page.skipped,
+    }
+  })
+}
+
 async function recordAudienceImportProgress(
   client: PoolClient,
   userId: string,
   importRunId: string,
-  stream: "subscribers" | "followers",
+  stream: "subscribers" | "followers" | "following",
   result: any,
 ) {
   return withTenant(client, userId, async () => {
@@ -232,6 +268,125 @@ async function recordAudienceImportProgress(
        where import_run_id = $1 and stream = $2 and status = 'running'
        returning status`,
       [importRunId, stream, checked, newPeople, cursor, result.skipped === true, result.completed === true, warning],
+    )
+    await finishImportIfReady(client, importRunId)
+    return updated.rows[0]?.status === "running"
+  })
+}
+
+function profileHandle(profile: any) {
+  const value = profile?.handle ?? profile?.profile?.handle
+  return typeof value === "string" && value.trim()
+    ? value.trim().replace(/^@/, "")
+    : null
+}
+
+export async function processMissingHandleBackfill(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  afterId?: string | null,
+) {
+  const state = await withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select ciphertext, publication_url, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const person = await client.query(
+      `select id, substack_profile_id
+       from people
+       where user_id = $1 and archived_at is null and normalized_handle is null
+         and substack_profile_id is not null
+         and ($2::uuid is null or id > $2::uuid)
+       order by id limit 1`,
+      [userId, afterId ?? null],
+    )
+    return { connection: connection.rows[0], person: person.rows[0] }
+  })
+  if (!state.connection || state.connection.status !== "active") {
+    return { completed: true, skipped: true, checked: 0, recovered: 0, failed: 0, afterId }
+  }
+  if (!state.person) {
+    const unresolvable = await withTenant(client, userId, async () => {
+      const result = await client.query(
+        `select count(*)::int as count from people
+         where user_id = $1 and archived_at is null and normalized_handle is null
+           and substack_profile_id is null`,
+        [userId],
+      )
+      return result.rows[0]?.count ?? 0
+    })
+    return { completed: true, skipped: false, checked: 0, recovered: 0, failed: 0, unresolvable, afterId }
+  }
+
+  let handle: string | null = null
+  try {
+    const sdk = createSubstackClient({
+      sessionToken: state.connection.ciphertext,
+      publicationUrl: state.connection.publication_url,
+    })
+    handle = profileHandle(await sdk.getProfileById(state.person.substack_profile_id))
+  } catch {
+    // Continue the repair run; this profile can be retried in a later run.
+  }
+
+  const recovered = await withTenant(client, userId, async () => {
+    if (!handle) return 0
+    const normalized = handle.toLowerCase()
+    const result = await client.query(
+      `update people p set handle = $3, normalized_handle = $4, updated_at = now()
+       where p.id = $1 and p.user_id = $2 and p.normalized_handle is null
+         and not exists (
+           select 1 from people other
+           where other.user_id = $2 and other.archived_at is null
+             and other.normalized_handle = $4 and other.id <> p.id
+         )`,
+      [state.person.id, userId, handle, normalized],
+    )
+    return result.rowCount ?? 0
+  })
+  return {
+    completed: false,
+    skipped: false,
+    checked: 1,
+    recovered,
+    failed: recovered ? 0 : 1,
+    afterId: state.person.id as string,
+  }
+}
+
+async function recordMissingHandleProgress(
+  client: PoolClient,
+  userId: string,
+  importRunId: string,
+  result: any,
+) {
+  return withTenant(client, userId, async () => {
+    const warning = result.unresolvable
+      ? `${result.unresolvable} contacts have no stable Substack profile ID and cannot be resolved automatically`
+      : result.failed ? "A profile ID did not return a usable unique handle" : null
+    const updated = await client.query(
+      `update import_run_streams
+       set pages = pages + 1, items = items + $3, new_people = new_people + $4,
+           cursor = $5,
+           status = case when $6 then 'failed' when $7 then 'complete' else 'running' end,
+           completeness = case when $7 and $8::text is null then 'complete' else 'partial' end,
+           finish_reason = case when $6 then 'connection_inactive'
+                                when $7 then 'stable_ids_exhausted' else finish_reason end,
+           error = coalesce($8, error), updated_at = now()
+       where import_run_id = $1 and stream = 'missing_handles' and status = 'running'
+       returning status`,
+      [
+        importRunId,
+        "missing_handles",
+        Number(result.checked ?? 0),
+        Number(result.recovered ?? 0),
+        JSON.stringify({ afterId: result.afterId ?? null }),
+        result.skipped === true,
+        result.completed === true,
+        warning,
+      ],
     )
     await finishImportIfReady(client, importRunId)
     return updated.rows[0]?.status === "running"
@@ -829,6 +984,17 @@ export interface JobHandlers {
     runStartedAt: unknown,
     limit: number,
   ) => Promise<any>
+  onFollowingSync?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+  ) => Promise<any>
+  onMissingHandleBackfill?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+    afterId?: string | null,
+  ) => Promise<any>
 }
 
 export async function claimAndRunJob(
@@ -881,7 +1047,7 @@ export async function claimAndRunJob(
     const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload
     const {
       userId, connectionId, importRunId, personId, stream, outboundStage,
-      offset, runStartedAt, fullSweep, limit,
+      offset, runStartedAt, fullSweep, limit, afterId,
     } = payload
 
     try {
@@ -945,6 +1111,11 @@ export async function claimAndRunJob(
                 manual: false,
                 limit: 50,
               },
+            },
+            {
+              type: "sync:following",
+              delay: 80,
+              payload: { userId, connectionId, manual: false },
             },
           ]
           for (const audience of audienceJobs) {
@@ -1045,6 +1216,31 @@ export async function claimAndRunJob(
               `${totals.checked} checked, ${totals.updated} updated, ${totals.failed} unverifiable.`,
           )
         }
+      } else if (job.type === "sync:following") {
+        const result = handlers?.onFollowingSync
+          ? await handlers.onFollowingSync(client, userId, connectionId)
+          : await processFollowingSync(client, userId, connectionId)
+        if (importRunId && stream === "following") {
+          await recordAudienceImportProgress(client, userId, importRunId, stream, result)
+        }
+        if (!result.skipped) {
+          console.log(
+            `[Circles Worker] Following sync complete: ${result.checked} checked, ` +
+              `${result.updated} followed, ${result.subscribed ?? 0} subscribed.`,
+          )
+        }
+      } else if (job.type === "enrich:missing-handles") {
+        const result = handlers?.onMissingHandleBackfill
+          ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId)
+          : await processMissingHandleBackfill(client, userId, connectionId, afterId)
+        const keepGoing = await recordMissingHandleProgress(client, userId, importRunId, result)
+        if (keepGoing) {
+          await client.query(
+            `insert into jobs (type, payload, status, run_at)
+             values ('enrich:missing-handles', $1, 'pending', now() + interval '2 seconds')`,
+            [JSON.stringify({ ...payload, afterId: result.afterId })],
+          )
+        }
       } else if (job.type === "import:history") {
         const result = handlers?.onImport
           ? await handlers.onImport(client, userId, importRunId, stream)
@@ -1118,7 +1314,16 @@ export async function claimAndRunJob(
         jobError?.statusCode === 401 ||
         /\b401\b/.test(errorMessage)
       const sessionExpired = isUnauthorized || /\bexpired\b/i.test(errorMessage)
-      const failureMessage = sessionExpired ? "Substack session expired" : errorMessage
+      const isAudienceDenied = (
+        job.type === "sync:followers" || job.type === "sync:following"
+      ) && (
+        jobError?.status === 403 || jobError?.statusCode === 403 || /\b403\b/.test(errorMessage)
+      )
+      const failureMessage = sessionExpired
+        ? "Substack session expired"
+        : isAudienceDenied
+          ? "Substack temporarily rejected the audience request"
+          : errorMessage
 
       // The request transaction has already rolled back at this point, so
       // persist expiry in a fresh tenant transaction instead of losing it.
@@ -1143,7 +1348,7 @@ export async function claimAndRunJob(
       }
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
-        errorMessage.includes("429")
+        errorMessage.includes("429") || isAudienceDenied
       const isDead = (
         !isRateLimited && job.attempts + 1 >= job.max_attempts
       ) || sessionExpired
@@ -1192,7 +1397,7 @@ export async function claimAndRunJob(
                 importRunId,
                 stream ?? "activity",
                 isRateLimited
-                  ? `Substack rate limit; retrying in ${retryDelaySeconds} seconds`
+                  ? `${isAudienceDenied ? "Substack temporarily rejected the request" : "Substack rate limit"}; retrying in ${retryDelaySeconds} seconds`
                   : failureMessage,
               ],
             )

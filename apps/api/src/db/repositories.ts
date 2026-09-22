@@ -12,7 +12,9 @@ const personColumns = `p.id, p.name, p.handle, p.notes,
     p.publication_url as "publicationUrl",
     p.avatar_url as "avatarUrl",
     coalesce(p.is_follower, false) as "isFollower",
+    coalesce(p.is_following, false) as "isFollowing",
     coalesce(p.is_subscriber, false) as "isSubscriber",
+    coalesce(p.is_subscribed_to, false) as "isSubscribedTo",
     p.subscribed_at as "subscribedAt",
     p.subscription_tier as "subscriptionTier",
     p.source, p.created_at as "createdAt", p.updated_at as "updatedAt",
@@ -56,7 +58,9 @@ export interface Person {
   publicationUrl?: string | null
   avatarUrl?: string | null
   isFollower?: boolean
+  isFollowing?: boolean
   isSubscriber?: boolean
+  isSubscribedTo?: boolean
   subscribedAt?: string | null
   subscriptionTier?: string | null
   source: string
@@ -100,7 +104,9 @@ export interface PersonInput {
   publicationUrl?: string | null
   avatarUrl?: string | null
   isFollower?: boolean
+  isFollowing?: boolean
   isSubscriber?: boolean
+  isSubscribedTo?: boolean
   subscribedAt?: string | null
   subscriptionTier?: string | null
 }
@@ -533,8 +539,9 @@ export async function createPerson(
   const result = await client.query(
     `insert into people
         (id, user_id, name, handle, normalized_handle, notes, relationship_status,
-         substack_profile_id, profile_url, avatar_url, source)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'manual')
+         substack_profile_id, profile_url, avatar_url,
+         is_follower, is_following, is_subscriber, is_subscribed_to, source)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, 'manual')
      returning ${plainPersonColumns}`,
     [
       randomUUID(),
@@ -547,6 +554,10 @@ export async function createPerson(
       input.substackProfileId ?? null,
       input.profileUrl ?? null,
       input.avatarUrl ?? null,
+      input.isFollower ?? false,
+      input.isFollowing ?? false,
+      input.isSubscriber ?? false,
+      input.isSubscribedTo ?? false,
     ]
   )
   return result.rows[0]
@@ -599,9 +610,17 @@ export async function updatePerson(
     params.push(input.isFollower)
     updates.push(`is_follower = $${params.length}`)
   }
+  if (input.isFollowing !== undefined) {
+    params.push(input.isFollowing)
+    updates.push(`is_following = $${params.length}`)
+  }
   if (input.isSubscriber !== undefined) {
     params.push(input.isSubscriber)
     updates.push(`is_subscriber = $${params.length}`)
+  }
+  if (input.isSubscribedTo !== undefined) {
+    params.push(input.isSubscribedTo)
+    updates.push(`is_subscribed_to = $${params.length}`)
   }
   if (input.subscribedAt !== undefined) {
     params.push(input.subscribedAt)

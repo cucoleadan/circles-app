@@ -6,7 +6,7 @@ import type { V1Env } from "./types.js"
 export const importsRoutes = new Hono<V1Env>()
 
 const historyStreams = ["activity", "outbound_actions", "owned_notes", "owned_posts"] as const
-const audienceStreams = ["subscribers", "followers"] as const
+const audienceStreams = ["subscribers", "followers", "following", "missing_handles"] as const
 const allowedStreams = new Set<string>([...historyStreams, ...audienceStreams])
 
 function selectedStreams(body: any): string[] {
@@ -34,7 +34,9 @@ async function enqueueStream(
   const checkpoint = audienceCheckpoint(cursor)
   const type = stream === "subscribers"
     ? "sync:subscribers"
-    : stream === "followers" ? "sync:followers" : "import:history"
+    : stream === "followers" ? "sync:followers"
+      : stream === "following" ? "sync:following"
+        : stream === "missing_handles" ? "enrich:missing-handles" : "import:history"
   const runStartedAt = typeof checkpoint.runStartedAt === "string"
     ? checkpoint.runStartedAt
     : new Date().toISOString()
@@ -48,6 +50,9 @@ async function enqueueStream(
     }),
     ...(stream === "followers" && {
       runStartedAt, fullSweep: true, limit: 20,
+    }),
+    ...(stream === "missing_handles" && {
+      afterId: typeof checkpoint.afterId === "string" ? checkpoint.afterId : null,
     }),
   }
   const job = await client.query(
@@ -72,7 +77,7 @@ importsRoutes.get("/imports", async (c) => {
                 'newPeople', s.new_people, 'completeness', s.completeness,
                 'finishReason', s.finish_reason, 'error', s.error
               ) order by array_position(
-                array['activity', 'outbound_actions', 'owned_notes', 'owned_posts', 'subscribers', 'followers'],
+                array['activity', 'outbound_actions', 'owned_notes', 'owned_posts', 'subscribers', 'followers', 'following', 'missing_handles'],
                 s.stream
               ))
               from import_run_streams s where s.import_run_id = r.id), '[]'::json) as streams
@@ -115,7 +120,7 @@ importsRoutes.post("/imports", async (c) => {
         [prior.id]
       )
       await client.query(
-        "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
+        "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers', 'sync:following', 'enrich:missing-handles') and status = 'pending' and payload->>'importRunId' = $1",
         [prior.id]
       )
     }
@@ -180,7 +185,7 @@ importsRoutes.post("/imports/:id/pause", async (c) => {
       [importId],
     )
     await client.query(
-      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
+      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers', 'sync:following', 'enrich:missing-handles') and status = 'pending' and payload->>'importRunId' = $1",
       [importId]
     )
     return true
@@ -203,7 +208,7 @@ importsRoutes.post("/imports/:id/cancel", async (c) => {
       [importId],
     )
     await client.query(
-      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers') and status = 'pending' and payload->>'importRunId' = $1",
+      "delete from jobs where type in ('import:history', 'sync:subscribers', 'sync:followers', 'sync:following', 'enrich:missing-handles') and status = 'pending' and payload->>'importRunId' = $1",
       [importId]
     )
     return true

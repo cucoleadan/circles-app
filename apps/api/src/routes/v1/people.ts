@@ -50,6 +50,10 @@ const personInput = z.object({
   profileUrl: optionalText,
   publicationUrl: optionalText,
   avatarUrl: optionalText,
+  isFollower: z.boolean().optional(),
+  isFollowing: z.boolean().optional(),
+  isSubscriber: z.boolean().optional(),
+  isSubscribedTo: z.boolean().optional(),
 })
 
 peopleRoutes.get("/people", async (c) => {

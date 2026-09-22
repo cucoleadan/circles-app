@@ -20,7 +20,9 @@ export interface Person {
   publicationUrl?: string | null
   avatarUrl?: string | null
   isFollower?: boolean
+  isFollowing?: boolean
   isSubscriber?: boolean
+  isSubscribedTo?: boolean
   subscribedAt?: string | null
   subscriptionTier?: string | null
   source: string
@@ -139,4 +141,3 @@ export interface PriorityQueueSettings {
 export interface UserSettings {
   priorityQueue: PriorityQueueSettings
 }
-

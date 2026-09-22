@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`019_audience_import_streams.sql`. Migration `019_audience_import_streams.sql`
+`020_relationship_directions_and_handle_backfill.sql`. Migration `020_relationship_directions_and_handle_backfill.sql`
+separates outbound following/subscriptions and adds stable-ID handle repair.
+Migration `019_audience_import_streams.sql`
 adds subscriber and follower sweeps to selectable, resumable import runs.
 Migration `018_subscriber_sync_progress.sql` adds authoritative subscriber-sweep
 progress so completed refreshes can clear stale memberships safely. Migration

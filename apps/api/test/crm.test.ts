@@ -983,6 +983,10 @@ describe("interactions", () => {
           publicationUrl: "https://newhandle.substack.com",
           substackProfileId: "98765432",
           relationshipStatus: "conversation",
+          isFollower: true,
+          isFollowing: true,
+          isSubscriber: false,
+          isSubscribedTo: true,
         }),
       })
     )
@@ -995,6 +999,12 @@ describe("interactions", () => {
     expect(patchData.person.publicationUrl).toBe("https://newhandle.substack.com")
     expect(patchData.person.substackProfileId).toBe("98765432")
     expect(patchData.person.relationshipStatus).toBe("conversation")
+    expect(patchData.person).toMatchObject({
+      isFollower: true,
+      isFollowing: true,
+      isSubscriber: false,
+      isSubscribedTo: true,
+    })
 
     // 3. Create another person with handle @other
     await withTenant({ appUserId: userA }, (client) =>

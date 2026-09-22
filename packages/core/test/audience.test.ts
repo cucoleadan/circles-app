@@ -19,9 +19,22 @@ describe("audience sync response normalization", () => {
         ] }],
       }],
     })
-    expect(page.followers).toEqual([{ id: "42", handle: "reader" }])
+    expect(page.followers).toEqual([{ id: "42", handle: "reader", isSubscribed: false }])
     expect(page.skipped).toBe(1)
     expect(page.followers[0]).not.toHaveProperty("email")
+  })
+
+  test("keeps outbound subscription state separate when parsing following", () => {
+    const page = parseFollowerList({
+      subscriberLists: [{ groups: [{ users: [
+        { id: 1, handle: "free-follow", is_following: true, is_subscribed: false },
+        { id: 2, handle: "newsletter", is_following: true, is_subscribed: true },
+      ] }] }],
+    })
+    expect(page.followers).toEqual([
+      { id: "1", handle: "free-follow", isSubscribed: false },
+      { id: "2", handle: "newsletter", isSubscribed: true },
+    ])
   })
 
   test("parses the current subscriber shape without retaining private fields", () => {

@@ -115,15 +115,15 @@ export function ContactCard({
           </div>
         </div>
 
-        {/* Audience / Follower & Subscriber Badges */}
-        {(person.isFollower || person.isSubscriber) && (
+        {/* Audience relationship badges */}
+        {(person.isFollower || person.isSubscriber || person.isFollowing || person.isSubscribedTo) && (
           <div className="mt-2 flex items-center gap-1.5 flex-wrap">
-            {person.isFollower && !person.isSubscriber && (
+            {person.isFollower && (
               <span
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800 shadow-2xs"
-                title="Follows you on Substack, but has not subscribed to your publication"
+                title="Follows you on Substack"
               >
-                <span>👤 Follows · No Sub</span>
+                <span>Follows you</span>
               </span>
             )}
             {person.isSubscriber && (
@@ -131,15 +131,20 @@ export function ContactCard({
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800 shadow-2xs"
                 title={person.subscriptionTier ? `Subscriber (${person.subscriptionTier})` : "Publication Subscriber"}
               >
-                <span>📬 {person.subscriptionTier ? `${person.subscriptionTier.toUpperCase()} Subscriber` : "Subscriber"}</span>
+                <span>Subscribed to you</span>
               </span>
             )}
-            {person.isFollower && person.isSubscriber && (
+            {person.isFollowing && (
               <span
                 className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-400"
-                title="Also follows you on Substack"
+                title="You follow this person on Substack"
               >
-                <span>Follower</span>
+                <span>You follow</span>
+              </span>
+            )}
+            {person.isSubscribedTo && (
+              <span className="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800">
+                <span>You subscribe</span>
               </span>
             )}
           </div>

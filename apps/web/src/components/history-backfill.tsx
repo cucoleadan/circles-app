@@ -40,8 +40,10 @@ const streamNames: Record<string, string> = {
   outbound_actions: "Your likes, restacks + replies",
   owned_notes: "Your Notes + replies",
   owned_posts: "Your posts + comments",
-  subscribers: "All subscribers",
-  followers: "All followers",
+  subscribers: "Subscribers to you",
+  followers: "People who follow you",
+  following: "People you follow + subscriptions",
+  missing_handles: "People missing handles",
 }
 
 const streamOptions = [
@@ -49,8 +51,10 @@ const streamOptions = [
   { id: "outbound_actions", description: "Your outbound engagement", history: true },
   { id: "owned_notes", description: "Notes and their conversations", history: true },
   { id: "owned_posts", description: "Posts and their comments", history: true },
-  { id: "subscribers", description: "Current publication audience", history: false },
-  { id: "followers", description: "Current follower status for every contact", history: false },
+  { id: "subscribers", description: "Who subscribes to your publication", history: false },
+  { id: "followers", description: "Who follows your Substack profile", history: false },
+  { id: "following", description: "Who you follow and subscribe to", history: false },
+  { id: "missing_handles", description: "Recover handles from stable profile IDs", history: false },
 ] as const
 
 export function HistoryBackfill() {
@@ -308,8 +312,10 @@ export function HistoryBackfill() {
                   <p className="mt-2 text-[11px] text-stone-500">
                     {stream.stream === "subscribers"
                       ? `${stream.items} subscribers checked · ${stream.newPeople} new people`
-                      : stream.stream === "followers"
+                      : stream.stream === "followers" || stream.stream === "following"
                         ? `${stream.items} contacts checked`
+                        : stream.stream === "missing_handles"
+                          ? `${stream.items} contacts checked · ${stream.newPeople} handles recovered`
                         : `${stream.items} items · ${stream.newInteractions} new interactions · ${stream.newPeople} people`}
                   </p>
                   {stream.error && (

@@ -23,6 +23,7 @@ export interface SubscriberStatsPage {
 export interface FollowerListItem {
   id: string
   handle: string | null
+  isSubscribed: boolean
 }
 
 /** Normalize the authenticated owner's complete follower list. */
@@ -44,11 +45,60 @@ export function parseFollowerList(payload: unknown) {
           ? String(rawId).trim()
           : ""
         if (!id) { skipped++; continue }
-        followers.set(id, { id, handle: optionalString(user.handle) })
+        followers.set(id, {
+          id,
+          handle: optionalString(user.handle),
+          isSubscribed: optionalBoolean(user.is_subscribed),
+        })
       }
     }
   }
   return { followers: [...followers.values()], skipped }
+}
+
+/** Apply the owner's complete following list without conflating it with inbound followers. */
+export async function applyFollowingSnapshot(
+  client: PoolClient,
+  userId: string,
+  following: FollowerListItem[],
+) {
+  const profileIds = following.map((person) => person.id)
+  const handles = following
+    .map((person) => person.handle ? normalizeHandle(person.handle) : null)
+    .filter((handle): handle is string => Boolean(handle))
+  const subscribedProfileIds = following.filter((person) => person.isSubscribed).map((person) => person.id)
+  const subscribedHandles = following
+    .filter((person) => person.isSubscribed && person.handle)
+    .map((person) => normalizeHandle(person.handle!))
+  await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
+  const result = await client.query(
+    `with updated as (
+       update people p
+       set is_following = (
+             (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
+             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+           ),
+           is_subscribed_to = (
+             (p.substack_profile_id is not null and p.substack_profile_id = any($4::text[]))
+             or (p.normalized_handle is not null and p.normalized_handle = any($5::text[]))
+           ),
+           following_checked_at = now(),
+           updated_at = now()
+       where p.user_id = $1 and p.archived_at is null
+         and (p.normalized_handle is not null or p.substack_profile_id is not null)
+       returning is_following, is_subscribed_to
+     )
+     select count(*)::int as checked,
+            count(*) filter (where is_following)::int as following,
+            count(*) filter (where is_subscribed_to)::int as subscribed
+     from updated`,
+    [userId, profileIds, handles, subscribedProfileIds, subscribedHandles],
+  )
+  return {
+    checked: result.rows[0]?.checked ?? 0,
+    following: result.rows[0]?.following ?? 0,
+    subscribed: result.rows[0]?.subscribed ?? 0,
+  }
 }
 
 /** Apply a complete follower snapshot to existing CRM contacts atomically. */
