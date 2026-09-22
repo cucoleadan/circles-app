@@ -56,35 +56,35 @@ export function SettingsConnectionTab({
   onDisconnect: () => void
 }) {
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       {/* Current Status Card */}
-      <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-3.5">
+      <div className="rounded border border-stone-200/80 bg-white p-3.5 shadow-none dark:border-stone-800 dark:bg-stone-900 space-y-2.5">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Key className="size-4 text-[#f15a3a]" />
-            <h3 className="font-bold text-stone-900 dark:text-stone-100 text-sm">
+            <Key className="size-3.5 text-[#f15a3a]" />
+            <h3 className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-sm">
               Current Substack Connection
             </h3>
           </div>
           {connectionLoading ? (
             <span className="text-[10px] text-muted-foreground">Checking…</span>
           ) : !connection ? (
-            <span className="rounded-full bg-stone-100 text-stone-600 border border-stone-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-stone-800 dark:text-stone-400">
+            <span className="rounded bg-stone-100 text-stone-600 border border-stone-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-stone-800 dark:text-stone-400">
               Not Connected
             </span>
           ) : connection.status === "active" ? (
-            <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-0.5 text-[10px] font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 flex items-center gap-1">
+            <span className="rounded bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800 flex items-center gap-1">
               <CheckCircle2 className="size-3" /> Active &amp; Connected
             </span>
           ) : (
-            <span className="rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-0.5 text-[10px] font-semibold dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 flex items-center gap-1 animate-pulse">
+            <span className="rounded bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 text-[10px] font-semibold dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800 flex items-center gap-1 animate-pulse">
               <AlertTriangle className="size-3" /> Session Expired
             </span>
           )}
         </div>
 
         {connection ? (
-          <div className="space-y-2 pt-1">
+          <div className="space-y-1.5 pt-0.5">
             <div className="flex items-center justify-between text-[11.5px] py-1 border-b border-stone-100 dark:border-stone-800/60">
               <span className="text-muted-foreground">Profile</span>
               <span className="font-medium text-stone-900 dark:text-stone-100">
@@ -122,7 +122,7 @@ export function SettingsConnectionTab({
         )}
 
         {connection?.status === "expired" && (
-          <div className="rounded-xl bg-rose-50/80 border border-rose-200/80 p-3 text-rose-800 dark:bg-rose-950/30 dark:border-rose-900/40 dark:text-rose-300 text-[11.5px] space-y-1">
+          <div className="rounded bg-rose-50/80 border border-rose-200/80 p-2.5 text-rose-800 dark:bg-rose-950/30 dark:border-rose-900/40 dark:text-rose-300 text-[11.5px] space-y-1">
             <div className="flex items-center gap-1.5 font-semibold">
               <AlertCircle className="size-3.5" /> Substack Session Expired (401)
             </div>
@@ -134,9 +134,9 @@ export function SettingsConnectionTab({
       </div>
 
       {/* Update / Connect Form Card */}
-      <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-4">
+      <div className="rounded border border-stone-200/80 bg-white p-3.5 shadow-none dark:border-stone-800 dark:bg-stone-900 space-y-3">
         <div>
-          <h4 className="font-bold text-stone-900 dark:text-stone-100 text-sm">
+          <h4 className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-sm">
             {connection ? "Update Session Cookie" : "Connect Substack Account"}
           </h4>
           <p className="text-muted-foreground text-[11px] mt-0.5">
@@ -145,11 +145,11 @@ export function SettingsConnectionTab({
         </div>
 
         {/* Instructions Box */}
-        <div className="rounded-xl bg-stone-50 border border-stone-200/70 dark:bg-stone-950 dark:border-stone-800/80 p-3 text-[11px] text-stone-600 dark:text-stone-400 space-y-1.5">
+        <div className="rounded bg-stone-50 border border-stone-200/70 dark:bg-stone-950 dark:border-stone-800/80 p-2.5 text-[11px] text-stone-600 dark:text-stone-400 space-y-1">
           <div className="font-semibold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
             <Info className="size-3.5 text-[#f15a3a]" /> How to find your session cookie:
           </div>
-          <ol className="list-decimal list-inside space-y-1 pl-1 text-[10.5px]">
+          <ol className="list-decimal list-inside space-y-0.5 pl-0.5 text-[10.5px]">
             <li>Open and log in to <strong className="text-stone-800 dark:text-stone-200">substack.com</strong> in your browser.</li>
             <li>Press <kbd className="px-1 py-0.5 bg-stone-200 dark:bg-stone-800 rounded text-[9.5px]">F12</kbd> (or right-click → <em>Inspect</em>) to open Developer Tools.</li>
             <li>Go to <strong className="text-stone-800 dark:text-stone-200">Application</strong> (or <strong className="text-stone-800 dark:text-stone-200">Storage</strong>) → <strong className="text-stone-800 dark:text-stone-200">Cookies</strong> → <code className="text-[10px]">https://substack.com</code>.</li>
@@ -158,20 +158,20 @@ export function SettingsConnectionTab({
         </div>
 
         {connectionError && (
-          <div className="rounded-xl bg-rose-50 border border-rose-200 p-3 text-rose-800 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 text-[11px] flex items-start gap-2">
+          <div className="rounded bg-rose-50 border border-rose-200 p-2.5 text-rose-800 dark:bg-rose-950/40 dark:border-rose-900 dark:text-rose-300 text-[11px] flex items-start gap-2">
             <AlertCircle className="size-3.5 mt-0.5 shrink-0" />
             <span>{connectionError}</span>
           </div>
         )}
 
         {connectionSuccess && (
-          <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300 text-[11px] flex items-center gap-2">
+          <div className="rounded bg-emerald-50 border border-emerald-200 p-2.5 text-emerald-800 dark:bg-emerald-950/40 dark:border-emerald-900 dark:text-emerald-300 text-[11px] flex items-center gap-2">
             <Check className="size-3.5 shrink-0" />
             <span>{connectionSuccess}</span>
           </div>
         )}
 
-        <div className="space-y-3 pt-1">
+        <div className="space-y-2.5 pt-0.5">
           <div className="space-y-1">
             <div className="flex items-center justify-between">
               <label className="text-[11px] font-medium text-stone-700 dark:text-stone-300">
@@ -191,7 +191,7 @@ export function SettingsConnectionTab({
               value={cookieInput}
               onChange={(e) => setCookieInput(e.target.value)}
               placeholder="Paste your substack.sid cookie value…"
-              className="h-8.5 text-xs bg-stone-50 dark:bg-stone-950 font-mono"
+              className="h-8 text-xs bg-stone-50 dark:bg-stone-950 font-mono rounded"
             />
           </div>
 
@@ -204,11 +204,11 @@ export function SettingsConnectionTab({
               value={publicationUrlInput}
               onChange={(e) => setPublicationUrlInput(e.target.value)}
               placeholder="https://yourpublication.substack.com"
-              className="h-8.5 text-xs bg-stone-50 dark:bg-stone-950"
+              className="h-8 text-xs bg-stone-50 dark:bg-stone-950 rounded"
             />
           </div>
 
-          <div className="pt-2 flex items-center justify-between">
+          <div className="pt-1.5 flex items-center justify-between">
             {connection ? (
               <Button
                 type="button"
@@ -216,7 +216,7 @@ export function SettingsConnectionTab({
                 size="sm"
                 onClick={onDisconnect}
                 disabled={connectionBusy}
-                className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:hover:bg-rose-950/30 h-8 rounded-full"
+                className="text-xs text-rose-600 border-rose-200 hover:bg-rose-50 dark:border-rose-900/50 dark:hover:bg-rose-950/30 h-7.5 rounded px-3"
               >
                 Disconnect
               </Button>
@@ -229,7 +229,7 @@ export function SettingsConnectionTab({
               size="sm"
               onClick={onSaveConnection}
               disabled={connectionBusy || !cookieInput.trim()}
-              className="text-xs font-semibold bg-[#f15a3a] hover:bg-[#d94a2b] text-white px-4 h-8.5 rounded-full shadow-xs transition-all"
+              className="text-xs font-semibold bg-[#f15a3a] hover:bg-[#d94a2b] text-white px-3.5 h-7.5 rounded shadow-xs transition-all"
             >
               {connectionBusy ? (
                 <>
@@ -245,19 +245,19 @@ export function SettingsConnectionTab({
       </div>
 
       {/* Companion Extension Quick Card */}
-      <div className="rounded-2xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900 flex items-center justify-between gap-3 text-xs">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="size-9 rounded-xl bg-gradient-to-br from-[#f15a3a] to-[#ff7e5f] text-white flex items-center justify-center shrink-0 shadow-xs">
-            <Puzzle className="size-4.5" />
+      <div className="rounded border border-stone-200/80 bg-white p-3 shadow-none dark:border-stone-800 dark:bg-stone-900 flex items-center justify-between gap-3 text-xs">
+        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+          <div className="size-8 rounded bg-gradient-to-br from-[#f15a3a] to-[#ff7e5f] text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+            <Puzzle className="size-4" />
           </div>
-          <div className="min-w-0">
-            <p className="font-bold text-stone-900 dark:text-stone-100 text-xs truncate flex items-center gap-1.5">
-              Circles Companion Extension
-              <span className="rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80 px-1.5 py-0.2 text-[9px] font-bold">
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <div className="font-bold text-stone-900 dark:text-stone-100 text-xs flex items-center gap-1.5 flex-wrap leading-snug">
+              <span>Circles Companion Extension</span>
+              <span className="rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80 px-1.5 py-0.2 text-[9px] font-bold shrink-0">
                 Web Store
               </span>
-            </p>
-            <p className="text-[11px] text-muted-foreground truncate">
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-snug">
               Capture outbound likes, restacks, and comments while browsing Substack.
             </p>
           </div>
@@ -266,7 +266,7 @@ export function SettingsConnectionTab({
           href={CHROME_STORE_URL}
           target="_blank"
           rel="noreferrer"
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-full bg-[#f15a3a] hover:bg-[#d94828] text-white px-3.5 py-1.5 text-xs font-semibold shadow-xs transition-colors"
+          className="shrink-0 inline-flex items-center gap-1.5 rounded bg-[#f15a3a] hover:bg-[#d94828] text-white px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors"
         >
           Install
           <ExternalLink className="size-3" />

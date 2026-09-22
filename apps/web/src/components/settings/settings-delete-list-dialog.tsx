@@ -22,14 +22,14 @@ export function SettingsDeleteListDialog({
   return (
     <Dialog open={Boolean(list)} onOpenChange={(open) => { if (!open) onCancel() }}>
       <DialogContent
-        className="w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-white dark:bg-stone-900 p-5 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4"
+        className="w-[calc(100%-2rem)] max-w-sm rounded-md bg-white dark:bg-stone-900 p-3.5 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-3"
         showCloseButton={false}
       >
-        <div className="flex items-start gap-3">
-          <span className="p-2 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
-            <AlertTriangle className="size-5" />
+        <div className="flex items-start gap-2.5">
+          <span className="p-1.5 rounded bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
+            <AlertTriangle className="size-4" />
           </span>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <DialogTitle className="text-sm font-bold text-stone-900 dark:text-stone-100">
               Delete "{list?.name}"?
             </DialogTitle>
@@ -40,21 +40,21 @@ export function SettingsDeleteListDialog({
           </div>
         </div>
 
-        <div className="rounded-xl bg-stone-50 dark:bg-stone-950/80 p-3 border border-stone-200/80 dark:border-stone-800 text-[11.5px] text-stone-600 dark:text-stone-300 leading-relaxed">
+        <div className="rounded bg-stone-50 dark:bg-stone-950/80 p-2.5 border border-stone-200/80 dark:border-stone-800 text-[11px] text-stone-600 dark:text-stone-300 leading-relaxed">
           <p className="font-semibold text-stone-800 dark:text-stone-200 mb-0.5">
             Safe Deletion:
           </p>
           Contacts in this list will <strong>not</strong> be deleted, and their engagement stats and notes remain intact. Only this list category and memberships will be removed.
         </div>
 
-        <div className="flex items-center justify-end gap-2 pt-1">
+        <div className="flex items-center justify-end gap-2 pt-0.5">
           <Button
             type="button"
             variant="outline"
             size="sm"
             disabled={isDeleting}
             onClick={onCancel}
-            className="text-xs rounded-lg"
+            className="text-xs rounded h-7 px-3"
           >
             Cancel
           </Button>
@@ -63,7 +63,7 @@ export function SettingsDeleteListDialog({
             size="sm"
             disabled={isDeleting}
             onClick={onConfirm}
-            className="text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded-lg shadow-xs"
+            className="text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white rounded shadow-xs h-7 px-3"
           >
             {isDeleting ? "Deleting…" : "Delete List"}
           </Button>

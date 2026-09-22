@@ -198,13 +198,13 @@ export function SettingsDialog({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col h-full bg-stone-50/95 dark:bg-stone-950 backdrop-blur-md overflow-hidden border-l border-stone-200 dark:border-stone-800">
-        <SheetHeader className="p-6 pb-3 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-xl bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
-              <Settings className="size-4 text-[#f15a3a]" />
+        <SheetHeader className="p-4 pb-2.5 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800">
+          <div className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300">
+              <Settings className="size-3.5 text-[#f15a3a]" />
             </span>
             <div>
-              <SheetTitle className="text-lg font-bold text-stone-900 dark:text-stone-100">
+              <SheetTitle className="text-base font-bold text-stone-900 dark:text-stone-100">
                 Workspace Settings
               </SheetTitle>
               <SheetDescription className="text-xs text-muted-foreground mt-0.5">
@@ -214,18 +214,18 @@ export function SettingsDialog({
           </div>
 
           {/* Navigation Tabs - 2x2 Grid */}
-          <div className="grid grid-cols-2 gap-1.5 p-1.5 bg-stone-100/90 dark:bg-stone-800/80 rounded-xl mt-3 text-xs border border-stone-200/60 dark:border-stone-800">
+          <div className="grid grid-cols-2 gap-1 p-1 bg-stone-100/90 dark:bg-stone-800/80 rounded mt-2.5 text-xs border border-stone-200/60 dark:border-stone-800">
             <button
               type="button"
               onClick={() => setActiveTab("connection")}
-              className={`py-2 px-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all text-xs select-none min-w-0 ${
+              className={`py-1.5 px-2 rounded font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "connection"
                   ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                   : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
               title="Substack Connection"
             >
-              <Key className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <Key className="size-3 shrink-0 text-[#f15a3a]" />
               <span className="truncate">Connection</span>
               {connection?.status === "expired" && (
                 <span className="size-1.5 rounded-full bg-rose-500 animate-pulse shrink-0" />
@@ -234,50 +234,50 @@ export function SettingsDialog({
             <button
               type="button"
               onClick={() => setActiveTab("queue")}
-              className={`py-2 px-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all text-xs select-none min-w-0 ${
+              className={`py-1.5 px-2 rounded font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "queue"
                   ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                   : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
               title="Smart Queue Rules"
             >
-              <Sparkles className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <Sparkles className="size-3 shrink-0 text-[#f15a3a]" />
               <span className="truncate">Queue</span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("lists")}
-              className={`py-2 px-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all text-xs select-none min-w-0 ${
+              className={`py-1.5 px-2 rounded font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "lists"
                   ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                   : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
               title="Manage Contact Lists"
             >
-              <Bookmark className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <Bookmark className="size-3 shrink-0 text-[#f15a3a]" />
               <span className="truncate">Lists</span>
-              <span className="rounded-full bg-stone-200/80 dark:bg-stone-700 px-1.5 py-0.2 text-[9px] font-bold shrink-0">
+              <span className="rounded bg-stone-200/80 dark:bg-stone-700 px-1.5 py-0.2 text-[9px] font-bold shrink-0">
                 {lists.length}
               </span>
             </button>
             <button
               type="button"
               onClick={() => setActiveTab("extension")}
-              className={`py-2 px-2.5 rounded-lg font-medium flex items-center justify-center gap-2 transition-all text-xs select-none min-w-0 ${
+              className={`py-1.5 px-2 rounded font-medium flex items-center justify-center gap-1.5 transition-all text-xs select-none min-w-0 ${
                 activeTab === "extension"
                   ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                   : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
               }`}
               title="Chrome Companion Extension"
             >
-              <Puzzle className="size-3.5 shrink-0 text-[#f15a3a]" />
+              <Puzzle className="size-3 shrink-0 text-[#f15a3a]" />
               <span className="truncate">Extension</span>
             </button>
           </div>
         </SheetHeader>
 
         {/* Form Body */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3.5 text-xs">
           {activeTab === "connection" && (
             <SettingsConnectionTab
               connection={connection}

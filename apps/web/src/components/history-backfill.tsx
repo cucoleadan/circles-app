@@ -152,22 +152,24 @@ export function HistoryBackfill() {
   return (
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetTrigger asChild>
-        <Button variant="outline" size="sm" className="h-8.5 rounded-full text-xs font-medium border-stone-200">
+        <Button variant="outline" size="sm" className="h-8 rounded text-xs font-medium border-stone-200 dark:border-stone-800">
           <Database className="size-3.5 sm:mr-1.5" />
           <span className="hidden sm:inline">History &amp; Sync</span>
         </Button>
       </SheetTrigger>
-      <SheetContent className="w-full sm:max-w-lg gap-0 overflow-y-auto bg-stone-50 dark:bg-stone-950">
-        <SheetHeader className="border-b border-stone-200 bg-white p-6 dark:border-stone-800 dark:bg-stone-900">
-          <SheetTitle>Substack History &amp; Audience Sync</SheetTitle>
-          <SheetDescription>
+      <SheetContent className="w-full sm:max-w-lg p-0 flex flex-col h-full bg-stone-50 dark:bg-stone-950 overflow-hidden border-l border-stone-200 dark:border-stone-800">
+        <SheetHeader className="p-4 pb-3 border-b border-stone-200/80 bg-white/80 dark:bg-stone-900/80 dark:border-stone-800">
+          <SheetTitle className="text-base font-bold text-stone-900 dark:text-stone-100">
+            Substack History &amp; Audience Sync
+          </SheetTitle>
+          <SheetDescription className="text-xs text-muted-foreground mt-0.5">
             Backfill interactions, sync your publication subscribers, and keep your relationship graph complete.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="space-y-5 p-6">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3 text-xs">
           {/* Unified backfill setup */}
-          <div className="rounded-xl border border-stone-200 bg-white p-4 dark:border-stone-800 dark:bg-stone-900 space-y-3">
+          <div className="rounded border border-stone-200/80 bg-white p-3.5 dark:border-stone-800 dark:bg-stone-900 space-y-2.5 shadow-none">
             <div>
               <p className="text-xs font-bold text-stone-900 dark:text-stone-100">Choose what to backfill</p>
               <p className="text-[11px] text-stone-500 mt-0.5">
@@ -175,7 +177,8 @@ export function HistoryBackfill() {
               </p>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
+            {/* 1-column layout for backfill streams with multiple rows */}
+            <div className="flex flex-col gap-1.5">
               {streamOptions.map((stream) => {
                 const selected = selectedStreams.includes(stream.id)
                 return (
@@ -185,34 +188,56 @@ export function HistoryBackfill() {
                     role="checkbox"
                     aria-checked={selected}
                     onClick={() => toggleStream(stream.id)}
-                    className={`flex min-h-16 items-start gap-2.5 rounded-lg border p-3 text-left transition-colors ${selected
-                      ? "border-stone-900 bg-stone-50 dark:border-stone-200 dark:bg-stone-800"
-                      : "border-stone-200 hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800/60"
+                    className={`flex items-start gap-2.5 rounded border px-3 py-2 text-left transition-colors ${
+                      selected
+                        ? "border-stone-900 bg-stone-50/90 dark:border-stone-200 dark:bg-stone-800"
+                        : "border-stone-200/90 hover:bg-stone-50 dark:border-stone-700 dark:hover:bg-stone-800/60"
                     }`}
                   >
-                    <span className={`mt-0.5 flex size-4 shrink-0 items-center justify-center rounded border ${selected
-                      ? "border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900"
-                      : "border-stone-300 dark:border-stone-600"
-                    }`}>
-                      {selected && <Check className="size-3" />}
+                    <span
+                      className={`mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded border ${
+                        selected
+                          ? "border-stone-900 bg-stone-900 text-white dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900"
+                          : "border-stone-300 dark:border-stone-600"
+                      }`}
+                    >
+                      {selected && <Check className="size-2.5" />}
                     </span>
-                    <span>
-                      <span className="block text-xs font-semibold">{streamNames[stream.id]}</span>
-                      <span className="mt-0.5 block text-[10px] leading-4 text-stone-500">{stream.description}</span>
-                    </span>
+                    <div className="min-w-0 flex-1 flex flex-col gap-0.5">
+                      <span className="text-xs font-bold text-stone-900 dark:text-stone-100 leading-snug">
+                        {streamNames[stream.id]}
+                      </span>
+                      <span className="text-[11px] text-stone-500 leading-snug">
+                        {stream.description}
+                      </span>
+                    </div>
                   </button>
                 )
               })}
             </div>
 
-            <div className="flex gap-3 text-[11px] font-medium">
-              <button type="button" onClick={() => setSelectedStreams(streamOptions.map((stream) => stream.id))} className="text-stone-700 hover:underline dark:text-stone-300">Select all</button>
-              <button type="button" onClick={() => setSelectedStreams([])} className="text-stone-500 hover:underline">Clear</button>
+            <div className="flex gap-3 text-[11px] font-medium pt-0.5">
+              <button
+                type="button"
+                onClick={() => setSelectedStreams(streamOptions.map((stream) => stream.id))}
+                className="text-stone-700 hover:underline dark:text-stone-300"
+              >
+                Select all
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedStreams([])}
+                className="text-stone-500 hover:underline"
+              >
+                Clear
+              </button>
             </div>
 
-            <div className={`space-y-2 border-t border-stone-100 pt-3 dark:border-stone-800 ${hasHistory ? "" : "opacity-45"}`}>
-              <span className="text-[11px] font-semibold text-stone-600 dark:text-stone-400">History timeframe</span>
-              <div className="flex flex-wrap gap-1.5">
+            <div className={`space-y-1.5 border-t border-stone-100 pt-2.5 dark:border-stone-800 ${hasHistory ? "" : "opacity-45"}`}>
+              <span className="text-[11px] font-semibold text-stone-600 dark:text-stone-400">
+                History timeframe
+              </span>
+              <div className="flex flex-wrap gap-1">
                 {[
                   { label: "1 week", value: 7 },
                   { label: "2 weeks", value: 14 },
@@ -228,7 +253,7 @@ export function HistoryBackfill() {
                       type="button"
                       disabled={!hasHistory}
                       onClick={() => setSelectedTimeframe(item.value as any)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium transition-all ${
+                      className={`px-2 py-0.5 rounded text-xs font-medium transition-all ${
                         isSel
                           ? "bg-[#191817] text-white shadow-2xs dark:bg-stone-100 dark:text-stone-900 font-semibold"
                           : "bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
@@ -241,7 +266,7 @@ export function HistoryBackfill() {
               </div>
 
               {selectedTimeframe === "custom" && (
-                <div className="pt-1.5 flex items-center gap-2">
+                <div className="pt-1 flex items-center gap-2">
                   <span className="text-xs text-stone-500 shrink-0">Cutoff:</span>
                   <input
                     type="date"
@@ -249,7 +274,7 @@ export function HistoryBackfill() {
                     onChange={(e) => setCustomDate(e.target.value)}
                     max={new Date().toISOString().split("T")[0]}
                     disabled={!hasHistory}
-                    className="h-7 px-2 text-xs rounded-md border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900"
+                    className="h-7 px-2 text-xs rounded border border-stone-300 dark:border-stone-700 bg-white dark:bg-stone-900"
                   />
                   <span className="text-[11px] text-stone-400">Audience sweeps always use current state.</span>
                 </div>
@@ -261,55 +286,55 @@ export function HistoryBackfill() {
                 onClick={startBackfill}
                 disabled={busy || selectedStreams.length === 0 || latest?.status === "running" || (hasHistory && selectedTimeframe === "custom" && !customDate)}
                 size="sm"
-                className="text-xs"
+                className="text-xs h-7.5 rounded px-3 bg-[#191817] hover:bg-[#302e2c] text-white"
               >
                 {busy ? <RefreshCw className="mr-1.5 size-3.5 animate-spin" /> : <Database className="mr-1.5 size-3.5" />}
                 Start selected{hasHistory ? ` (${timeframeLabel})` : ""}
               </Button>
               {latest?.status === "running" && (
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "pause")} className="text-xs">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "pause")} className="text-xs h-7.5 rounded px-2.5">
                   <Pause className="mr-1.5 size-3.5" /> Pause
                 </Button>
               )}
               {latest?.status === "paused" && (
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "resume")} className="text-xs">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "resume")} className="text-xs h-7.5 rounded px-2.5">
                   <Play className="mr-1.5 size-3.5" /> Resume
                 </Button>
               )}
               {(latest?.status === "running" || latest?.status === "paused") && (
-                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "cancel")} className="text-xs text-red-600 hover:text-red-700 dark:text-red-400">
+                <Button variant="outline" size="sm" disabled={busy} onClick={() => changeRun(latest, "cancel")} className="text-xs h-7.5 rounded px-2.5 text-red-600 hover:text-red-700 dark:text-red-400">
                   <Square className="mr-1.5 size-3.5" /> Stop
                 </Button>
               )}
             </div>
           </div>
 
-          {error && <p className="rounded-lg bg-red-50 p-3 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
+          {error && <p className="rounded bg-red-50 p-2.5 text-xs text-red-700 dark:bg-red-950/30 dark:text-red-300">{error}</p>}
 
           {latest ? (
-            <div className="space-y-3">
+            <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold capitalize">Latest run: {latest.status}</p>
-                  <p className="text-xs text-stone-500">{new Date(latest.startedAt).toLocaleString()}</p>
+                  <p className="text-xs font-semibold capitalize text-stone-900 dark:text-stone-100">Latest run: {latest.status}</p>
+                  <p className="text-[11px] text-stone-500">{new Date(latest.startedAt).toLocaleString()}</p>
                 </div>
-                <Button variant="ghost" size="icon" onClick={() => void load()} title="Refresh status">
-                  <RefreshCw className="size-4" />
+                <Button variant="ghost" size="icon" onClick={() => void load()} title="Refresh status" className="size-7 rounded">
+                  <RefreshCw className="size-3.5" />
                 </Button>
               </div>
 
               {latest.streams.map((stream) => (
-                <div key={stream.stream} className="rounded-xl border border-stone-200 bg-white p-3 dark:border-stone-800 dark:bg-stone-900">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-semibold">{streamNames[stream.stream] ?? stream.stream}</p>
-                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase ${
-                      stream.status === "complete" ? "bg-emerald-100 text-emerald-700" :
-                      stream.status === "failed" ? "bg-red-100 text-red-700" :
-                      stream.status === "unavailable" ? "bg-amber-100 text-amber-800" :
-                      "bg-sky-100 text-sky-700"
+                <div key={stream.stream} className="rounded border border-stone-200/80 bg-white p-2.5 dark:border-stone-800 dark:bg-stone-900 shadow-none">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-stone-900 dark:text-stone-100">{streamNames[stream.stream] ?? stream.stream}</p>
+                    <span className={`rounded px-1.5 py-0.5 text-[9.5px] font-semibold uppercase ${
+                      stream.status === "complete" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300" :
+                      stream.status === "failed" ? "bg-red-100 text-red-700 dark:bg-red-950/60 dark:text-red-300" :
+                      stream.status === "unavailable" ? "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300" :
+                      "bg-sky-100 text-sky-700 dark:bg-sky-950/60 dark:text-sky-300"
                     }`}>{stream.status}</span>
                   </div>
-                  <p className="mt-2 text-[11px] text-stone-500">
+                  <p className="mt-1 text-[11px] text-stone-500">
                     {stream.stream === "subscribers"
                       ? `${stream.items} subscribers checked · ${stream.newPeople} new people`
                       : stream.stream === "followers"

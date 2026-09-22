@@ -36,17 +36,17 @@ export function SettingsQueueTab({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Priority to Engage Section */}
-      <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-4">
+      <div className="rounded border border-stone-200/80 bg-white p-3.5 shadow-none dark:border-stone-800 dark:bg-stone-900 space-y-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="size-4 text-[#f15a3a]" />
-            <h3 className="font-bold text-stone-900 dark:text-stone-100 text-sm">
+            <Sparkles className="size-3.5 text-[#f15a3a]" />
+            <h3 className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-sm">
               "Priority to Engage" Criteria
             </h3>
           </div>
-          <span className="rounded-full bg-orange-50 text-[#f15a3a] border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 px-2 py-0.5 text-[10px] font-semibold">
+          <span className="rounded bg-orange-50 text-[#f15a3a] border border-orange-200 dark:bg-orange-950/40 dark:text-orange-300 px-1.5 py-0.5 text-[10px] font-semibold">
             Smart Queue
           </span>
         </div>
@@ -57,7 +57,7 @@ export function SettingsQueueTab({
         <Separator />
 
         {/* Rule 1: Return the Love */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <HeartHandshake className="size-3.5 text-emerald-600" />
             <span className="font-semibold text-stone-800 dark:text-stone-200">
@@ -67,7 +67,7 @@ export function SettingsQueueTab({
           <p className="text-muted-foreground text-[11px]">
             People who support your notes/posts, but haven't received reciprocal engagement back from you.
           </p>
-          <div className="grid grid-cols-2 gap-3 pt-1">
+          <div className="grid grid-cols-2 gap-2.5 pt-0.5">
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-stone-600 dark:text-stone-400">
                 Min Inbound Touches
@@ -78,7 +78,7 @@ export function SettingsQueueTab({
                 max={50}
                 value={q.minInbound}
                 onChange={(e) => updateQueueParam("minInbound", Math.max(1, Number(e.target.value)))}
-                className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+                className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
               />
             </div>
             <div className="space-y-1">
@@ -91,7 +91,7 @@ export function SettingsQueueTab({
                 max={10}
                 value={q.maxOutbound}
                 onChange={(e) => updateQueueParam("maxOutbound", Math.max(0, Number(e.target.value)))}
-                className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+                className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
               />
             </div>
           </div>
@@ -100,7 +100,7 @@ export function SettingsQueueTab({
         <Separator />
 
         {/* Rule 2: Super Amplifiers */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Repeat className="size-3.5 text-violet-600" />
             <span className="font-semibold text-stone-800 dark:text-stone-200">
@@ -110,7 +110,7 @@ export function SettingsQueueTab({
           <p className="text-muted-foreground text-[11px]">
             People who restacked your content, where you haven't engaged back with their notes since.
           </p>
-          <div className="max-w-xs pt-1 space-y-1">
+          <div className="max-w-xs pt-0.5 space-y-1">
             <label className="text-[11px] font-medium text-stone-600 dark:text-stone-400">
               Min Restacks Required
             </label>
@@ -120,7 +120,7 @@ export function SettingsQueueTab({
               max={20}
               value={q.minRestacks}
               onChange={(e) => updateQueueParam("minRestacks", Math.max(1, Number(e.target.value)))}
-              className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+              className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
             />
           </div>
         </div>
@@ -128,7 +128,7 @@ export function SettingsQueueTab({
         <Separator />
 
         {/* Rule 3: Drifting VIPs */}
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <div className="flex items-center gap-2">
             <Flame className="size-3.5 text-amber-500" />
             <span className="font-semibold text-stone-800 dark:text-stone-200">
@@ -138,7 +138,7 @@ export function SettingsQueueTab({
           <p className="text-muted-foreground text-[11px]">
             High-engagement supporters who haven't had an interaction in a while and need reconnection.
           </p>
-          <div className="grid grid-cols-3 gap-2.5 pt-1">
+          <div className="grid grid-cols-3 gap-2 pt-0.5">
             <div className="space-y-1">
               <label className="text-[11px] font-medium text-stone-600 dark:text-stone-400">
                 Min VIP Score
@@ -149,7 +149,7 @@ export function SettingsQueueTab({
                 max={100}
                 value={q.vipScoreThreshold}
                 onChange={(e) => updateQueueParam("vipScoreThreshold", Math.max(1, Number(e.target.value)))}
-                className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+                className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
               />
             </div>
             <div className="space-y-1">
@@ -162,7 +162,7 @@ export function SettingsQueueTab({
                 max={180}
                 value={q.driftingMinDays}
                 onChange={(e) => updateQueueParam("driftingMinDays", Math.max(7, Number(e.target.value)))}
-                className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+                className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
               />
             </div>
             <div className="space-y-1">
@@ -175,7 +175,7 @@ export function SettingsQueueTab({
                 max={365}
                 value={q.driftingMaxDays}
                 onChange={(e) => updateQueueParam("driftingMaxDays", Math.max(14, Number(e.target.value)))}
-                className="h-8 text-xs bg-stone-50 dark:bg-stone-950"
+                className="h-7.5 text-xs bg-stone-50 dark:bg-stone-950 rounded"
               />
             </div>
           </div>
@@ -183,13 +183,13 @@ export function SettingsQueueTab({
       </div>
 
       {/* Queue Rules Action Bar */}
-      <div className="p-4 rounded-xl border border-stone-200/80 bg-white dark:bg-stone-900 dark:border-stone-800 flex items-center justify-between shadow-2xs">
+      <div className="p-2.5 rounded border border-stone-200/80 bg-white dark:bg-stone-900 dark:border-stone-800 flex items-center justify-between shadow-none">
         <Button
           variant="ghost"
           size="sm"
           onClick={onReset}
           disabled={saving || loading}
-          className="text-stone-500 hover:text-stone-800 text-xs"
+          className="text-stone-500 hover:text-stone-800 text-xs h-7.5 px-2"
         >
           <RotateCcw className="size-3.5 mr-1" /> Reset Defaults
         </Button>
@@ -204,7 +204,7 @@ export function SettingsQueueTab({
             size="sm"
             onClick={onSave}
             disabled={saving || loading}
-            className="text-xs font-semibold bg-[#191817] hover:bg-[#302e2c] text-white px-4 h-8.5 rounded-full shadow-xs"
+            className="text-xs font-semibold bg-[#191817] hover:bg-[#302e2c] text-white px-3.5 h-7.5 rounded shadow-xs"
           >
             {saving ? "Saving…" : "Save Preferences"}
           </Button>

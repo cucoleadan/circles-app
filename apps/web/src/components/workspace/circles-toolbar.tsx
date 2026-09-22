@@ -72,7 +72,7 @@ export function CirclesToolbar({
               variant="outline"
               size="sm"
               onClick={() => onOpenSettings("queue")}
-              className="h-7 rounded-full text-xs font-medium border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-2xs hover:border-[#f15a3a]/50 text-stone-700 dark:text-stone-300"
+              className="h-7 rounded text-xs font-medium border-stone-200 dark:border-stone-800 bg-white dark:bg-stone-900 shadow-2xs hover:border-[#f15a3a]/50 text-stone-700 dark:text-stone-300"
               title="Adjust queue thresholds and rules"
             >
               <Settings className="size-3 mr-1 text-[#f15a3a]" />
@@ -85,7 +85,7 @@ export function CirclesToolbar({
             Showing {peopleCount} {peopleCount === 1 ? "person" : "people"}
           </span>
           {selectedListId && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100/80 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 px-2 py-0.5 text-[11px] font-medium">
+            <span className="inline-flex items-center gap-1 rounded bg-amber-100/80 dark:bg-amber-950/60 text-amber-900 dark:text-amber-200 px-1.5 py-0.5 text-[11px] font-medium">
               List: {lists.find((l) => l.id === selectedListId)?.name ?? "List"}
               <button
                 type="button"
@@ -98,7 +98,7 @@ export function CirclesToolbar({
             </span>
           )}
           {selectedTagId && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-indigo-100/80 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 px-2 py-0.5 text-[11px] font-medium">
+            <span className="inline-flex items-center gap-1 rounded bg-indigo-100/80 dark:bg-indigo-950/60 text-indigo-900 dark:text-indigo-200 px-1.5 py-0.5 text-[11px] font-medium">
               #{tags.find((t) => t.id === selectedTagId)?.name ?? "Tag"}
               <button
                 type="button"
@@ -111,7 +111,7 @@ export function CirclesToolbar({
             </span>
           )}
           {interactionFilter !== "all" && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+            <span className="inline-flex items-center gap-1 rounded bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
               Action: {interactionFilter}
               <button
                 type="button"
@@ -124,7 +124,7 @@ export function CirclesToolbar({
             </span>
           )}
           {dateRange !== "all" && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+            <span className="inline-flex items-center gap-1 rounded bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
               Active: {dateRangeOptions.find((o) => o.id === dateRange)?.label}
               <button
                 type="button"
@@ -137,7 +137,7 @@ export function CirclesToolbar({
             </span>
           )}
           {search.trim() && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
+            <span className="inline-flex items-center gap-1 rounded bg-stone-200/70 dark:bg-stone-800 px-1.5 py-0.5 text-[11px] font-medium text-stone-700 dark:text-stone-300">
               Search: "{search.trim()}"
               <button
                 type="button"

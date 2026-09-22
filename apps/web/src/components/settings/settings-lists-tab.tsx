@@ -110,28 +110,28 @@ export function SettingsListsTab({
   })
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Info banner */}
-      <div className="rounded-xl border border-stone-200/80 bg-white p-4 shadow-2xs dark:border-stone-800 dark:bg-stone-900 text-stone-600 dark:text-stone-400 text-xs space-y-1.5">
+      <div className="rounded border border-stone-200/80 bg-white p-3 shadow-none dark:border-stone-800 dark:bg-stone-900 text-stone-600 dark:text-stone-400 text-xs space-y-1">
         <div className="flex items-center gap-2 font-semibold text-stone-900 dark:text-stone-100">
-          <Bookmark className="size-4 text-[#f15a3a]" />
+          <Bookmark className="size-3.5 text-[#f15a3a]" />
           <span>Contact Lists &amp; Cohorts</span>
         </div>
-        <p className="text-[11.5px] leading-relaxed">
+        <p className="text-[11px] leading-relaxed">
           Lists help you organize your contacts into meaningful groups (such as Mentors, VIPs, or Ignored). Deleting a list unlinks contacts, but <strong>never deletes contacts or their interactions</strong>.
         </p>
       </div>
 
       {/* Create New List Card */}
-      <div className="rounded-2xl border border-stone-200/80 bg-white p-5 shadow-2xs dark:border-stone-800 dark:bg-stone-900 space-y-3.5">
+      <div className="rounded border border-stone-200/80 bg-white p-3.5 shadow-none dark:border-stone-800 dark:bg-stone-900 space-y-2.5">
         <div className="flex items-center gap-2">
-          <Plus className="size-4 text-[#f15a3a]" />
+          <Plus className="size-3.5 text-[#f15a3a]" />
           <h3 className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-sm">
             Create New List
           </h3>
         </div>
 
-        <form onSubmit={handleCreateListSubmit} className="space-y-3">
+        <form onSubmit={handleCreateListSubmit} className="space-y-2.5">
           <div>
             <label className="block text-[11px] font-semibold text-stone-600 dark:text-stone-400 mb-1">
               List Name <span className="text-rose-500">*</span>
@@ -143,7 +143,7 @@ export function SettingsListsTab({
                 setCreateListError(null)
               }}
               placeholder="e.g. VIPs, Collaborators, Advisers…"
-              className="text-xs h-8.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800"
+              className="text-xs h-8 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
             />
           </div>
           <div>
@@ -154,7 +154,7 @@ export function SettingsListsTab({
               value={newListDesc}
               onChange={(e) => setNewListDesc(e.target.value)}
               placeholder="e.g. Key relationships to check in with monthly…"
-              className="text-xs h-8.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800"
+              className="text-xs h-8 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
             />
           </div>
 
@@ -165,12 +165,12 @@ export function SettingsListsTab({
             </div>
           )}
 
-          <div className="flex justify-end pt-1">
+          <div className="flex justify-end pt-0.5">
             <Button
               type="submit"
               size="sm"
               disabled={creatingList || !newListName.trim()}
-              className="text-xs font-semibold bg-[#f15a3a] hover:bg-[#d94827] text-white h-8 px-4 rounded-full shadow-xs"
+              className="text-xs font-semibold bg-[#f15a3a] hover:bg-[#d94827] text-white h-7.5 px-3 rounded shadow-xs"
             >
               <Plus className="size-3.5 mr-1" />
               {creatingList ? "Creating…" : "Create List"}
@@ -180,13 +180,13 @@ export function SettingsListsTab({
       </div>
 
       {/* Lists Inventory */}
-      <div className="space-y-3">
+      <div className="space-y-2">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <h3 className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-sm">
               Your Lists
             </h3>
-            <span className="rounded-full bg-stone-200/80 dark:bg-stone-800 px-2 py-0.5 text-[10px] font-semibold text-stone-700 dark:text-stone-300">
+            <span className="rounded bg-stone-200/80 dark:bg-stone-800 px-1.5 py-0.2 text-[10px] font-semibold text-stone-700 dark:text-stone-300">
               {lists.length}
             </span>
           </div>
@@ -198,15 +198,15 @@ export function SettingsListsTab({
                 value={listSearch}
                 onChange={(e) => setListSearch(e.target.value)}
                 placeholder="Search lists…"
-                className="pl-7 h-7 text-[11px] bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded-lg"
+                className="pl-7 h-7 text-[11px] bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
               />
             </div>
           )}
         </div>
 
         {filteredLists.length === 0 ? (
-          <div className="rounded-xl border border-dashed border-stone-200 dark:border-stone-800 p-6 text-center text-stone-400">
-            <Bookmark className="size-6 mx-auto mb-2 text-stone-300 dark:text-stone-700" />
+          <div className="rounded border border-dashed border-stone-200 dark:border-stone-800 p-5 text-center text-stone-400">
+            <Bookmark className="size-5 mx-auto mb-1.5 text-stone-300 dark:text-stone-700" />
             <p className="text-xs font-medium">
               {lists.length === 0 ? "No lists created yet" : "No lists matching your search"}
             </p>
@@ -215,7 +215,7 @@ export function SettingsListsTab({
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {filteredLists.map((l) => {
               const isIgnored = l.name.toLowerCase() === "ignored"
               const isEditing = editingListId === l.id
@@ -224,7 +224,7 @@ export function SettingsListsTab({
                 return (
                   <div
                     key={l.id}
-                    className="rounded-xl border border-[#f15a3a]/40 bg-white p-3.5 shadow-2xs dark:border-[#f15a3a]/40 dark:bg-stone-900 space-y-3"
+                    className="rounded border border-[#f15a3a]/40 bg-white p-3 shadow-none dark:border-[#f15a3a]/40 dark:bg-stone-900 space-y-2"
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-stone-900 dark:text-stone-100 flex items-center gap-1.5">
@@ -239,7 +239,7 @@ export function SettingsListsTab({
                       </button>
                     </div>
 
-                    <div className="space-y-2">
+                    <div className="space-y-1.5">
                       <div>
                         <label className="block text-[10.5px] font-semibold text-stone-500 mb-0.5">
                           List Name
@@ -247,7 +247,7 @@ export function SettingsListsTab({
                         <Input
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
-                          className="text-xs h-7.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800"
+                          className="text-xs h-7.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
                         />
                       </div>
                       <div>
@@ -257,7 +257,7 @@ export function SettingsListsTab({
                         <Input
                           value={editingDesc}
                           onChange={(e) => setEditingDesc(e.target.value)}
-                          className="text-xs h-7.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800"
+                          className="text-xs h-7.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
                         />
                       </div>
                     </div>
@@ -268,14 +268,14 @@ export function SettingsListsTab({
                       </p>
                     )}
 
-                    <div className="flex items-center justify-end gap-2 pt-1">
+                    <div className="flex items-center justify-end gap-2 pt-0.5">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
                         disabled={updatingList}
                         onClick={cancelEditingList}
-                        className="h-7 text-xs px-2.5 rounded-md"
+                        className="h-7 text-xs px-2.5 rounded"
                       >
                         Cancel
                       </Button>
@@ -284,7 +284,7 @@ export function SettingsListsTab({
                         size="sm"
                         disabled={updatingList || !editingName.trim()}
                         onClick={() => handleUpdateListSubmit(l.id)}
-                        className="h-7 text-xs px-3 bg-[#191817] hover:bg-[#302e2c] text-white rounded-md font-semibold"
+                        className="h-7 text-xs px-3 bg-[#191817] hover:bg-[#302e2c] text-white rounded font-semibold"
                       >
                         {updatingList ? "Saving…" : "Save Changes"}
                       </Button>
@@ -296,30 +296,30 @@ export function SettingsListsTab({
               return (
                 <div
                   key={l.id}
-                  className="group rounded-xl border border-stone-200/80 bg-white p-3.5 shadow-2xs hover:border-stone-300 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-700 transition-all flex items-start justify-between gap-3"
+                  className="group rounded border border-stone-200/80 bg-white p-2.5 shadow-none hover:border-stone-300 dark:border-stone-800 dark:bg-stone-900 dark:hover:border-stone-700 transition-all flex items-start justify-between gap-2.5"
                 >
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <div className="flex items-center gap-1.5 flex-wrap">
                       {isIgnored ? (
                         <EyeOff className="size-3.5 text-rose-500 shrink-0" />
                       ) : (
-                        <Bookmark className="size-3.5 text-[#f15a3a] shrink-0" />
+                        <Bookmark className="size-3.5 text-[#f15a3a]" />
                       )}
                       <span className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-[13px]">
                         {l.name}
                       </span>
                       {isIgnored && (
-                        <span className="rounded-full bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.2 text-[9.5px] font-bold dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
+                        <span className="rounded bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.2 text-[9.5px] font-bold dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
                           Excluded from Queues
                         </span>
                       )}
-                      <span className="rounded-full bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700 px-2 py-0.2 text-[10px] font-semibold">
+                      <span className="rounded bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700 px-1.5 py-0.2 text-[9.5px] font-semibold">
                         {l.count} {l.count === 1 ? "contact" : "contacts"}
                       </span>
                     </div>
 
                     {l.description && (
-                      <p className="text-[11.5px] text-stone-500 dark:text-stone-400 line-clamp-2 pl-5">
+                      <p className="text-[11px] text-stone-500 dark:text-stone-400 line-clamp-2 pl-5">
                         {l.description}
                       </p>
                     )}
@@ -329,11 +329,11 @@ export function SettingsListsTab({
                     </p>
                   </div>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  <div className="flex items-center gap-0.5 shrink-0">
                     <button
                       type="button"
                       onClick={() => startEditingList(l)}
-                      className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:text-stone-200 dark:hover:bg-stone-800 transition-colors"
+                      className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:text-stone-200 dark:hover:bg-stone-800 transition-colors"
                       title="Edit list name or description"
                     >
                       <Edit2 className="size-3.5" />
@@ -341,7 +341,7 @@ export function SettingsListsTab({
                     <button
                       type="button"
                       onClick={() => setDeletingList(l)}
-                      className="p-1.5 rounded-lg text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 transition-colors"
+                      className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 transition-colors"
                       title="Delete list"
                     >
                       <Trash2 className="size-3.5" />
