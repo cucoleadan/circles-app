@@ -1083,9 +1083,29 @@ describe("interactions", () => {
       return p
     })
     const followerSnapshot = await withTenant({ appUserId: userA }, (client) =>
-      applyFollowerSnapshot(client, userA, [{ id: "1110001", handle: "follower_only" }])
+      applyFollowerSnapshot(client, userA, [
+        { id: "1110001", handle: "follower_only", isSubscribed: false },
+        {
+          id: "1110004",
+          handle: "imported_follower",
+          name: "Imported Follower",
+          photo_url: "https://example.com/imported.png",
+          isSubscribed: false,
+        },
+      ])
     )
-    expect(followerSnapshot.followers).toBe(1)
+    expect(followerSnapshot.followers).toBe(2)
+    expect(followerSnapshot.created).toBe(1)
+    const importedFollower = await withTenant({ appUserId: userA }, async (client) => {
+      const result = await client.query(
+        "select id from people where substack_profile_id = $1",
+        ["1110004"],
+      )
+      return result.rows[0]?.id ? getPerson(client, result.rows[0].id) : null
+    })
+    expect(importedFollower?.person.name).toBe("Imported Follower")
+    expect(importedFollower?.person.handle).toBe("imported_follower")
+    expect(importedFollower?.person.isFollower).toBe(true)
     const updatedFormerFollower = await withTenant({ appUserId: userA }, (client) =>
       getPerson(client, formerFollower.id)
     )

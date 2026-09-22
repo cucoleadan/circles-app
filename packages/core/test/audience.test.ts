@@ -13,13 +13,19 @@ describe("audience sync response normalization", () => {
       subscriberLists: [{
         id: "followers",
         groups: [{ users: [
-          { id: 42, handle: "reader", email: "private@example.com" },
+          { id: 42, handle: "reader", name: "Reader", photo_url: "https://example.com/reader.png", email: "private@example.com" },
           { id: 42, handle: "reader" },
           { handle: "missing-id" },
         ] }],
       }],
     })
-    expect(page.followers).toEqual([{ id: "42", handle: "reader", isSubscribed: false }])
+    expect(page.followers).toEqual([{
+      id: "42",
+      handle: "reader",
+      name: "Reader",
+      photo_url: "https://example.com/reader.png",
+      isSubscribed: false,
+    }])
     expect(page.skipped).toBe(1)
     expect(page.followers[0]).not.toHaveProperty("email")
   })
@@ -32,8 +38,8 @@ describe("audience sync response normalization", () => {
       ] }] }],
     })
     expect(page.followers).toEqual([
-      { id: "1", handle: "free-follow", isSubscribed: false },
-      { id: "2", handle: "newsletter", isSubscribed: true },
+      { id: "1", handle: "free-follow", name: null, photo_url: null, isSubscribed: false },
+      { id: "2", handle: "newsletter", name: null, photo_url: null, isSubscribed: true },
     ])
   })
 

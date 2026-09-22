@@ -23,6 +23,8 @@ export interface SubscriberStatsPage {
 export interface FollowerListItem {
   id: string
   handle: string | null
+  name?: string | null
+  photo_url?: string | null
   isSubscribed: boolean
 }
 
@@ -45,10 +47,13 @@ export function parseFollowerList(payload: unknown) {
           ? String(rawId).trim()
           : ""
         if (!id) { skipped++; continue }
+        const previous = followers.get(id)
         followers.set(id, {
           id,
-          handle: optionalString(user.handle),
-          isSubscribed: optionalBoolean(user.is_subscribed),
+          handle: optionalString(user.handle) ?? previous?.handle ?? null,
+          name: optionalString(user.name ?? user.user_name) ?? previous?.name ?? null,
+          photo_url: optionalString(user.photo_url ?? user.user_photo_url) ?? previous?.photo_url ?? null,
+          isSubscribed: optionalBoolean(user.is_subscribed) || previous?.isSubscribed === true,
         })
       }
     }
@@ -101,7 +106,7 @@ export async function applyFollowingSnapshot(
   }
 }
 
-/** Apply a complete follower snapshot to existing CRM contacts atomically. */
+/** Import and apply the owner's complete follower snapshot atomically. */
 export async function applyFollowerSnapshot(
   client: PoolClient,
   userId: string,
@@ -112,6 +117,78 @@ export async function applyFollowerSnapshot(
     .map((follower) => follower.handle ? normalizeHandle(follower.handle) : null)
     .filter((handle): handle is string => Boolean(handle))
   await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
+
+  let matched = 0
+  let created = 0
+  for (const follower of followers) {
+    const profileId = follower.id.trim()
+    if (!profileId) continue
+    const rawHandle = follower.handle?.trim().replace(/^@/, "") || null
+    const normalized = rawHandle ? normalizeHandle(rawHandle) : null
+    const existing = await client.query(
+      `select id from people
+       where user_id = $1 and archived_at is null
+         and (substack_profile_id = $2
+           or ($3::text is not null and normalized_handle = $3))
+       order by case when substack_profile_id = $2 then 0 else 1 end
+       limit 1`,
+      [userId, profileId, normalized],
+    )
+
+    if (existing.rows[0]) {
+      await client.query(
+        `update people
+         set is_follower = true,
+             substack_profile_id = coalesce(substack_profile_id, $2),
+             avatar_url = coalesce(avatar_url, $3),
+             follower_checked_at = now(),
+             updated_at = now()
+         where id = $1`,
+        [existing.rows[0].id, profileId, follower.photo_url ?? null],
+      )
+      matched++
+      continue
+    }
+
+    const personId = randomUUID()
+    const inserted = await client.query(
+      `insert into people
+          (id, user_id, name, handle, normalized_handle, profile_url,
+           substack_profile_id, avatar_url, is_follower, follower_checked_at, source)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, true, now(), 'followers')
+       on conflict do nothing`,
+      [
+        personId,
+        userId,
+        follower.name?.trim() || rawHandle || `Follower ${profileId}`,
+        rawHandle,
+        normalized,
+        normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null,
+        profileId,
+        follower.photo_url ?? null,
+      ],
+    )
+    if (!inserted.rowCount) {
+      const raced = await client.query(
+        `update people
+         set is_follower = true, follower_checked_at = now(), updated_at = now()
+         where user_id = $1 and archived_at is null
+           and (substack_profile_id = $2
+             or ($3::text is not null and normalized_handle = $3))`,
+        [userId, profileId, normalized],
+      )
+      matched += raced.rowCount ?? 0
+      continue
+    }
+    await client.query(
+      `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
+       values ($1, $2, 'new', now())
+       on conflict (person_id) do nothing`,
+      [personId, userId],
+    )
+    created++
+  }
+
   const result = await client.query(
     `with updated as (
        update people p
@@ -136,6 +213,9 @@ export async function applyFollowerSnapshot(
   return {
     checked: result.rows[0]?.checked ?? 0,
     followers: result.rows[0]?.followers ?? 0,
+    processed: followers.length,
+    matched,
+    created,
   }
 }
 

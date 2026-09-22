@@ -193,8 +193,10 @@ export async function processFollowerSyncBatch(
     return {
       completed: true,
       skipped: false,
-      checked: result.checked,
+      checked: result.processed,
       updated: result.followers,
+      created: result.created,
+      matched: result.matched,
       failed: page.skipped,
       remaining: 0,
       runStartedAt: runStartedAt.toISOString(),
@@ -246,7 +248,7 @@ async function recordAudienceImportProgress(
 ) {
   return withTenant(client, userId, async () => {
     const checked = Number(stream === "subscribers" ? result.processed : result.checked) || 0
-    const newPeople = Number(stream === "subscribers" ? result.created : 0) || 0
+    const newPeople = Number(stream === "subscribers" || stream === "followers" ? result.created : 0) || 0
     const invalid = Number(stream === "subscribers" ? result.invalid : result.failed) || 0
     const cursor = JSON.stringify({
       runStartedAt: result.runStartedAt,

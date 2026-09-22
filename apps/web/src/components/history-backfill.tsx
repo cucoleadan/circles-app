@@ -312,8 +312,10 @@ export function HistoryBackfill() {
                   <p className="mt-2 text-[11px] text-stone-500">
                     {stream.stream === "subscribers"
                       ? `${stream.items} subscribers checked · ${stream.newPeople} new people`
-                      : stream.stream === "followers" || stream.stream === "following"
-                        ? `${stream.items} contacts checked`
+                      : stream.stream === "followers"
+                        ? `${stream.items} followers imported · ${stream.newPeople} new people`
+                        : stream.stream === "following"
+                          ? `${stream.items} contacts checked`
                         : stream.stream === "missing_handles"
                           ? `${stream.items} contacts checked · ${stream.newPeople} handles recovered`
                         : `${stream.items} items · ${stream.newInteractions} new interactions · ${stream.newPeople} people`}
