@@ -67,6 +67,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     )
     expect(reschedule).toBeDefined()
 
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(true)
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:followers")).toBe(true)
+
     // Verify job was marked as done
     const doneUpdate = executedQueries.find((q) =>
       q.sql.includes("update jobs set status = 'done'")
@@ -267,6 +270,49 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     )).toBe(true)
   })
 
+  test("marks the connection expired and dead-letters a 401 job", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-401",
+      type: "sync:subscribers",
+      payload: JSON.stringify({
+        userId: "user-1",
+        connectionId: "conn-1",
+        offset: 0,
+        runStartedAt: "2026-09-21T10:00:00.000Z",
+      }),
+      attempts: 0,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        onSubscriberSync: async () => {
+          const error: any = new Error("Substack subscriber API failed (401)")
+          error.status = 401
+          throw error
+        },
+      })
+    } finally {
+      console.error = originalError
+    }
+
+    expect(executedQueries.some((query) =>
+      query.sql.includes("update substack_connections set status = 'expired'"),
+    )).toBe(true)
+    const dead = executedQueries.find((query) => query.sql.includes("status = 'dead'"))
+    expect(dead?.params?.[1]).toBe("Substack session expired")
+  })
+
   test("sync:activity reschedule uses deduplication clause", async () => {
     const executedQueries: { sql: string; params?: any[] }[] = []
     const mockJob = {
@@ -295,5 +341,101 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(reschedule).toBeDefined()
     expect(reschedule?.params?.[1]).toBe("conn-1")
   })
-})
 
+  test("subscriber sync schedules the next page as a durable job", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-subscribers",
+      type: "sync:subscribers",
+      payload: JSON.stringify({
+        userId: "user-1",
+        connectionId: "conn-1",
+        offset: 0,
+        runStartedAt: "2026-09-21T10:00:00.000Z",
+      }),
+      attempts: 0,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onSubscriberSync: async () => ({
+        completed: false,
+        nextOffset: 100,
+        total: 250,
+        processed: 100,
+        matched: 80,
+        created: 20,
+        invalid: 0,
+        deactivated: 0,
+        runStartedAt: "2026-09-21T10:00:00.000Z",
+      }),
+    })
+
+    const nextPage = executedQueries.find((query) =>
+      query.sql.includes("'sync:subscribers'") && query.sql.includes("2 seconds")
+    )
+    expect(nextPage).toBeDefined()
+    expect(JSON.parse(nextPage?.params?.[0] ?? "{}")).toMatchObject({
+      offset: 100,
+      processed: 100,
+      matched: 80,
+      created: 20,
+      runStartedAt: "2026-09-21T10:00:00.000Z",
+    })
+  })
+
+  test("manual follower sweeps continue in paced background batches", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockJob = {
+      id: "job-followers",
+      type: "sync:followers",
+      payload: JSON.stringify({
+        userId: "user-1",
+        connectionId: "conn-1",
+        runStartedAt: "2026-09-21T10:00:00.000Z",
+        fullSweep: true,
+        limit: 20,
+      }),
+      attempts: 0,
+      max_attempts: 5,
+    }
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [mockJob] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onFollowerSync: async () => ({
+        completed: false,
+        checked: 20,
+        updated: 19,
+        failed: 1,
+        remaining: 40,
+        runStartedAt: "2026-09-21T10:00:00.000Z",
+      }),
+    })
+
+    const nextBatch = executedQueries.find((query) =>
+      query.sql.includes("'sync:followers'") && query.sql.includes("5 seconds")
+    )
+    expect(nextBatch).toBeDefined()
+    expect(JSON.parse(nextBatch?.params?.[0] ?? "{}")).toMatchObject({
+      checked: 20,
+      updated: 19,
+      failed: 1,
+      fullSweep: true,
+    })
+  })
+})

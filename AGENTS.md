@@ -77,10 +77,12 @@ schema, or assume application code starts before its migration succeeds.
 Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
-Current latest migration at the time of writing is `017_audience_sync_progress.sql`.
-Migration `017_audience_sync_progress.sql` separates follower-check progress
-from the false follower state so audience sweeps can cover every eligible
-contact without repeatedly selecting the same people.
+Current latest migration at the time of writing is
+`018_subscriber_sync_progress.sql`. Migration `018_subscriber_sync_progress.sql`
+adds authoritative subscriber-sweep progress so completed refreshes can clear
+stale memberships safely. Migration `017_audience_sync_progress.sql` separates
+follower-check progress from the false follower state so audience sweeps can
+cover every eligible contact without repeatedly selecting the same people.
 Migration `011_interaction_target_context.sql` preserves the content acted on by
 Likes/restacks, repairs it from retained evidence, and soft-removes proven
 duplicate active actions. Migration `010_substack_request_pacing.sql` spaces

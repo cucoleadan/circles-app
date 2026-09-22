@@ -4,6 +4,11 @@ import {
   createSubstackClient,
   ingestActivityBatch,
   normalizeActivityPage,
+  parseFollowerRunStartedAt,
+  parseSubscriberStatsPage,
+  reconcileSubscriberSnapshot,
+  shouldAbortFollowerSweep,
+  upsertSubscribersBatch,
   type ActivityItemInput,
 } from "@workspace/core"
 import {
@@ -86,6 +91,153 @@ export async function withTenant<T>(
     await client.query("rollback")
     throw error
   }
+}
+
+function substackResponseError(message: string, status: number) {
+  const error = new Error(`${message} (${status})`) as Error & { status: number }
+  error.status = status
+  return error
+}
+
+export async function processSubscriberSyncPage(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  offset = 0,
+  runStartedAtValue?: unknown,
+) {
+  const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
+  return withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select ciphertext, publication_url, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const conn = connection.rows[0]
+    if (!conn || conn.status !== "active") return { completed: true, skipped: true }
+    const publicationUrl = String(conn.publication_url ?? "").replace(/\/$/, "")
+    if (!publicationUrl) throw new Error("Publication URL is not set on the active connection")
+
+    const response = await fetch(`${publicationUrl}/api/v1/subscriber-stats`, {
+      method: "POST",
+      headers: {
+        cookie: `substack.sid=${conn.ciphertext}`,
+        "content-type": "application/json",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+      },
+      body: JSON.stringify({ limit: 100, offset }),
+    })
+    if (!response.ok) throw substackResponseError("Substack subscriber API failed", response.status)
+
+    const page = parseSubscriberStatsPage(await response.json())
+    const batch = await upsertSubscribersBatch(
+      client,
+      userId,
+      page.subscribers,
+      new Date().toISOString(),
+    )
+    const nextOffset = offset + page.received
+    const completed = page.received === 0 || nextOffset >= page.total
+    const deactivated = completed
+      ? await reconcileSubscriberSnapshot(client, userId, runStartedAt.toISOString())
+      : 0
+    return {
+      completed,
+      skipped: false,
+      nextOffset,
+      total: page.total,
+      processed: page.subscribers.length,
+      matched: batch.matched,
+      created: batch.created,
+      invalid: page.skipped + batch.skipped,
+      deactivated,
+      runStartedAt: runStartedAt.toISOString(),
+    }
+  })
+}
+
+export async function processFollowerSyncBatch(
+  client: PoolClient,
+  userId: string,
+  connectionId: string,
+  runStartedAtValue: unknown,
+  limit = 20,
+) {
+  const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
+  return withTenant(client, userId, async () => {
+    const connection = await client.query(
+      `select ciphertext, publication_url, status
+       from substack_connections where id = $1 and user_id = $2`,
+      [connectionId, userId],
+    )
+    const conn = connection.rows[0]
+    if (!conn || conn.status !== "active") {
+      return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0, remaining: 0 }
+    }
+    const sdk = createSubstackClient({
+      sessionToken: conn.ciphertext,
+      publicationUrl: conn.publication_url,
+    })
+    const people = await client.query(
+      `select p.id, p.normalized_handle, p.substack_profile_id
+       from people p
+       left join relationship_stats s on s.person_id = p.id
+       where p.user_id = $1 and p.archived_at is null
+         and (p.normalized_handle is not null or p.substack_profile_id is not null)
+         and (p.follower_checked_at is null or p.follower_checked_at < $3::timestamptz)
+       order by p.follower_checked_at asc nulls first,
+                coalesce(s.engagement_score, 0) desc, p.id
+       limit $2`,
+      [userId, Math.max(1, Math.min(limit, 50)), runStartedAt.toISOString()],
+    )
+
+    let updated = 0
+    let failed = 0
+    for (const person of people.rows) {
+      try {
+        const profile: any = person.normalized_handle
+          ? await sdk.getPublicProfile(person.normalized_handle)
+          : await sdk.getProfileById(person.substack_profile_id)
+        if (typeof profile?.followsViewer === "boolean") {
+          await client.query(
+            `update people set is_follower = $2, follower_checked_at = now(), updated_at = now()
+             where id = $1`,
+            [person.id, profile.followsViewer],
+          )
+          updated++
+        } else {
+          failed++
+          await client.query("update people set follower_checked_at = now() where id = $1", [person.id])
+        }
+      } catch (error) {
+        if (shouldAbortFollowerSweep(error)) throw error
+        failed++
+        await client.query("update people set follower_checked_at = now() where id = $1", [person.id])
+      } finally {
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      }
+    }
+
+    const progress = await client.query(
+      `select count(*) filter (
+         where follower_checked_at is null or follower_checked_at < $2::timestamptz
+       )::int as remaining
+       from people
+       where user_id = $1 and archived_at is null
+         and (normalized_handle is not null or substack_profile_id is not null)`,
+      [userId, runStartedAt.toISOString()],
+    )
+    const remaining = progress.rows[0]?.remaining ?? 0
+    return {
+      completed: remaining === 0,
+      skipped: false,
+      checked: people.rows.length,
+      updated,
+      failed,
+      remaining,
+      runStartedAt: runStartedAt.toISOString(),
+    }
+  })
 }
 
 export async function processActivitySync(
@@ -665,6 +817,20 @@ export interface JobHandlers {
   ) => Promise<{ skipped: boolean }>
   onImport?: (client: PoolClient, userId: string, importRunId: string, stream?: HistoryStream) => Promise<{ completed: boolean }>
   onEnrich?: (client: PoolClient, userId: string, personId: string) => Promise<unknown>
+  onSubscriberSync?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+    offset: number,
+    runStartedAt: unknown,
+  ) => Promise<any>
+  onFollowerSync?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+    runStartedAt: unknown,
+    limit: number,
+  ) => Promise<any>
 }
 
 export async function claimAndRunJob(
@@ -715,7 +881,10 @@ export async function claimAndRunJob(
 
     // Execute job
     const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload
-    const { userId, connectionId, importRunId, personId, stream, outboundStage } = payload
+    const {
+      userId, connectionId, importRunId, personId, stream, outboundStage,
+      offset, runStartedAt, fullSweep, limit,
+    } = payload
 
     try {
       if (job.type === "sync:activity") {
@@ -755,6 +924,49 @@ export async function claimAndRunJob(
               ],
             )
           }
+          const audienceJobs = [
+            {
+              type: "sync:subscribers",
+              delay: 60,
+              payload: {
+                userId,
+                connectionId,
+                offset: 0,
+                runStartedAt: new Date().toISOString(),
+                manual: false,
+              },
+            },
+            {
+              type: "sync:followers",
+              delay: 70,
+              payload: {
+                userId,
+                connectionId,
+                runStartedAt: new Date().toISOString(),
+                fullSweep: false,
+                manual: false,
+                limit: 50,
+              },
+            },
+          ]
+          for (const audience of audienceJobs) {
+            await client.query(
+              `insert into jobs (type, payload, status, run_at)
+               select $1, $2, 'pending', now() + ($3 || ' seconds')::interval
+               where not exists (
+                 select 1 from jobs existing
+                 where existing.type = $1
+                   and existing.status in ('pending', 'running')
+                   and existing.payload->>'connectionId' = $4
+               )`,
+              [
+                audience.type,
+                JSON.stringify(audience.payload),
+                audience.delay,
+                connectionId,
+              ],
+            )
+          }
           await client.query(
             `insert into jobs (type, payload, status, run_at)
              select 'sync:activity', $1, 'pending', now() + interval '15 minutes'
@@ -773,6 +985,61 @@ export async function claimAndRunJob(
           : await processScheduledHistorySync(client, userId, connectionId, stream, outboundStage)
         if (result.skipped) {
           console.log(`[Circles Worker] Skipped ${stream} sync for inactive connection ${connectionId}.`)
+        }
+      } else if (job.type === "sync:subscribers") {
+        const result = handlers?.onSubscriberSync
+          ? await handlers.onSubscriberSync(client, userId, connectionId, Number(offset ?? 0), runStartedAt)
+          : await processSubscriberSyncPage(client, userId, connectionId, Number(offset ?? 0), runStartedAt)
+        const totals = {
+          processed: Number(payload.processed ?? 0) + Number(result.processed ?? 0),
+          matched: Number(payload.matched ?? 0) + Number(result.matched ?? 0),
+          created: Number(payload.created ?? 0) + Number(result.created ?? 0),
+          invalid: Number(payload.invalid ?? 0) + Number(result.invalid ?? 0),
+          deactivated: Number(payload.deactivated ?? 0) + Number(result.deactivated ?? 0),
+        }
+        if (!result.completed) {
+          await client.query(
+            `insert into jobs (type, payload, status, run_at)
+             values ('sync:subscribers', $1, 'pending', now() + interval '2 seconds')`,
+            [JSON.stringify({
+              ...payload,
+              offset: result.nextOffset,
+              total: result.total,
+              runStartedAt: result.runStartedAt ?? runStartedAt,
+              ...totals,
+            })],
+          )
+        } else if (!result.skipped) {
+          console.log(
+            `[Circles Worker] Subscriber sync complete: ${totals.processed} processed, ` +
+              `${totals.matched} matched, ${totals.created} created, ` +
+              `${totals.deactivated} unsubscribed, ${totals.invalid} skipped.`,
+          )
+        }
+      } else if (job.type === "sync:followers") {
+        const result = handlers?.onFollowerSync
+          ? await handlers.onFollowerSync(client, userId, connectionId, runStartedAt, Number(limit ?? 20))
+          : await processFollowerSyncBatch(client, userId, connectionId, runStartedAt, Number(limit ?? 20))
+        const totals = {
+          checked: Number(payload.checked ?? 0) + Number(result.checked ?? 0),
+          updated: Number(payload.updated ?? 0) + Number(result.updated ?? 0),
+          failed: Number(payload.failed ?? 0) + Number(result.failed ?? 0),
+        }
+        if (fullSweep === true && !result.completed) {
+          await client.query(
+            `insert into jobs (type, payload, status, run_at)
+             values ('sync:followers', $1, 'pending', now() + interval '5 seconds')`,
+            [JSON.stringify({
+              ...payload,
+              runStartedAt: result.runStartedAt ?? runStartedAt,
+              ...totals,
+            })],
+          )
+        } else if (!result.skipped) {
+          console.log(
+            `[Circles Worker] Follower sync ${fullSweep === true ? "complete" : "batch complete"}: ` +
+              `${totals.checked} checked, ${totals.updated} updated, ${totals.failed} unverifiable.`,
+          )
         }
       } else if (job.type === "import:history") {
         const result = handlers?.onImport
@@ -841,26 +1108,59 @@ export async function claimAndRunJob(
         [job.id, leaseToken]
       )
     } catch (jobError: any) {
-      console.error(`[Circles Worker] Job ${job.id} (${job.type}) failed:`, jobError.message)
+      console.error(`[Circles Worker] Job ${job.id} (${job.type}) failed:`, jobError?.message)
+      const errorMessage = String(jobError?.message || "Unknown worker error")
+      const isUnauthorized = jobError?.status === 401 ||
+        jobError?.statusCode === 401 ||
+        /\b401\b/.test(errorMessage)
+      const sessionExpired = isUnauthorized || /\bexpired\b/i.test(errorMessage)
+      const failureMessage = sessionExpired ? "Substack session expired" : errorMessage
+
+      // The request transaction has already rolled back at this point, so
+      // persist expiry in a fresh tenant transaction instead of losing it.
+      if (sessionExpired && userId && connectionId) {
+        try {
+          await withTenant(client, userId, async () => {
+            await client.query(
+              "update substack_connections set status = 'expired', updated_at = now() where id = $1",
+              [connectionId],
+            )
+            await client.query(
+              "update sync_state set status = 'error', error = 'Substack session expired', updated_at = now() where connection_id = $1",
+              [connectionId],
+            )
+          })
+        } catch (expiryError: any) {
+          console.error(
+            `[Circles Worker] Could not persist expired status for connection ${connectionId}:`,
+            expiryError?.message,
+          )
+        }
+      }
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
-        String(jobError?.message || "").includes("429")
+        errorMessage.includes("429")
       const isDead = (
         !isRateLimited && job.attempts + 1 >= job.max_attempts
-      ) || jobError.message?.includes("expired")
+      ) || sessionExpired
 
       if (isDead) {
         await client.query(
           "update jobs set status = 'dead', last_error = $2, updated_at = now() where id = $1",
-          [job.id, jobError.message]
+          [job.id, failureMessage]
         )
         if (job.type === "import:history" && userId && importRunId) {
           await withTenant(client, userId, async () => {
             await client.query(
               `update import_run_streams
-               set status = 'failed', finish_reason = 'retry_limit', error = $3, updated_at = now()
+               set status = 'failed', finish_reason = $4, error = $3, updated_at = now()
                where import_run_id = $1 and stream = $2 and status = 'running'`,
-              [importRunId, stream ?? "activity", jobError.message],
+              [
+                importRunId,
+                stream ?? "activity",
+                failureMessage,
+                sessionExpired ? "session_expired" : "retry_limit",
+              ],
             )
             await finishImportIfReady(client, importRunId)
           })
@@ -876,7 +1176,7 @@ export async function claimAndRunJob(
                last_error = $3,
                updated_at = now()
            where id = $1`,
-          [job.id, retryDelaySeconds, jobError.message]
+          [job.id, retryDelaySeconds, failureMessage]
         )
         if (job.type === "import:history" && userId && importRunId) {
           await withTenant(client, userId, async () => {
@@ -889,7 +1189,7 @@ export async function claimAndRunJob(
                 stream ?? "activity",
                 isRateLimited
                   ? `Substack rate limit; retrying in ${retryDelaySeconds} seconds`
-                  : jobError.message,
+                  : failureMessage,
               ],
             )
           })
@@ -904,7 +1204,7 @@ export async function claimAndRunJob(
                 stream,
                 isRateLimited
                   ? `Substack rate limit; retrying in ${retryDelaySeconds} seconds`
-                  : jobError.message,
+                  : failureMessage,
               ],
             )
           })

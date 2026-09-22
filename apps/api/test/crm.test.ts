@@ -24,13 +24,14 @@ import {
   recordInteraction,
   refreshPersonStats,
   getPerson,
-  upsertSubscribersBatch,
   circlesOverview,
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
 import {
   ingestActivityBatch,
   ingestConversationReplies,
+  upsertSubscribersBatch,
+  reconcileSubscriberSnapshot,
 } from "@workspace/core"
 import { ext } from "../src/routes/ext.js"
 import { v1 } from "../src/routes/v1.js"
@@ -1052,7 +1053,20 @@ describe("interactions", () => {
     expect(followsNotSub.some((p) => p.id === follower.id)).toBe(true)
     expect(followsNotSub.some((p) => p.id === ignoredPerson.id)).toBe(false)
 
-    // 6. Test upsertSubscribersBatch - converts follower to subscriber
+    // 6. Test an authoritative subscriber sweep in both directions.
+    const staleSubscriber = await withTenant({ appUserId: userA }, async (client) => {
+      const p = await createPerson(client, userA, {
+        name: "Former Subscriber",
+        handle: "@former_subscriber",
+        substackProfileId: "1110002",
+      })
+      await client.query(
+        "update people set is_subscriber = true, subscriber_checked_at = now() - interval '1 day' where id = $1",
+        [p.id],
+      )
+      return p
+    })
+    const runStartedAt = new Date(Date.now() - 1_000).toISOString()
     const batchRes = await withTenant({ appUserId: userA }, (client) =>
       upsertSubscribersBatch(client, userA, [
         {
@@ -1060,16 +1074,25 @@ describe("interactions", () => {
           name: "Follower Only",
           subscription_type: "paid",
         },
-      ])
+      ], new Date().toISOString())
     )
     expect(batchRes.matched).toBe(1)
+    const deactivated = await withTenant({ appUserId: userA }, (client) =>
+      reconcileSubscriberSnapshot(client, userA, runStartedAt)
+    )
+    expect(deactivated).toBe(1)
 
-    // 7. Verify follower is now subscribed and no longer in follows-not-subscribed view
+    // 7. Verify the current subscriber stays subscribed and the missing one is cleared.
     const updatedFollower = await withTenant({ appUserId: userA }, (client) =>
       getPerson(client, follower.id)
     )
     expect(updatedFollower?.person.isSubscriber).toBe(true)
     expect(updatedFollower?.person.subscriptionTier).toBe("paid")
+    const updatedStaleSubscriber = await withTenant({ appUserId: userA }, (client) =>
+      getPerson(client, staleSubscriber.id)
+    )
+    expect(updatedStaleSubscriber?.person.isSubscriber).toBe(false)
+    expect(updatedStaleSubscriber?.person.subscriptionTier).toBeNull()
 
     const followsNotSubAfter = await withTenant({ appUserId: userA }, (client) =>
       listPeople(client, { view: "follows-not-subscribed" })
