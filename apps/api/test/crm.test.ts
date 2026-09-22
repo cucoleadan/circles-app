@@ -179,6 +179,18 @@ describe("transactional edits", () => {
     )
     expect(lists).toHaveLength(1)
     expect(lists[0]).toMatchObject({ id: list.id, name: "Inner circle", count: 1 })
+
+    const personDetail = await withTenant({ appUserId: userA }, (client) =>
+      getPerson(client, person.id)
+    )
+    expect(personDetail?.lists[0]).toMatchObject({ id: list.id, name: "Inner circle" })
+    expect(personDetail?.lists[0]?.createdAt).toBeTruthy()
+
+    const peopleList = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { listId: list.id })
+    )
+    expect(peopleList[0]?.lists?.[0]).toMatchObject({ id: list.id, name: "Inner circle" })
+    expect(peopleList[0]?.lists?.[0]?.createdAt).toBeTruthy()
   })
 
   test("a failed membership insert rolls back the whole edit", async () => {

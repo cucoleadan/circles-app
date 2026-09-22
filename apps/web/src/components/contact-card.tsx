@@ -1,5 +1,11 @@
 import { ArrowDownLeft, ArrowUpRight, Bookmark, Clock, MessageSquare } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
+import { formatListTooltip } from "../lib/date-format"
 import type { Person } from "../lib/types"
 import {
   formatDate,
@@ -212,13 +218,19 @@ export function ContactCard({
       {((person.lists && person.lists.length > 0) || (person.tags && person.tags.length > 0)) && (
         <div className="mt-3 pt-2.5 border-t border-stone-100 dark:border-stone-800/80 flex flex-wrap items-center gap-1">
           {(person.lists ?? []).map((l) => (
-            <span
-              key={l.id}
-              className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:text-stone-300"
-            >
-              <Bookmark className="size-2.5 text-stone-400" />
-              {l.name}
-            </span>
+            <Tooltip key={l.id}>
+              <TooltipTrigger asChild>
+                <span
+                  className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:text-stone-300 cursor-default"
+                >
+                  <Bookmark className="size-2.5 text-stone-400" />
+                  {l.name}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="z-[70] text-xs">
+                {formatListTooltip(l.name, l.createdAt)}
+              </TooltipContent>
+            </Tooltip>
           ))}
 
           {(person.tags ?? []).map((t) => (

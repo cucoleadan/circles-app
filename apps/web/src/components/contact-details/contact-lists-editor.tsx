@@ -9,6 +9,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@workspace/ui/components/select"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
+import { formatListTooltip } from "../../lib/date-format"
 import type { ListRecord, Person } from "../../lib/types"
 
 export function ContactListsEditor({
@@ -40,7 +46,7 @@ export function ContactListsEditor({
       if (!res.ok) throw new Error("Failed to add to list")
       const currentLists = person.lists ?? []
       if (!currentLists.some((l) => l.id === listId)) {
-        const updatedLists = [...currentLists, { id: listId, name: targetList.name }]
+        const updatedLists = [...currentLists, { id: listId, name: targetList.name, createdAt: new Date().toISOString() }]
         onPersonUpdated({ ...person, lists: updatedLists })
       }
       setSelectedListToAdd("")
@@ -109,20 +115,26 @@ export function ContactListsEditor({
       </h4>
       <div className="flex flex-wrap gap-1">
         {(person.lists ?? []).map((l) => (
-          <span
-            key={l.id}
-            className="inline-flex items-center gap-1 rounded border border-stone-200 bg-white px-2 py-0.5 text-xs font-medium text-stone-800 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200 shadow-none"
-          >
-            {l.name}
-            <button
-              type="button"
-              onClick={() => removeFromList(l.id)}
-              className="text-stone-400 hover:text-destructive transition-colors ml-0.5"
-              title={`Remove from ${l.name}`}
-            >
-              <X className="size-3" />
-            </button>
-          </span>
+          <Tooltip key={l.id}>
+            <TooltipTrigger asChild>
+              <span
+                className="inline-flex items-center gap-1 rounded border border-stone-200 bg-white px-2 py-0.5 text-xs font-medium text-stone-800 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200 shadow-none cursor-default"
+              >
+                {l.name}
+                <button
+                  type="button"
+                  onClick={() => removeFromList(l.id)}
+                  className="text-stone-400 hover:text-destructive transition-colors ml-0.5 cursor-pointer"
+                  title={`Remove from ${l.name}`}
+                >
+                  <X className="size-3" />
+                </button>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="z-[70] text-xs">
+              {formatListTooltip(l.name, l.createdAt)}
+            </TooltipContent>
+          </Tooltip>
         ))}
         {(!person.lists || person.lists.length === 0) && (
           <span className="text-xs text-muted-foreground italic">Not on any list</span>

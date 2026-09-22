@@ -45,6 +45,7 @@ export interface PersonTag {
 export interface PersonList {
   id: string
   name: string
+  createdAt?: string | null
 }
 
 export interface Person {
@@ -435,7 +436,7 @@ export async function listPeople(
          where pt.person_id = p.id
        ), '[]'::json) as tags,
        coalesce((
-         select json_agg(json_build_object('id', l.id, 'name', l.name) order by lower(l.name))
+         select json_agg(json_build_object('id', l.id, 'name', l.name, 'createdAt', lm.created_at) order by lower(l.name))
          from list_members lm join lists l on l.id = lm.list_id
          where lm.person_id = p.id
        ), '[]'::json) as lists
@@ -517,7 +518,7 @@ export async function getPerson(
     [personId]
   )
   const lists = await client.query(
-    `select l.id, l.name from list_members lm
+    `select l.id, l.name, lm.created_at as "createdAt" from list_members lm
        join lists l on l.id = lm.list_id
       where lm.person_id = $1 order by lower(l.name)`,
     [personId]

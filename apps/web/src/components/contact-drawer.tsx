@@ -81,7 +81,7 @@ export function ContactDrawer({
             headers: { "content-type": "application/json" },
             body: JSON.stringify({ personId: person.id }),
           })
-          const updatedLists = [...(person.lists ?? []), { id: ignoredList.id, name: ignoredList.name }]
+          const updatedLists = [...(person.lists ?? []), { id: ignoredList.id, name: ignoredList.name, createdAt: new Date().toISOString() }]
           onPersonUpdated({ ...person, lists: updatedLists })
         }
       }
@@ -103,7 +103,7 @@ export function ContactDrawer({
       if (!res.ok) throw new Error("Failed to add to list")
       const currentLists = person.lists ?? []
       if (!currentLists.some((l) => l.id === listId)) {
-        const updatedLists = [...currentLists, { id: listId, name: targetList.name }]
+        const updatedLists = [...currentLists, { id: listId, name: targetList.name, createdAt: new Date().toISOString() }]
         onPersonUpdated({ ...person, lists: updatedLists })
       }
     } catch (err) {

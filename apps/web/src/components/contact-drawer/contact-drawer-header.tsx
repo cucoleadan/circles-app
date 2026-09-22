@@ -7,6 +7,12 @@ import {
   SelectTrigger,
 } from "@workspace/ui/components/select"
 import { SheetDescription, SheetTitle } from "@workspace/ui/components/sheet"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
+import { formatListTooltip } from "../../lib/date-format"
 import type { ListRecord, Person } from "../../lib/types"
 
 function initials(name: string) {
@@ -190,16 +196,22 @@ export function ContactDrawerHeader({
             <div className="flex flex-wrap items-center gap-1">
               {/* List tags */}
               {person.lists?.map((l) => (
-                <span
-                  key={l.id}
-                  className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-medium border ${
-                    l.name.toLowerCase() === "ignored"
-                      ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400"
-                      : "border-stone-200 bg-stone-100/90 text-stone-700 dark:border-stone-800 dark:bg-stone-800/90 dark:text-stone-300"
-                  }`}
-                >
-                  {l.name.toLowerCase() === "ignored" ? "🚫 Ignored" : l.name}
-                </span>
+                <Tooltip key={l.id}>
+                  <TooltipTrigger asChild>
+                    <span
+                      className={`inline-flex items-center rounded px-1.5 py-0.5 text-[10.5px] font-medium border cursor-default ${
+                        l.name.toLowerCase() === "ignored"
+                          ? "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-400"
+                          : "border-stone-200 bg-stone-100/90 text-stone-700 dark:border-stone-800 dark:bg-stone-800/90 dark:text-stone-300"
+                      }`}
+                    >
+                      {l.name.toLowerCase() === "ignored" ? "🚫 Ignored" : l.name}
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top" className="z-[70] text-xs">
+                    {formatListTooltip(l.name, l.createdAt)}
+                  </TooltipContent>
+                </Tooltip>
               ))}
 
               {/* Relationship 1-word tags */}

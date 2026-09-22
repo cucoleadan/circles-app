@@ -72,7 +72,7 @@ export function AddContactDialog({
             if (listObj) {
               createdPerson = {
                 ...createdPerson,
-                lists: [{ id: listObj.id, name: listObj.name }],
+                lists: [{ id: listObj.id, name: listObj.name, createdAt: new Date().toISOString() }],
               }
             }
           }
