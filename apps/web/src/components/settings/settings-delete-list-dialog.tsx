@@ -1,5 +1,11 @@
 import { AlertTriangle } from "lucide-react"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import type { ListRecord } from "../../lib/types"
 
 export function SettingsDeleteListDialog({
@@ -13,23 +19,24 @@ export function SettingsDeleteListDialog({
   onConfirm: () => void
   onCancel: () => void
 }) {
-  if (!list) return null
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in">
-      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-stone-900 p-5 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4">
+    <Dialog open={Boolean(list)} onOpenChange={(open) => { if (!open) onCancel() }}>
+      <DialogContent
+        className="w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-white dark:bg-stone-900 p-5 shadow-2xl border border-stone-200 dark:border-stone-800 space-y-4"
+        showCloseButton={false}
+      >
         <div className="flex items-start gap-3">
           <span className="p-2 rounded-xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 dark:text-rose-400 shrink-0">
             <AlertTriangle className="size-5" />
           </span>
           <div className="space-y-1">
-            <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
-              Delete "{list.name}"?
-            </h4>
-            <p className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
+            <DialogTitle className="text-sm font-bold text-stone-900 dark:text-stone-100">
+              Delete "{list?.name}"?
+            </DialogTitle>
+            <DialogDescription className="text-xs text-stone-600 dark:text-stone-400 leading-relaxed">
               This list currently contains{" "}
-              <strong>{list.count} {list.count === 1 ? "contact" : "contacts"}</strong>.
-            </p>
+              <strong>{list?.count} {list?.count === 1 ? "contact" : "contacts"}</strong>.
+            </DialogDescription>
           </div>
         </div>
 
@@ -61,7 +68,7 @@ export function SettingsDeleteListDialog({
             {isDeleting ? "Deleting…" : "Delete List"}
           </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }

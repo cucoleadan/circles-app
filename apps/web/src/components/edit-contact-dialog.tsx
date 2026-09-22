@@ -15,6 +15,12 @@ import {
 
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import { Input } from "@workspace/ui/components/input"
 import {
   Select,
@@ -83,7 +89,7 @@ export function EditContactDialog({
     }
   }, [open, person])
 
-  if (!open) return null
+  if (!person) return null
 
   async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -149,10 +155,10 @@ export function EditContactDialog({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in">
-      <div
-        className="w-full max-w-lg rounded-2xl bg-white dark:bg-stone-900 shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        className="w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white dark:bg-stone-900 shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0"
+        showCloseButton={false}
       >
         {/* Modal Header */}
         <div className="p-5 pb-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between bg-stone-50/70 dark:bg-stone-950/40">
@@ -161,12 +167,12 @@ export function EditContactDialog({
               <UserCog className="size-4" />
             </span>
             <div>
-              <h3 className="font-bold text-stone-900 dark:text-stone-100 text-sm sm:text-base">
+              <DialogTitle className="font-bold text-stone-900 dark:text-stone-100 text-sm sm:text-base">
                 Edit Contact Profile
-              </h3>
-              <p className="text-xs text-stone-500 dark:text-stone-400">
+              </DialogTitle>
+              <DialogDescription className="text-xs text-stone-500 dark:text-stone-400">
                 Update account handle, Substack links, and profile details.
-              </p>
+              </DialogDescription>
             </div>
           </div>
           <button
@@ -391,7 +397,7 @@ export function EditContactDialog({
             </div>
           </div>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
