@@ -443,16 +443,16 @@ export async function processActivitySync(
       throw err
     }
 
-    const fifteenMinutesAgo = new Date(Date.now() - 15 * 60 * 1000)
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000)
     const allItems: ActivityItemInput[] = normalizeActivityPage(activityPage)
     await preserveActivityEvidence(client, userId, connectionId, "sdk", activityPage)
 
-    // Only ingest items occurring within the past 15 minutes for periodic sync
+    // Only ingest items occurring within the past 3 hours for periodic sync
     const items = allItems.filter((item) => {
       const ts = item.created_at || item.createdAt || item.updated_at
       if (!ts) return false
       const d = new Date(ts)
-      return !Number.isNaN(d.getTime()) && d >= fifteenMinutesAgo
+      return !Number.isNaN(d.getTime()) && d >= threeHoursAgo
     })
 
     // 4. Ingest items into interactions & refresh people
@@ -481,7 +481,7 @@ export async function processActivitySync(
       `update sync_state
        set cursor = coalesce($2, cursor),
            last_synced_at = now(),
-           next_run_at = now() + interval '15 minutes',
+           next_run_at = now() + interval '3 hours',
            status = 'idle',
            error = null,
            updated_at = now()
@@ -533,7 +533,7 @@ export async function processScheduledHistorySync(
       ownerId: conn.profile_id,
       source: "sdk" as const,
     }
-    const recentCutoff = new Date(Date.now() - 15 * 60 * 1000)
+    const recentCutoff = new Date(Date.now() - 3 * 60 * 60 * 1000)
     const result = stream === "owned_notes"
       ? await syncOwnedNotesPage(client, sdk, context, null, 1, recentCutoff)
       : stream === "owned_posts"
@@ -1094,19 +1094,8 @@ export async function claimAndRunJob(
           }
           const audienceJobs = [
             {
-              type: "sync:subscribers",
-              delay: 60,
-              payload: {
-                userId,
-                connectionId,
-                offset: 0,
-                runStartedAt: new Date().toISOString(),
-                manual: false,
-              },
-            },
-            {
               type: "sync:followers",
-              delay: 70,
+              delay: 60,
               payload: {
                 userId,
                 connectionId,
@@ -1118,7 +1107,7 @@ export async function claimAndRunJob(
             },
             {
               type: "sync:following",
-              delay: 80,
+              delay: 70,
               payload: { userId, connectionId, manual: false },
             },
           ]
@@ -1142,7 +1131,7 @@ export async function claimAndRunJob(
           }
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             select 'sync:activity', $1, 'pending', now() + interval '15 minutes'
+             select 'sync:activity', $1, 'pending', now() + interval '3 hours'
              where not exists (
                select 1 from jobs existing
                where existing.type = 'sync:activity'

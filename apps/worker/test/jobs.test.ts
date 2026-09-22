@@ -61,13 +61,13 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(leaseUpdate?.params?.[0]).toBe("job-101")
     expect(leaseUpdate?.params?.[1]).toBe("test-worker-1")
 
-    // Verify next sync job was rescheduled for 15 minutes
+    // Verify next sync job was rescheduled for 3 hours
     const reschedule = executedQueries.find((q) =>
-      q.sql.includes("insert into jobs") && q.sql.includes("15 minutes")
+      q.sql.includes("insert into jobs") && q.sql.includes("3 hours")
     )
     expect(reschedule).toBeDefined()
 
-    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(true)
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(false)
     expect(executedQueries.some((q) => q.params?.[0] === "sync:followers")).toBe(true)
 
     // Verify job was marked as done
