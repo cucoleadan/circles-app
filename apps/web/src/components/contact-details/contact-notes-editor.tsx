@@ -39,9 +39,9 @@ export function ContactNotesEditor({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <div className="flex items-center justify-between">
-        <label htmlFor="drawer-notes" className="text-xs font-semibold">
+        <label htmlFor="drawer-notes" className="text-xs font-semibold text-stone-800 dark:text-stone-200">
           Private CRM Notes
         </label>
         <span className="text-[10px] text-muted-foreground">
@@ -57,14 +57,14 @@ export function ContactNotesEditor({
         value={notes}
         onChange={(e) => setNotes(e.target.value)}
         placeholder="Notes about shared interests, past conversations, context…"
-        className="min-h-32 text-xs leading-relaxed bg-white dark:bg-stone-900"
+        className="min-h-24 text-xs leading-relaxed bg-white dark:bg-stone-900 rounded"
       />
       <Button
         size="sm"
         variant="outline"
         onClick={saveNotes}
         disabled={savingNotes}
-        className="text-xs"
+        className="text-xs h-7 rounded px-3"
       >
         {savingNotes ? "Saving…" : "Save Notes"}
       </Button>

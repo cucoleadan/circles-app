@@ -144,13 +144,13 @@ export function ContactDrawer({
               onClose={() => onOpenChange(false)}
             />
 
-            {/* Navigation Tabs */}
-            <div className="px-6 pb-4 pt-1">
-              <div className="grid grid-cols-2 gap-1 p-1 bg-stone-100/80 dark:bg-stone-800/60 rounded-xl text-xs">
+            {/* Navigation Tabs (Compact & Less Rounded) */}
+            <div className="px-4 pb-2 pt-0.5">
+              <div className="grid grid-cols-2 gap-1 p-0.5 bg-stone-100/90 dark:bg-stone-800/80 rounded text-xs">
                 <button
                   type="button"
                   onClick={() => setActiveTab("timeline")}
-                  className={`py-1.5 rounded-lg font-medium transition-all ${
+                  className={`py-1 rounded font-medium transition-all ${
                     activeTab === "timeline"
                       ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                       : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
@@ -161,7 +161,7 @@ export function ContactDrawer({
                 <button
                   type="button"
                   onClick={() => setActiveTab("details")}
-                  className={`py-1.5 rounded-lg font-medium transition-all ${
+                  className={`py-1 rounded font-medium transition-all ${
                     activeTab === "details"
                       ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
                       : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
@@ -173,10 +173,10 @@ export function ContactDrawer({
             </div>
           </SheetHeader>
 
-          {/* Drawer Body Area */}
-          <div className="flex-1 overflow-y-auto p-6">
+          {/* Drawer Body Area (Tightened padding & spacing) */}
+          <div className="flex-1 overflow-y-auto px-4 py-2.5">
             {activeTab === "timeline" && (
-              <div className="space-y-6">
+              <div className="space-y-2.5">
                 <ProfileBreakdown person={person} />
                 <Timeline personId={person.id} personName={person.name} />
               </div>
@@ -194,13 +194,13 @@ export function ContactDrawer({
             )}
           </div>
 
-          {/* Footer Actions */}
-          <div className="p-4 border-t border-stone-200/80 bg-white dark:bg-stone-900 dark:border-stone-800 flex items-center justify-between">
+          {/* Footer Actions (Compact) */}
+          <div className="px-4 py-2 border-t border-stone-200/80 bg-white dark:bg-stone-900 dark:border-stone-800 flex items-center justify-between">
             <Button
               variant="ghost"
               size="sm"
               onClick={archivePerson}
-              className="text-stone-400 hover:text-destructive text-xs"
+              className="text-stone-400 hover:text-destructive text-xs h-7 px-2"
             >
               <Archive className="size-3.5 mr-1" />
               Archive Contact

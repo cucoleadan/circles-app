@@ -63,15 +63,15 @@ export function ContactTagsEditor({
   )
 
   return (
-    <div className="space-y-3">
-      <h4 className="text-xs font-semibold flex items-center gap-1.5">
-        <Tag className="size-3.5" /> Tags
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold flex items-center gap-1.5 text-stone-800 dark:text-stone-200">
+        <Tag className="size-3.5 text-stone-500" /> Tags
       </h4>
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap gap-1">
         {(person.tags ?? []).map((t) => (
           <span
             key={t.id}
-            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium border shadow-2xs"
+            className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium border shadow-none"
             style={{
               backgroundColor: t.color ? `${t.color}15` : "#635bff15",
               borderColor: t.color ? `${t.color}40` : "#635bff40",

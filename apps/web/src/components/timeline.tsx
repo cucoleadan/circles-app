@@ -111,7 +111,7 @@ export function Timeline({
 
   if (error) {
     return (
-      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-xs text-destructive">
+      <div className="rounded border border-destructive/20 bg-destructive/5 p-2.5 text-xs text-destructive">
         {error}
       </div>
     )
@@ -119,9 +119,9 @@ export function Timeline({
 
   if (interactions.length === 0) {
     return (
-      <div className="rounded-2xl border border-dashed border-stone-200 p-8 text-center text-sm text-muted-foreground dark:border-stone-800">
+      <div className="rounded border border-dashed border-stone-200 p-5 text-center text-xs text-muted-foreground dark:border-stone-800">
         <p className="font-medium text-stone-700 dark:text-stone-300">No interaction history yet</p>
-        <p className="mt-1 text-xs">
+        <p className="mt-1 text-[11px]">
           When {personName} interacts on Substack or when you reach out, actions will appear here.
         </p>
       </div>
@@ -129,15 +129,15 @@ export function Timeline({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-2.5">
       {/* Filter Chips Bar */}
-      <div className="flex flex-wrap items-center gap-1.5 pb-2 border-b border-stone-100 dark:border-stone-800">
+      <div className="flex flex-wrap items-center gap-1 pb-1.5 border-b border-stone-100 dark:border-stone-800">
         <button
           type="button"
           onClick={() => setFilter("all")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "all"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
           }`}
         >
@@ -146,9 +146,9 @@ export function Timeline({
         <button
           type="button"
           onClick={() => setFilter("restacks")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "restacks"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-violet-50 text-violet-800 hover:bg-violet-100 dark:bg-violet-950/50 dark:text-violet-300"
           }`}
         >
@@ -157,9 +157,9 @@ export function Timeline({
         <button
           type="button"
           onClick={() => setFilter("comments")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "comments"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-emerald-50 text-emerald-800 hover:bg-emerald-100 dark:bg-emerald-950/50 dark:text-emerald-300"
           }`}
         >
@@ -168,9 +168,9 @@ export function Timeline({
         <button
           type="button"
           onClick={() => setFilter("likes")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "likes"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-rose-50 text-rose-800 hover:bg-rose-100 dark:bg-rose-950/50 dark:text-rose-300"
           }`}
         >
@@ -179,9 +179,9 @@ export function Timeline({
         <button
           type="button"
           onClick={() => setFilter("inbound")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "inbound"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
           }`}
         >
@@ -190,9 +190,9 @@ export function Timeline({
         <button
           type="button"
           onClick={() => setFilter("outbound")}
-          className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all ${
+          className={`rounded px-2 py-0.5 text-[10.5px] font-medium transition-all ${
             filter === "outbound"
-              ? "bg-[#191817] text-white shadow-2xs"
+              ? "bg-[#191817] text-white shadow-2xs font-semibold"
               : "bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300"
           }`}
         >
@@ -201,19 +201,19 @@ export function Timeline({
       </div>
 
       {filteredInteractions.length === 0 ? (
-        <div className="py-8 text-center text-xs text-stone-500">
+        <div className="py-6 text-center text-xs text-stone-500">
           <p>No interactions match this filter.</p>
           <Button
             variant="outline"
             size="sm"
             onClick={() => setFilter("all")}
-            className="mt-2 text-xs h-7 rounded-full"
+            className="mt-2 text-xs h-6.5 rounded px-2.5"
           >
             Show All
           </Button>
         </div>
       ) : (
-        <div className="relative pl-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
+        <div className="relative pl-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
           {filteredInteractions.map((item) => (
             <TimelineItem key={item.id} item={item} personName={personName} />
           ))}
@@ -221,13 +221,13 @@ export function Timeline({
       )}
 
       {nextCursor && (
-        <div className="pt-2 text-center">
+        <div className="pt-1 text-center">
           <Button
             variant="outline"
             size="sm"
             onClick={loadMore}
             disabled={loadingMore}
-            className="text-xs rounded-full h-8 px-4 font-medium"
+            className="text-xs rounded h-7 px-3 font-medium"
           >
             {loadingMore ? "Loading older interactions…" : "Load older interactions"}
           </Button>

@@ -105,9 +105,9 @@ export function TimelineItem({
   const isInbound = item.direction === "inbound"
 
   return (
-    <div className="relative pb-6 last:pb-2">
+    <div className="relative pb-2.5 last:pb-1">
       <span
-        className={`absolute -left-6 top-1 flex size-5 items-center justify-center rounded-full border text-[10px] ${
+        className={`absolute -left-5 top-0.5 flex size-4 items-center justify-center rounded border text-[9px] ${
           isInbound
             ? "border-emerald-300 bg-emerald-100 text-emerald-800"
             : "border-sky-300 bg-sky-100 text-sky-800"
@@ -115,39 +115,39 @@ export function TimelineItem({
         title={isInbound ? "Inbound (from them)" : "Outbound (from you)"}
       >
         {isInbound ? (
-          <ArrowDownLeft className="size-3" />
+          <ArrowDownLeft className="size-2.5" />
         ) : (
-          <ArrowUpRight className="size-3" />
+          <ArrowUpRight className="size-2.5" />
         )}
       </span>
 
-      <div className="rounded-xl border border-stone-200/80 bg-white/70 p-3.5 shadow-xs transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-          <div className="flex items-center gap-2">
+      <div className="rounded border border-stone-200/80 bg-white/70 p-2.5 shadow-none transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
+        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
+          <div className="flex items-center gap-1.5">
             <span
-              className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold ${badge.color}`}
+              className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10.5px] font-semibold ${badge.color}`}
             >
-              <Icon className="size-3" />
+              <Icon className="size-2.5" />
               {badge.label}
               <span className="opacity-75 font-normal">+{badge.pts}</span>
             </span>
-            <span className="text-[11px] font-medium text-stone-500">
+            <span className="text-[10.5px] font-medium text-stone-500 truncate max-w-[220px]">
               {interactionLabel(item, personName)}
             </span>
           </div>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[10.5px] text-muted-foreground shrink-0">
             {formatDate(item.occurredAt)}
           </span>
         </div>
 
         {item.body && (
-          <p className="mt-2.5 whitespace-pre-wrap text-xs leading-relaxed text-stone-800 dark:text-stone-200 font-sans">
+          <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-stone-800 dark:text-stone-200 font-sans">
             {item.body}
           </p>
         )}
 
         {(item.targetTitle || item.targetBody || item.targetUrl || item.actionType === "like") && (
-          <div className="mt-2.5 border-t border-stone-100 pt-2 text-[11px] text-muted-foreground dark:border-stone-800">
+          <div className="mt-1.5 border-t border-stone-100 pt-1.5 text-[10.5px] text-muted-foreground dark:border-stone-800">
             <div className="flex items-center gap-1.5">
               <span className="truncate font-medium text-stone-600 dark:text-stone-400">
                 {item.targetTitle || (item.targetBody ? targetLabel(item.targetType) : "Target content unavailable")}
@@ -159,12 +159,12 @@ export function TimelineItem({
                   rel="noreferrer"
                   className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[#f15a3a] hover:underline"
                 >
-                  View <ExternalLink className="size-3" />
+                  View <ExternalLink className="size-2.5" />
                 </a>
               )}
             </div>
             {item.targetBody && (
-              <blockquote className="mt-1.5 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-stone-200 pl-2 leading-relaxed text-stone-600 dark:border-stone-700 dark:text-stone-400">
+              <blockquote className="mt-1 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-stone-200 pl-2 leading-relaxed text-stone-600 dark:border-stone-700 dark:text-stone-400">
                 {item.targetBody}
               </blockquote>
             )}

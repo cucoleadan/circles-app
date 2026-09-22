@@ -103,13 +103,15 @@ export function ContactListsEditor({
   )
 
   return (
-    <div className="space-y-3">
-      <h4 className="text-xs font-semibold flex items-center gap-1.5">Lists</h4>
-      <div className="flex flex-wrap gap-1.5">
+    <div className="space-y-2">
+      <h4 className="text-xs font-semibold flex items-center gap-1.5 text-stone-800 dark:text-stone-200">
+        Lists
+      </h4>
+      <div className="flex flex-wrap gap-1">
         {(person.lists ?? []).map((l) => (
           <span
             key={l.id}
-            className="inline-flex items-center gap-1 rounded-full border border-stone-200 bg-white px-2.5 py-1 text-xs font-medium text-stone-800 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200 shadow-2xs"
+            className="inline-flex items-center gap-1 rounded border border-stone-200 bg-white px-2 py-0.5 text-xs font-medium text-stone-800 dark:border-stone-800 dark:bg-stone-900 dark:text-stone-200 shadow-none"
           >
             {l.name}
             <button

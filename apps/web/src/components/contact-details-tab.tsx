@@ -37,7 +37,7 @@ export function ContactDetailsTab({
   onOpenEditProfile?: () => void
 }) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-3">
       {/* Private Notes */}
       <ContactNotesEditor person={person} onPersonUpdated={onPersonUpdated} />
 
@@ -63,7 +63,7 @@ export function ContactDetailsTab({
       <Separator />
 
       {/* Profile & Substack Identity */}
-      <div className="space-y-3 rounded-xl border border-stone-200/80 bg-white/70 p-4 dark:border-stone-800 dark:bg-stone-900/40">
+      <div className="space-y-2 rounded border border-stone-200/80 bg-white/70 p-2.5 dark:border-stone-800 dark:bg-stone-900/40">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-semibold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
             <User className="size-3.5 text-stone-500" /> Profile &amp; Substack Info
@@ -74,15 +74,15 @@ export function ContactDetailsTab({
               variant="outline"
               size="sm"
               onClick={onOpenEditProfile}
-              className="h-7 text-[11px] px-2 gap-1 border-stone-200 dark:border-stone-700 hover:text-[#f15a3a]"
+              className="h-6.5 text-[10.5px] px-2 gap-1 rounded border-stone-200 dark:border-stone-700 hover:text-[#f15a3a]"
             >
               <Edit2 className="size-3 text-[#f15a3a]" /> Edit Profile
             </Button>
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
-          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+          <div className="rounded bg-stone-50/80 dark:bg-stone-950/40 p-2 border border-stone-100 dark:border-stone-800/80">
             <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
               Substack Handle
             </span>
@@ -95,7 +95,7 @@ export function ContactDetailsTab({
             </div>
           </div>
 
-          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+          <div className="rounded bg-stone-50/80 dark:bg-stone-950/40 p-2 border border-stone-100 dark:border-stone-800/80">
             <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
               Substack Profile ID
             </span>
@@ -106,7 +106,7 @@ export function ContactDetailsTab({
             </div>
           </div>
 
-          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+          <div className="rounded bg-stone-50/80 dark:bg-stone-950/40 p-2 border border-stone-100 dark:border-stone-800/80">
             <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
               Profile URL
             </span>
@@ -127,7 +127,7 @@ export function ContactDetailsTab({
             </div>
           </div>
 
-          <div className="rounded-lg bg-stone-50/80 dark:bg-stone-950/40 p-2.5 border border-stone-100 dark:border-stone-800/80">
+          <div className="rounded bg-stone-50/80 dark:bg-stone-950/40 p-2 border border-stone-100 dark:border-stone-800/80">
             <span className="text-muted-foreground block text-[10px] uppercase font-semibold tracking-wider">
               Publication URL
             </span>
@@ -154,31 +154,31 @@ export function ContactDetailsTab({
       <Separator />
 
       {/* Relationship Timestamps */}
-      <div className="space-y-2.5 rounded-xl border border-stone-200/80 bg-white/60 p-4 dark:border-stone-800 dark:bg-stone-900/40">
+      <div className="space-y-2 rounded border border-stone-200/80 bg-white/60 p-2.5 dark:border-stone-800 dark:bg-stone-900/40">
         <h4 className="text-xs font-semibold text-stone-700 dark:text-stone-300">
           Key Timestamps
         </h4>
-        <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="grid grid-cols-2 gap-2.5 text-xs">
           <div>
-            <span className="text-muted-foreground block text-[11px]">First Contact</span>
+            <span className="text-muted-foreground block text-[10.5px]">First Contact</span>
             <span className="font-medium text-stone-800 dark:text-stone-200">
               {formatDate(person.firstInteractedAt || person.createdAt)}
             </span>
           </div>
           <div>
-            <span className="text-muted-foreground block text-[11px]">Last Conversation</span>
+            <span className="text-muted-foreground block text-[10.5px]">Last Conversation</span>
             <span className="font-medium text-stone-800 dark:text-stone-200">
               {formatDate(person.lastConversationAt)}
             </span>
           </div>
           <div>
-            <span className="text-muted-foreground block text-[11px]">Last Inbound (From them)</span>
+            <span className="text-muted-foreground block text-[10.5px]">Last Inbound (From them)</span>
             <span className="font-medium text-emerald-700 dark:text-emerald-400">
               {formatDate(person.lastInboundAt)}
             </span>
           </div>
           <div>
-            <span className="text-muted-foreground block text-[11px]">Last Outbound (You)</span>
+            <span className="text-muted-foreground block text-[10.5px]">Last Outbound (You)</span>
             <span className="font-medium text-sky-700 dark:text-sky-400">
               {formatDate(person.lastOutboundAt)}
             </span>

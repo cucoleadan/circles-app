@@ -157,17 +157,17 @@ export function EditContactDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="w-[calc(100%-2rem)] max-w-lg rounded-2xl bg-white dark:bg-stone-900 shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0"
+        className="w-[calc(100%-2rem)] max-w-lg rounded-md bg-white dark:bg-stone-900 shadow-2xl border border-stone-200 dark:border-stone-800 overflow-hidden flex flex-col max-h-[90vh] p-0 gap-0"
         showCloseButton={false}
       >
         {/* Modal Header */}
-        <div className="p-5 pb-4 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between bg-stone-50/70 dark:bg-stone-950/40">
-          <div className="flex items-center gap-2.5">
-            <span className="flex size-8 items-center justify-center rounded-xl bg-orange-100 text-[#f15a3a] dark:bg-orange-950/60 shadow-2xs">
-              <UserCog className="size-4" />
+        <div className="p-3.5 pb-3 border-b border-stone-200/80 dark:border-stone-800 flex items-center justify-between bg-stone-50/70 dark:bg-stone-950/40">
+          <div className="flex items-center gap-2">
+            <span className="flex size-7 items-center justify-center rounded bg-orange-100 text-[#f15a3a] dark:bg-orange-950/60">
+              <UserCog className="size-3.5" />
             </span>
             <div>
-              <DialogTitle className="font-bold text-stone-900 dark:text-stone-100 text-sm sm:text-base">
+              <DialogTitle className="font-bold text-stone-900 dark:text-stone-100 text-sm">
                 Edit Contact Profile
               </DialogTitle>
               <DialogDescription className="text-xs text-stone-500 dark:text-stone-400">
@@ -178,38 +178,38 @@ export function EditContactDialog({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="p-1.5 rounded-lg text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 dark:hover:text-stone-200 dark:hover:bg-stone-800 transition-colors"
+            className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-200/60 dark:hover:text-stone-200 dark:hover:bg-stone-800 transition-colors"
           >
             <X className="size-4" />
           </button>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 space-y-4 text-xs">
+        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-3.5 space-y-3 text-xs">
           {error && (
-            <div className="flex items-start gap-2 p-3 rounded-xl bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/60 text-xs">
+            <div className="flex items-start gap-2 p-2.5 rounded bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-900/60 text-xs">
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          <fieldset className="rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-950/40">
+          <fieldset className="rounded border border-stone-200 bg-stone-50/70 p-2.5 dark:border-stone-800 dark:bg-stone-950/40">
             <legend className="px-1 text-[11px] font-bold text-stone-800 dark:text-stone-200">
               Substack relationship
             </legend>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
               {[
                 ["Follows you", isFollower, setIsFollower],
                 ["You follow", isFollowing, setIsFollowing],
                 ["Subscribed to you", isSubscriber, setIsSubscriber],
                 ["You subscribe", isSubscribedTo, setIsSubscribedTo],
               ].map(([label, checked, setChecked]) => (
-                <label key={String(label)} className="flex cursor-pointer items-center gap-2 rounded-lg border border-stone-200 bg-white px-3 py-2 font-medium dark:border-stone-800 dark:bg-stone-900">
+                <label key={String(label)} className="flex cursor-pointer items-center gap-2 rounded border border-stone-200 bg-white px-2.5 py-1.5 font-medium dark:border-stone-800 dark:bg-stone-900 text-xs">
                   <input
                     type="checkbox"
                     checked={Boolean(checked)}
                     onChange={(event) => (setChecked as (value: boolean) => void)(event.target.checked)}
-                    className="size-4 accent-stone-900"
+                    className="size-3.5 accent-stone-900 rounded"
                   />
                   {label as string}
                 </label>
@@ -366,7 +366,7 @@ export function EditContactDialog({
           </div>
 
           {/* Modal Footer */}
-          <div className="pt-4 border-t border-stone-200/80 dark:border-stone-800 flex items-center justify-between">
+          <div className="pt-3 border-t border-stone-200/80 dark:border-stone-800 flex items-center justify-between">
             <div>
               {successNotice && (
                 <span className="text-xs text-emerald-600 font-semibold flex items-center gap-1">
@@ -382,7 +382,7 @@ export function EditContactDialog({
                 size="sm"
                 disabled={saving}
                 onClick={() => onOpenChange(false)}
-                className="text-xs rounded-lg"
+                className="text-xs rounded h-7 px-3"
               >
                 Cancel
               </Button>
@@ -390,7 +390,7 @@ export function EditContactDialog({
                 type="submit"
                 size="sm"
                 disabled={saving || !name.trim()}
-                className="text-xs font-semibold bg-[#191817] hover:bg-[#302e2c] text-white rounded-lg shadow-xs px-4"
+                className="text-xs font-semibold bg-[#191817] hover:bg-[#302e2c] text-white rounded shadow-xs h-7 px-3.5"
               >
                 {saving ? "Saving…" : "Save Changes"}
               </Button>
