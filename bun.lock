@@ -74,7 +74,7 @@
     },
     "extension": {
       "name": "circles-extension",
-      "version": "0.2.5",
+      "version": "0.2.6",
       "devDependencies": {
         "@types/chrome": "^0.2.5",
         "esbuild": "^0.28.1",
@@ -86,7 +86,7 @@
       "version": "0.0.0",
       "dependencies": {
         "pg": "^8.23.0",
-        "unofficial-substack-sdk": "0.3.15",
+        "unofficial-substack-sdk": "0.3.16",
         "zod": "^4.6.5",
       },
       "devDependencies": {
@@ -1830,7 +1830,7 @@
 
     "universalify": ["universalify@2.0.1", "", {}, "sha512-gptHNQghINnc/vTGIk0SOFGFNXw7JVrlRUtConJRlvaw6DuX0wO5Jeko9sWrMBhh+PsYAZ7oXAiOnf/UKogyiw=="],
 
-    "unofficial-substack-sdk": ["unofficial-substack-sdk@0.3.15", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.30.0", "zod": "^4.4.3" }, "bin": { "substack-mcp": "dist/mcp.js" } }, "sha512-khUA43kIubgG9Y8nS/73N6rpetkBwCLZFDrLto4xBLz+9dYAfGac8qODUnA8X+SksfDrnsNhj2Cl1sysFXB1sA=="],
+    "unofficial-substack-sdk": ["unofficial-substack-sdk@0.3.16", "", { "dependencies": { "@modelcontextprotocol/sdk": "^1.30.0", "zod": "^4.4.3" }, "bin": { "substack-mcp": "dist/mcp.js" } }, "sha512-YL/WqnUvu1ezXx8SjAXSTolCS07rDHu+Mm8CQcBUsBpF3A8MBo4k1G5+OC2pabai6rLS6FQJn8TL4YegfX5e2g=="],
 
     "unpipe": ["unpipe@1.0.0", "", {}, "sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ=="],
 

@@ -211,7 +211,7 @@ export async function processFollowingSync(
 ) {
   const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, publication_url, status
+      `select ciphertext, publication_url, profile_id, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -225,7 +225,9 @@ export async function processFollowingSync(
     sessionToken: conn.ciphertext,
     publicationUrl: conn.publication_url,
   })
-  const page = parseFollowerList(await sdk.getFollowing())
+  const page = parseFollowerList(
+    await sdk.getFollowing(conn.profile_id ? { profileId: conn.profile_id } : undefined),
+  )
   return withTenant(client, userId, async () => {
     const result = await applyFollowingSnapshot(client, userId, page.followers)
     return {
@@ -1310,7 +1312,12 @@ export async function claimAndRunJob(
         [job.id, leaseToken]
       )
     } catch (jobError: any) {
-      console.error(`[Circles Worker] Job ${job.id} (${job.type}) failed:`, jobError?.message)
+      console.error(
+        `[Circles Worker] Job ${job.id} (${job.type}) failed:`,
+        jobError?.message,
+        jobError?.url ? `(url: ${jobError.url})` : "",
+        jobError?.detail ? `(detail: ${jobError.detail})` : "",
+      )
       const errorMessage = String(jobError?.message || "Unknown worker error")
       const isUnauthorized = jobError?.status === 401 ||
         jobError?.statusCode === 401 ||
