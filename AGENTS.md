@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`020_relationship_directions_and_handle_backfill.sql`. Migration `020_relationship_directions_and_handle_backfill.sql`
+`021_resume_scheduled_sync.sql`. Migration `021_resume_scheduled_sync.sql`
+seeds a due activity job for active connections stranded by the recurring
+scheduler bug. Migration `020_relationship_directions_and_handle_backfill.sql`
 separates outbound following/subscriptions and adds stable-ID handle repair.
 Migration `019_audience_import_streams.sql`
 adds subscriber and follower sweeps to selectable, resumable import runs.

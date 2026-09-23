@@ -225,8 +225,9 @@ export async function claimAndRunJob(
                where existing.type = 'sync:activity'
                  and existing.status in ('pending', 'running')
                  and existing.payload->>'connectionId' = $2
+                 and existing.id <> $3
              )`,
-            [JSON.stringify(payload), connectionId]
+            [JSON.stringify(payload), connectionId, job.id]
           )
         }
       } else if (job.type === "sync:history") {

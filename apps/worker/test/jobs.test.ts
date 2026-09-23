@@ -66,6 +66,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       q.sql.includes("insert into jobs") && q.sql.includes("3 hours")
     )
     expect(reschedule).toBeDefined()
+    expect(reschedule?.sql).toContain("existing.id <> $3")
+    expect(reschedule?.params?.[2]).toBe("job-101")
 
     expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(false)
     expect(executedQueries.some((q) => q.params?.[0] === "sync:followers")).toBe(true)
@@ -540,4 +542,3 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(executedQueries.some((query) => query.sql.includes("update import_run_streams"))).toBe(true)
   })
 })
-

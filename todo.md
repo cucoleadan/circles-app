@@ -1,7 +1,17 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-18.
+Update this file as work completes. Last updated: 2026-09-23.
+
+## 2026-09-23 sync incident
+
+- [x] Diagnosed the stopped recurring sync: `sync:activity` dedupe matched its
+      own running job, so no successor was queued. The last activity sync was
+      2026-09-22 09:15 UTC; the queue had no pending or running jobs.
+- [x] Excluded the current job from that dedupe and added migration `021` to
+      seed activity jobs for active connections on the next deployment.
+- [ ] Deploy and verify a new activity job is followed by another due in three
+      hours. The live queue has not yet been repaired.
 
 ## Where we are
 
