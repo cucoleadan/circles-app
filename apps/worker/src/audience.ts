@@ -152,6 +152,7 @@ export async function processFollowingSync(
       checked: result.checked,
       updated: result.following,
       subscribed: result.subscribed,
+      created: result.created,
       failed: page.skipped,
     }
   })

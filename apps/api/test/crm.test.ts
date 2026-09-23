@@ -29,6 +29,7 @@ import {
 import { withTenant } from "../src/db/tenant.js"
 import {
   applyFollowerSnapshot,
+  applyFollowingSnapshot,
   ensurePerson,
   ingestActivityBatch,
   ingestConversationReplies,
@@ -1118,6 +1119,34 @@ describe("interactions", () => {
     expect(people.rows).toContainEqual(expect.objectContaining({
       substack_profile_id: "newer-id", handle: null, is_follower: true,
     }))
+  })
+
+  test("following sweep imports missing profiles and reconciles outbound status", async () => {
+    const existing = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, {
+        name: "Existing Follow", handle: "@existing_follow", substackProfileId: "following-1",
+      })
+    )
+    const first = await withTenant({ appUserId: userA }, (client) =>
+      applyFollowingSnapshot(client, userA, [
+        { id: "following-1", handle: "existing_follow", isSubscribed: false },
+        { id: "following-2", handle: "new_follow", name: "New Follow", isSubscribed: true },
+      ])
+    )
+    expect(first).toMatchObject({ following: 2, subscribed: 1, created: 1 })
+    const imported = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select id, is_following, is_subscribed_to from people where substack_profile_id = 'following-2'")
+    )
+    expect(imported.rows[0]).toMatchObject({ is_following: true, is_subscribed_to: true })
+
+    const second = await withTenant({ appUserId: userA }, (client) =>
+      applyFollowingSnapshot(client, userA, [{ id: "following-2", handle: "new_follow", isSubscribed: false }])
+    )
+    expect(second).toMatchObject({ following: 1, subscribed: 0, created: 0 })
+    const previous = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select is_following from people where id = $1", [existing.id])
+    )
+    expect(previous.rows[0]?.is_following).toBe(false)
   })
 
   test("follows-not-subscribed view, ignored isolation, and subscriber batch upsert", async () => {

@@ -10,8 +10,8 @@ Update this file as work completes. Last updated: 2026-09-23.
       2026-09-22 09:15 UTC; the queue had no pending or running jobs.
 - [x] Excluded the current job from that dedupe and added migration `021` to
       seed activity jobs for active connections on the next deployment.
-- [ ] Deploy and verify a new activity job is followed by another due in three
-      hours. The live queue has not yet been repaired.
+- [x] Deployed migration `021` and verified activity jobs leave successors due
+      three hours later. The next live run was queued for 2026-09-23 10:48 UTC.
 
 ## 2026-09-23 subscriber and handle repair
 
@@ -27,9 +27,17 @@ Update this file as work completes. Last updated: 2026-09-23.
       corrected its live subscriber flag. Recovered 16 live handles using exact
       Substack profile IDs or retained interaction evidence. No proven duplicate
       contacts were found among these, so no people were merged.
-- [ ] Deploy and verify the fixed subscriber sweep and handle repair. Substack
-      profile lookup returns 404 for many handle-less subscriber IDs; those
-      contacts must remain handle-less unless new identity evidence appears.
+- [x] Deployed migration `022`; a live subscriber sweep processed 552 records,
+      matched 552, skipped none, and corrected the linked contact. The handle
+      repair is queued and progressing separately.
+- [ ] Verify the handle repair after it finishes. Substack profile lookup
+      returns 404 for many handle-less subscriber IDs; those contacts must
+      remain handle-less unless new identity evidence appears.
+- [x] Following sweeps now import missing followed profiles by stable ID before
+      reconciling outbound follow/subscription flags. Migration `023` schedules
+      one immediate post-deploy sweep.
+- [ ] Deploy and verify the 92 upstream followed profiles against the CRM; 68
+      existing contacts were marked following before this fix.
 
 ## Where we are
 

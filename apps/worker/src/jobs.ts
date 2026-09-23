@@ -319,7 +319,8 @@ export async function claimAndRunJob(
         if (!result.skipped) {
           console.log(
             `[Circles Worker] Following sync complete: ${result.checked} checked, ` +
-              `${result.updated} followed, ${result.subscribed ?? 0} subscribed.`,
+              `${result.updated} followed, ${result.subscribed ?? 0} subscribed, ` +
+              `${result.created ?? 0} new contacts.`,
           )
         }
       } else if (job.type === "enrich:missing-handles") {

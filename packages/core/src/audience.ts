@@ -76,6 +76,71 @@ export async function applyFollowingSnapshot(
     .filter((person) => person.isSubscribed && person.handle)
     .map((person) => normalizeHandle(person.handle!))
   await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
+
+  let created = 0
+  for (const person of following) {
+    const profileId = person.id.trim()
+    if (!profileId) continue
+    const handle = person.handle?.trim().replace(/^@/, "") || null
+    const normalized = handle ? normalizeHandle(handle) : null
+    const existing = await client.query(
+      `select id, substack_profile_id from people
+       where user_id = $1 and archived_at is null
+         and (substack_profile_id = $2
+           or ($3::text is not null and normalized_handle = $3
+             and substack_profile_id is null))
+       order by case when substack_profile_id = $2 then 0 else 1 end
+       limit 1`,
+      [userId, profileId, normalized],
+    )
+    if (existing.rows[0]) {
+      await client.query(
+        `update people set substack_profile_id = coalesce(substack_profile_id, $2),
+           avatar_url = coalesce(avatar_url, $3), updated_at = now()
+         where id = $1`,
+        [existing.rows[0].id, profileId, person.photo_url ?? null],
+      )
+      continue
+    }
+
+    const conflictingHandle = normalized ? await client.query(
+      `select 1 from people where user_id = $1 and archived_at is null
+       and normalized_handle = $2 and substack_profile_id is distinct from $3
+       limit 1`,
+      [userId, normalized, profileId],
+    ) : null
+    const safeHandle = conflictingHandle?.rows[0] ? null : handle
+    const safeNormalized = safeHandle ? normalized : null
+    const personId = randomUUID()
+    const inserted = await client.query(
+      `insert into people
+          (id, user_id, name, handle, normalized_handle, profile_url,
+           substack_profile_id, avatar_url, is_following, is_subscribed_to,
+           following_checked_at, source)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, true, $9, now(), 'following')
+       on conflict do nothing`,
+      [
+        personId,
+        userId,
+        person.name?.trim() || safeHandle || `Following ${profileId}`,
+        safeHandle,
+        safeNormalized,
+        safeNormalized ? `https://substack.com/@${encodeURIComponent(safeNormalized)}` : null,
+        profileId,
+        person.photo_url ?? null,
+        person.isSubscribed,
+      ],
+    )
+    if (!inserted.rowCount) continue
+    await client.query(
+      `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
+       values ($1, $2, 'new', now())
+       on conflict (person_id) do nothing`,
+      [personId, userId],
+    )
+    created++
+  }
+
   const result = await client.query(
     `with updated as (
        update people p
@@ -103,6 +168,7 @@ export async function applyFollowingSnapshot(
     checked: result.rows[0]?.checked ?? 0,
     following: result.rows[0]?.following ?? 0,
     subscribed: result.rows[0]?.subscribed ?? 0,
+    created,
   }
 }
 
