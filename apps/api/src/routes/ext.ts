@@ -209,6 +209,20 @@ ext.post("/activity", async (c) => {
       )
     }
 
+    // Deduplicate the captured payload before any optional Substack lookup.
+    // A queued retry should never repeat the authenticated target request.
+    const rawBatch = typeof payload === "object" ? JSON.stringify(payload) : String(payload)
+    const dedupeKey = createHash("sha256")
+      .update(`${userId}:${connectionId ?? "none"}:${rawBatch}`)
+      .digest("hex")
+    const existingBatch = await client.query(
+      "select id, status from ingestion_batches where user_id = $1 and dedupe_key = $2",
+      [userId, dedupeKey]
+    )
+    if (existingBatch.rows[0]?.status === "processed") {
+      return c.json({ ok: true, deduplicated: true, captured: 0, message: "Batch already ingested" })
+    }
+
     // Mutation responses often omit the target identity. Resolve it from the
     // authenticated reader API so outbound actions attach to the actual person,
     // including replies made from the owner's own post/Note page.
@@ -233,21 +247,6 @@ ext.post("/activity", async (c) => {
       } catch (error) {
         console.warn("Could not resolve outbound Substack target author:", error)
       }
-    }
-
-    // Compute deterministic dedupe key for idempotent replay safety
-    const rawBatch = typeof payload === "object" ? JSON.stringify(payload) : String(payload)
-    const dedupeKey = createHash("sha256")
-      .update(`${userId}:${connectionId ?? "none"}:${rawBatch}`)
-      .digest("hex")
-
-    // Check if this batch has already been processed
-    const existingBatch = await client.query(
-      "select id, status from ingestion_batches where user_id = $1 and dedupe_key = $2",
-      [userId, dedupeKey]
-    )
-    if (existingBatch.rows[0]?.status === "processed") {
-      return c.json({ ok: true, deduplicated: true, captured: 0, message: "Batch already ingested" })
     }
 
     const batchId = existingBatch.rows[0]?.id ?? randomUUID()

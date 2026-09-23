@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`021_resume_scheduled_sync.sql`. Migration `021_resume_scheduled_sync.sql`
+`022_repair_missing_handles.sql`. Migration `022_repair_missing_handles.sql`
+queues a paced stable-ID handle repair pass for active connections. Migration
+`021_resume_scheduled_sync.sql`
 seeds a due activity job for active connections stranded by the recurring
 scheduler bug. Migration `020_relationship_directions_and_handle_backfill.sql`
 separates outbound following/subscriptions and adds stable-ID handle repair.

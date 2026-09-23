@@ -7,6 +7,7 @@ import {
   parseFollowerList,
   parseSubscriberStatsPage,
   reconcileSubscriberSnapshot,
+  shouldAbortFollowerSweep,
   upsertSubscribersBatch,
 } from "@workspace/core"
 import { withTenant, substackResponseError } from "./tenant.js"
@@ -246,7 +247,8 @@ export async function processMissingHandleBackfill(
       publicationUrl: state.connection.publication_url,
     })
     handle = profileHandle(await sdk.getProfileById(state.person.substack_profile_id))
-  } catch {
+  } catch (error) {
+    if (shouldAbortFollowerSweep(error)) throw error
     // Continue the repair run; this profile can be retried in a later run.
   }
 

@@ -13,6 +13,24 @@ Update this file as work completes. Last updated: 2026-09-23.
 - [ ] Deploy and verify a new activity job is followed by another due in three
       hours. The live queue has not yet been repaired.
 
+## 2026-09-23 subscriber and handle repair
+
+- [x] Removed name/avatar subscriber matching when Substack supplies a stable
+      profile ID. Canonical interaction ingestion now follows the same rule,
+      and follower/relationship handle matches cannot override a different
+      stable ID.
+- [x] Restored subscriber refresh to each scheduled activity sync. Extension
+      capture retries now deduplicate before optional Substack target lookups.
+- [x] Added migration `022` for a paced handle repair pass. Authentication and
+      rate-limit errors retain the job for retry instead of silently advancing.
+- [x] Verified the linked contact in the current subscriber response and
+      corrected its live subscriber flag. Recovered 16 live handles using exact
+      Substack profile IDs or retained interaction evidence. No proven duplicate
+      contacts were found among these, so no people were merged.
+- [ ] Deploy and verify the fixed subscriber sweep and handle repair. Substack
+      profile lookup returns 404 for many handle-less subscriber IDs; those
+      contacts must remain handle-less unless new identity evidence appears.
+
 ## Where we are
 
 **Phases 0–5 are complete. Phase 5.5 is implemented with documented upstream coverage limits; the remaining Phase 5.5 work is live reconciliation and richer per-action analytics. The next infrastructure priority is the Phase 6 backup/rollback rehearsal.**

@@ -69,7 +69,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(reschedule?.sql).toContain("existing.id <> $3")
     expect(reschedule?.params?.[2]).toBe("job-101")
 
-    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(false)
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(true)
     expect(executedQueries.some((q) => q.params?.[0] === "sync:followers")).toBe(true)
 
     // Verify job was marked as done
@@ -540,5 +540,60 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       importRunId: "run-1",
     })
     expect(executedQueries.some((query) => query.sql.includes("update import_run_streams"))).toBe(true)
+  })
+
+  test("maintenance handle repair continues without an import run", async () => {
+    const queries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        queries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-maintenance",
+          type: "enrich:missing-handles",
+          payload: { userId: "user-1", connectionId: "conn-1" },
+          attempts: 0,
+          max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onMissingHandleBackfill: async () => ({ completed: false, skipped: false, afterId: "person-1" }),
+    })
+    const next = queries.find((query) => query.sql.includes("'enrich:missing-handles'") && query.sql.includes("2 seconds"))
+    expect(JSON.parse(next?.params?.[0] ?? "{}").afterId).toBe("person-1")
+    expect(queries.some((query) => query.sql.includes("update import_run_streams"))).toBe(false)
+  })
+
+  test("an optional profile 401 stops handle repair without expiring the connection", async () => {
+    const queries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        queries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-handles-401",
+          type: "enrich:missing-handles",
+          payload: { userId: "user-1", connectionId: "conn-1" },
+          attempts: 0,
+          max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        onMissingHandleBackfill: async () => {
+          throw Object.assign(new Error("Profile request rejected"), { status: 401 })
+        },
+      })
+    } finally {
+      console.error = originalError
+    }
+    expect(queries.some((query) => query.sql.includes("update jobs set status = 'dead'"))).toBe(true)
+    expect(queries.some((query) => query.sql.includes("update substack_connections set status = 'expired'"))).toBe(false)
   })
 })

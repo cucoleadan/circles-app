@@ -81,11 +81,11 @@ export async function applyFollowingSnapshot(
        update people p
        set is_following = (
              (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
-             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
            ),
            is_subscribed_to = (
              (p.substack_profile_id is not null and p.substack_profile_id = any($4::text[]))
-             or (p.normalized_handle is not null and p.normalized_handle = any($5::text[]))
+             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($5::text[]))
            ),
            following_checked_at = now(),
            updated_at = now()
@@ -129,7 +129,8 @@ export async function applyFollowerSnapshot(
       `select id from people
        where user_id = $1 and archived_at is null
          and (substack_profile_id = $2
-           or ($3::text is not null and normalized_handle = $3))
+           or ($3::text is not null and normalized_handle = $3
+             and (substack_profile_id is null or substack_profile_id = $2)))
        order by case when substack_profile_id = $2 then 0 else 1 end
        limit 1`,
       [userId, profileId, normalized],
@@ -151,6 +152,14 @@ export async function applyFollowerSnapshot(
     }
 
     const personId = randomUUID()
+    const conflictingHandle = normalized ? await client.query(
+      `select 1 from people where user_id = $1 and archived_at is null
+       and normalized_handle = $2 and substack_profile_id is distinct from $3
+       limit 1`,
+      [userId, normalized, profileId],
+    ) : null
+    const safeHandle = conflictingHandle?.rows[0] ? null : rawHandle
+    const safeNormalized = safeHandle ? normalized : null
     const inserted = await client.query(
       `insert into people
           (id, user_id, name, handle, normalized_handle, profile_url,
@@ -161,9 +170,9 @@ export async function applyFollowerSnapshot(
         personId,
         userId,
         follower.name?.trim() || rawHandle || `Follower ${profileId}`,
-        rawHandle,
-        normalized,
-        normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null,
+        safeHandle,
+        safeNormalized,
+        safeNormalized ? `https://substack.com/@${encodeURIComponent(safeNormalized)}` : null,
         profileId,
         follower.photo_url ?? null,
       ],
@@ -174,7 +183,8 @@ export async function applyFollowerSnapshot(
          set is_follower = true, follower_checked_at = now(), updated_at = now()
          where user_id = $1 and archived_at is null
            and (substack_profile_id = $2
-             or ($3::text is not null and normalized_handle = $3))`,
+           or ($3::text is not null and normalized_handle = $3
+             and (substack_profile_id is null or substack_profile_id = $2)))`,
         [userId, profileId, normalized],
       )
       matched += raced.rowCount ?? 0
@@ -194,12 +204,12 @@ export async function applyFollowerSnapshot(
        update people p
        set is_follower = (
              (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
-             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
            ),
            follower_checked_at = now(),
            updated_at = case when p.is_follower is distinct from (
              (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
-             or (p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
+             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
            ) then now() else p.updated_at end
        where p.user_id = $1 and p.archived_at is null
          and (p.normalized_handle is not null or p.substack_profile_id is not null)
@@ -339,22 +349,15 @@ export async function upsertSubscribersBatch(
     const found = await client.query(
       `select id from people
        where user_id = $1 and archived_at is null
-         and (($2::text is not null and substack_profile_id = $2)
-           or ($3::text is not null and normalized_handle = $3)
-           or (
-             $4::text is not null and length($4) > 1
-             and lower(trim(name)) = lower(trim($4))
-             and $5::text is not null and avatar_url = $5
-             and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
-             and $5 not like '%default%'
-           ))
+         and (substack_profile_id = $2
+           or ($3::text is not null and normalized_handle = $3
+             and (substack_profile_id is null or substack_profile_id = $2)))
        order by case
          when substack_profile_id = $2 then 0
-         when normalized_handle = $3 then 1
-         else 2
+         else 1
        end
        limit 1`,
-      [userId, substackProfileId, normalized, name, avatarUrl]
+      [userId, substackProfileId, normalized]
     )
 
     if (found.rows[0]) {
@@ -375,6 +378,14 @@ export async function upsertSubscribersBatch(
     }
 
     const newId = randomUUID()
+    const conflictingHandle = normalized ? await client.query(
+      `select 1 from people where user_id = $1 and archived_at is null
+       and normalized_handle = $2 and substack_profile_id is distinct from $3
+       limit 1`,
+      [userId, normalized, substackProfileId],
+    ) : null
+    const safeHandle = conflictingHandle?.rows[0] ? null : handle
+    const safeNormalized = safeHandle ? normalized : null
     const inserted = await client.query(
       `insert into people
           (id, user_id, name, handle, normalized_handle, profile_url,
@@ -384,8 +395,8 @@ export async function upsertSubscribersBatch(
                $11::timestamptz, 'subscribers')
        on conflict do nothing`,
       [
-        newId, userId, name, handle, normalized,
-        normalized ? `https://substack.com/@${encodeURIComponent(normalized)}` : null,
+        newId, userId, name, safeHandle, safeNormalized,
+        safeNormalized ? `https://substack.com/@${encodeURIComponent(safeNormalized)}` : null,
         substackProfileId, avatarUrl, subscribedAt, tier, observedAt ?? null,
       ]
     )

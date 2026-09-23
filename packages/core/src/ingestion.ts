@@ -305,32 +305,24 @@ export async function ensurePerson(
 
   // Stable Substack profile IDs take precedence because reply payloads often
   // omit handles entirely. Handle lookup remains the compatibility fallback.
-  // When Substack omits both handle or profile ID across different feeds,
-  // exact name + avatar URL (for custom, non-default avatars) merges them safely.
+  // Names and avatars are not identity evidence when a stable ID is available.
   const found = await client.query(
     `select id, substack_profile_id, handle, normalized_handle, avatar_url from people
      where user_id = $1 and archived_at is null
-       and (($2::text is not null and substack_profile_id = $2)
-         or ($3::text is not null and normalized_handle = $3)
-         or (
-           $4::text is not null and length($4) > 1
-           and lower(trim(name)) = lower(trim($4))
-           and $5::text is not null
-           and avatar_url = $5
-           and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
-           and $5 not like '%default%'
-         ))
+       and (substack_profile_id = $2
+         or ($3::text is not null and normalized_handle = $3
+           and (substack_profile_id is null or substack_profile_id = $2)))
      order by case
        when substack_profile_id = $2 then 0
-       when normalized_handle = $3 then 1
-       else 2
+       else 1
      end
      limit 1`,
-    [userId, substackProfileId, normalized, author.name?.trim() || null, avatarUrl]
+    [userId, substackProfileId, normalized]
   )
   if (found.rows[0]) {
     const existing = found.rows[0]
     const id = existing.id as string
+    let hasMatchingHandle = normalized !== null && existing.normalized_handle === normalized
     if (substackProfileId && !existing.substack_profile_id) {
       await client.query(
         `update people
@@ -345,7 +337,7 @@ export async function ensurePerson(
       )
     }
     if (handle && !existing.handle) {
-      await client.query(
+      const handleUpdate = await client.query(
         `update people
          set handle = $3, normalized_handle = $4,
              profile_url = coalesce(profile_url, $5), updated_at = now()
@@ -357,6 +349,7 @@ export async function ensurePerson(
            )`,
         [id, userId, handle, normalized, profileUrl],
       )
+      hasMatchingHandle = (handleUpdate.rowCount ?? 0) > 0
     }
     if (avatarUrl && !existing.avatar_url) {
       await client.query(
@@ -368,45 +361,47 @@ export async function ensurePerson(
     }
     personCache.set(cacheKey, id)
     if (substackProfileId) personCache.set(`profile:${substackProfileId}`, id)
-    if (normalized) personCache.set(`handle:${normalized}`, id)
+    if (normalized && hasMatchingHandle) personCache.set(`handle:${normalized}`, id)
     return id
   }
 
   // Create new person
   const newId = randomUUID()
+  const conflictingHandle = normalized && substackProfileId ? await client.query(
+    `select 1 from people where user_id = $1 and archived_at is null
+     and normalized_handle = $2 and substack_profile_id is distinct from $3
+     limit 1`,
+    [userId, normalized, substackProfileId],
+  ) : null
+  const safeHandle = conflictingHandle?.rows[0] ? null : handle
+  const safeNormalized = safeHandle ? normalized : null
 
   await client.query(
     `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, avatar_url, source)
      values ($1, $2, $3, $4, $5, $6, $7, $8, 'extension')
      on conflict do nothing`,
-    [newId, userId, name, handle, normalized, profileUrl, substackProfileId, avatarUrl]
+    [newId, userId, name, safeHandle, safeNormalized, safeNormalized ? profileUrl : null, substackProfileId, avatarUrl]
   )
 
   const check = await client.query(
-    `select id from people
+    `select id, normalized_handle from people
      where user_id = $1 and archived_at is null
-       and (($2::text is not null and substack_profile_id = $2)
-         or ($3::text is not null and normalized_handle = $3)
-         or (
-           $4::text is not null and length($4) > 1
-           and lower(trim(name)) = lower(trim($4))
-           and $5::text is not null
-           and avatar_url = $5
-           and $5 not like '%bbff95e7-e97f-4df2-b99c-d492da3b8601%'
-           and $5 not like '%default%'
-         ))
+       and (substack_profile_id = $2
+         or ($3::text is not null and normalized_handle = $3
+           and (substack_profile_id is null or substack_profile_id = $2)))
      order by case
        when substack_profile_id = $2 then 0
-       when normalized_handle = $3 then 1
-       else 2
+       else 1
      end
      limit 1`,
-    [userId, substackProfileId, normalized, author.name?.trim() || null, avatarUrl]
+    [userId, substackProfileId, normalized]
   )
   const finalId = (check.rows[0]?.id as string) ?? newId
   personCache.set(cacheKey, finalId)
   if (substackProfileId) personCache.set(`profile:${substackProfileId}`, finalId)
-  if (normalized) personCache.set(`handle:${normalized}`, finalId)
+  if (normalized && (check.rows[0]?.normalized_handle === normalized || (!check.rows[0] && finalId === newId))) {
+    personCache.set(`handle:${normalized}`, finalId)
+  }
   return finalId
 }
 

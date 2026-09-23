@@ -29,6 +29,7 @@ import {
 import { withTenant } from "../src/db/tenant.js"
 import {
   applyFollowerSnapshot,
+  ensurePerson,
   ingestActivityBatch,
   ingestConversationReplies,
   upsertSubscribersBatch,
@@ -1039,6 +1040,84 @@ describe("interactions", () => {
     expect(conflictRes.status).toBe(409)
     const conflictData = (await conflictRes.json()) as any
     expect(conflictData.error).toContain("handle already exists")
+  })
+
+  test("subscriber import keeps distinct stable IDs separate despite a shared name and avatar", async () => {
+    const original = await withTenant({ appUserId: userA }, async (client) => {
+      const person = await createPerson(client, userA, {
+        name: "Adam",
+        handle: "@first_adam",
+        substackProfileId: "stable-1",
+      })
+      await client.query("update people set avatar_url = $2 where id = $1", [person.id, "https://example.com/shared.png"])
+      return person
+    })
+
+    const result = await withTenant({ appUserId: userA }, (client) =>
+      upsertSubscribersBatch(client, userA, [{
+        id: "stable-2",
+        name: "Adam",
+        photo_url: "https://example.com/shared.png",
+      }], new Date().toISOString())
+    )
+    expect(result).toMatchObject({ matched: 0, created: 1, skipped: 0 })
+
+    const people = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select id, substack_profile_id, is_subscriber from people where name = 'Adam' order by substack_profile_id")
+    )
+    expect(people.rows).toHaveLength(2)
+    expect(people.rows[0]).toMatchObject({ id: original.id, substack_profile_id: "stable-1", is_subscriber: false })
+    expect(people.rows[1]).toMatchObject({ substack_profile_id: "stable-2", is_subscriber: true })
+
+    const conflict = await withTenant({ appUserId: userA }, async (client) => {
+      const upserted = await upsertSubscribersBatch(client, userA, [{
+        id: "stable-3", name: "Another Adam", handle: "first_adam",
+      }], new Date().toISOString())
+      const person = await client.query("select handle, substack_profile_id from people where substack_profile_id = 'stable-3'")
+      return { upserted, person: person.rows[0] }
+    })
+    expect(conflict.upserted.created).toBe(1)
+    expect(conflict.person).toMatchObject({ handle: null, substack_profile_id: "stable-3" })
+  })
+
+  test("interaction ingestion keeps distinct stable IDs separate despite a shared name and avatar", async () => {
+    const people = await withTenant({ appUserId: userA }, async (client) => {
+      const cache = new Map<string, string>()
+      const first = await ensurePerson(client, userA, cache, {
+        id: "profile-one", name: "Alex", handle: "alex_one", photo_url: "https://example.com/shared.png",
+      })
+      const second = await ensurePerson(client, userA, cache, {
+        id: "profile-two", name: "Alex", photo_url: "https://example.com/shared.png",
+      })
+      const third = await ensurePerson(client, userA, cache, {
+        id: "profile-three", name: "Another Alex", handle: "alex_one",
+      })
+      return { first, second, third }
+    })
+    expect(people.first).toBeTruthy()
+    expect(people.second).toBeTruthy()
+    expect(people.second).not.toBe(people.first)
+    expect(people.third).not.toBe(people.first)
+  })
+
+  test("follower import preserves a new stable ID when its handle conflicts", async () => {
+    await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, {
+        name: "Original", handle: "@shared_handle", substackProfileId: "older-id",
+      })
+    )
+    const result = await withTenant({ appUserId: userA }, (client) =>
+      applyFollowerSnapshot(client, userA, [{
+        id: "newer-id", name: "New person", handle: "shared_handle", isSubscribed: false,
+      }])
+    )
+    expect(result.created).toBe(1)
+    const people = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select substack_profile_id, handle, is_follower from people order by substack_profile_id")
+    )
+    expect(people.rows).toContainEqual(expect.objectContaining({
+      substack_profile_id: "newer-id", handle: null, is_follower: true,
+    }))
   })
 
   test("follows-not-subscribed view, ignored isolation, and subscriber batch upsert", async () => {

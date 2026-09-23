@@ -182,8 +182,19 @@ export async function claimAndRunJob(
           }
           const audienceJobs = [
             {
-              type: "sync:followers",
+              type: "sync:subscribers",
               delay: 60,
+              payload: {
+                userId,
+                connectionId,
+                offset: 0,
+                runStartedAt: new Date().toISOString(),
+                manual: false,
+              },
+            },
+            {
+              type: "sync:followers",
+              delay: 70,
               payload: {
                 userId,
                 connectionId,
@@ -195,7 +206,7 @@ export async function claimAndRunJob(
             },
             {
               type: "sync:following",
-              delay: 70,
+              delay: 80,
               payload: { userId, connectionId, manual: false },
             },
           ]
@@ -315,7 +326,9 @@ export async function claimAndRunJob(
         const result = handlers?.onMissingHandleBackfill
           ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId)
           : await processMissingHandleBackfill(client, userId, connectionId, afterId)
-        const keepGoing = await recordMissingHandleProgress(client, userId, importRunId, result)
+        const keepGoing = importRunId
+          ? await recordMissingHandleProgress(client, userId, importRunId, result)
+          : !result.completed && !result.skipped
         if (keepGoing) {
           await client.query(
             `insert into jobs (type, payload, status, run_at)
@@ -400,7 +413,10 @@ export async function claimAndRunJob(
       const isUnauthorized = jobError?.status === 401 ||
         jobError?.statusCode === 401 ||
         /\b401\b/.test(errorMessage)
-      const sessionExpired = isUnauthorized || /\bexpired\b/i.test(errorMessage)
+      // A private or unavailable profile can reject optional handle lookup
+      // even while the connection's main activity endpoint remains valid.
+      const optionalProfileUnauthorized = isUnauthorized && job.type === "enrich:missing-handles"
+      const sessionExpired = (isUnauthorized && !optionalProfileUnauthorized) || /\bexpired\b/i.test(errorMessage)
       const isAudienceDenied = (
         job.type === "sync:followers" || job.type === "sync:following"
       ) && (
@@ -438,7 +454,7 @@ export async function claimAndRunJob(
         errorMessage.includes("429") || isAudienceDenied
       const isDead = (
         !isRateLimited && job.attempts + 1 >= job.max_attempts
-      ) || sessionExpired
+      ) || sessionExpired || optionalProfileUnauthorized
 
       if (isDead) {
         await client.query(
