@@ -277,6 +277,30 @@ describe("transactional edits", () => {
 })
 
 describe("interactions", () => {
+  test("contact refetch queues one non-retrying job and scopes status to its owner", async () => {
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Refetch Person", handle: "refetch-person" })
+    )
+    await migrate.query(
+      `insert into substack_connections
+         (id, user_id, envelope_version, key_id, wrapped_key, iv, ciphertext)
+       values ('refetch-connection', $1, 1, 'test', 'test', 'test', 'test')`,
+      [userA],
+    )
+    const url = `http://localhost:3000/people/${person.id}/refetch`
+    const first = await v1.fetch(new Request(url, { method: "POST", headers: { cookie: signedCookieA } }))
+    expect(first.status).toBe(202)
+    const { jobId } = (await first.json()) as { jobId: string }
+    const duplicate = await v1.fetch(new Request(url, { method: "POST", headers: { cookie: signedCookieA } }))
+    expect((await duplicate.json() as any).jobId).toBe(jobId)
+    const job = (await migrate.query("select max_attempts from jobs where id = $1", [jobId])).rows[0]
+    expect(job.max_attempts).toBe(1)
+    const statusUrl = `${url}/${jobId}`
+    expect((await v1.fetch(new Request(statusUrl, { headers: { cookie: signedCookieA } }))).status).toBe(200)
+    expect((await v1.fetch(new Request(statusUrl, { headers: { cookie: signedCookieB } }))).status).toBe(404)
+    await migrate.query("update jobs set status = 'dead' where id = $1", [jobId])
+    expect((await v1.fetch(new Request(url, { method: "POST", headers: { cookie: signedCookieA } }))).status).toBe(429)
+  })
   test("dedupe by external id and cursor pagination stay consistent", async () => {
     const person = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Alice", handle: "@alice" })
@@ -504,18 +528,28 @@ describe("interactions", () => {
   })
 
   let signedCookieA = ""
+  let signedCookieB = ""
 
   beforeAll(async () => {
     const { makeSignature } = await import("better-auth/crypto")
     const token = "test-token-a"
     const sig = await makeSignature(token, process.env.BETTER_AUTH_SECRET!)
     signedCookieA = `better-auth.session_token=${encodeURIComponent(token)}.${sig}`
+    const tokenB = "test-token-b"
+    const sigB = await makeSignature(tokenB, process.env.BETTER_AUTH_SECRET!)
+    signedCookieB = `better-auth.session_token=${encodeURIComponent(tokenB)}.${sigB}`
 
     await migrate.query(
       `insert into session (id, "userId", token, "expiresAt", "createdAt", "updatedAt") values
          ('sess-a', $1, $2, now() + interval '1 day', now(), now())
        on conflict (id) do nothing`,
       [authA, token]
+    )
+    await migrate.query(
+      `insert into session (id, "userId", token, "expiresAt", "createdAt", "updatedAt") values
+         ('sess-b', $1, $2, now() + interval '1 day', now(), now())
+       on conflict (id) do nothing`,
+      [authB, tokenB]
     )
   })
 

@@ -18,9 +18,11 @@ type TimelineFilter = "all" | "comments" | "likes" | "restacks" | "inbound" | "o
 export function Timeline({
   personId,
   personName,
+  refreshKey = 0,
 }: {
   personId: string
   personName: string
+  refreshKey?: number
 }) {
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -56,7 +58,7 @@ export function Timeline({
     return () => {
       cancelled = true
     }
-  }, [personId])
+  }, [personId, refreshKey])
 
   async function loadMore() {
     if (!nextCursor || loadingMore) return

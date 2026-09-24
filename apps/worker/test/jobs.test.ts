@@ -2,6 +2,28 @@ import { describe, expect, test } from "bun:test"
 import { claimAndRunJob } from "../src/jobs.js"
 
 describe("Worker queue runner (claimAndRunJob)", () => {
+  test("contact refetch dies on the first 429 instead of exceeding its request cap", async () => {
+    const queries: string[] = []
+    const mockClient: any = {
+      query: async (sql: string) => {
+        queries.push(sql)
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "refetch-1",
+          type: "refetch:contact",
+          payload: { userId: "user-1", personId: "person-1" },
+          attempts: 0,
+          max_attempts: 1,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onContactRefetch: async () => { throw Object.assign(new Error("429"), { status: 429 }) },
+    })
+    expect(queries.some((sql) => sql.includes("set status = 'dead'"))).toBe(true)
+    expect(queries.some((sql) => sql.includes("set status = 'pending'") && sql.includes("last_error = $3"))).toBe(false)
+  })
   test("returns false when no jobs are pending", async () => {
     const mockClient: any = {
       query: async (sql: string) => {

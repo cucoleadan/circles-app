@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Archive } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
@@ -33,11 +33,70 @@ export function ContactDrawer({
   allTags: TagRecord[]
   onCreateList?: (name: string) => Promise<ListRecord | void>
 }) {
-  if (!person) return null
-
   const [activeTab, setActiveTab] = useState<"timeline" | "details">("timeline")
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editFocusField, setEditFocusField] = useState<"name" | "handle">("name")
+  const [refetchJob, setRefetchJob] = useState<{ personId: string; jobId: string } | null>(null)
+  const [refetchStarting, setRefetchStarting] = useState(false)
+  const [timelineRefresh, setTimelineRefresh] = useState(0)
+  const [toast, setToast] = useState<{ message: string; error: boolean } | null>(null)
+
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(null), 5000)
+    return () => clearTimeout(timer)
+  }, [toast])
+
+  useEffect(() => {
+    if (!refetchJob) return
+    let stopped = false
+    const poll = async () => {
+      try {
+        const response = await fetch(`/api/v1/people/${refetchJob.personId}/refetch/${refetchJob.jobId}`)
+        if (!response.ok) throw new Error("Could not check refetch status")
+        const data = await response.json()
+        if (stopped) return
+        if (data.status === "done") {
+          const updated = await fetch(`/api/v1/people/${refetchJob.personId}`)
+          if (!updated.ok) throw new Error("Refetch finished, but contact could not be reloaded")
+          const detail = await updated.json()
+          if (stopped) return
+          onPersonUpdated({ ...detail.person, lists: detail.lists, tags: detail.tags })
+          setTimelineRefresh((value) => value + 1)
+          setToast({ message: "Contact refetched successfully", error: false })
+          setRefetchJob(null)
+        } else if (data.status === "dead" || data.status === "failed") {
+          setToast({ message: "Contact refetch failed. Please try again later.", error: true })
+          setRefetchJob(null)
+        }
+      } catch {
+        if (!stopped) {
+          setToast({ message: "Could not check contact refetch status", error: true })
+          setRefetchJob(null)
+        }
+      }
+    }
+    void poll()
+    const timer = setInterval(() => void poll(), 2000)
+    return () => { stopped = true; clearInterval(timer) }
+  }, [refetchJob, onPersonUpdated])
+
+  if (!person) return null
+
+  async function refetchContact() {
+    if (!person || refetchStarting || refetchJob) return
+    setRefetchStarting(true)
+    try {
+      const response = await fetch(`/api/v1/people/${person.id}/refetch`, { method: "POST" })
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error || "Could not start contact refetch")
+      setRefetchJob({ personId: person.id, jobId: data.jobId })
+    } catch (error) {
+      setToast({ message: error instanceof Error ? error.message : "Could not start contact refetch", error: true })
+    } finally {
+      setRefetchStarting(false)
+    }
+  }
 
   function openEditModal(focus: "name" | "handle" = "name") {
     setEditFocusField(focus)
@@ -141,6 +200,8 @@ export function ContactDrawer({
               onOpenEdit={openEditModal}
               onToggleIgnore={toggleIgnore}
               onAddToList={addToList}
+              onRefetch={refetchContact}
+              refetching={refetchStarting || Boolean(refetchJob)}
               onClose={() => onOpenChange(false)}
             />
 
@@ -178,7 +239,7 @@ export function ContactDrawer({
             {activeTab === "timeline" && (
               <div className="space-y-2.5">
                 <ProfileBreakdown person={person} />
-                <Timeline personId={person.id} personName={person.name} />
+                <Timeline personId={person.id} personName={person.name} refreshKey={timelineRefresh} />
               </div>
             )}
 
@@ -212,6 +273,12 @@ export function ContactDrawer({
           </div>
         </SheetContent>
       </Sheet>
+
+      {toast && (
+        <div role={toast.error ? "alert" : "status"} className={`fixed bottom-4 right-4 z-[100] rounded-md px-4 py-2 text-sm text-white shadow-lg ${toast.error ? "bg-rose-700" : "bg-emerald-700"}`}>
+          {toast.message}
+        </div>
+      )}
 
       {/* Profile Details Edit Modal */}
       <EditContactDialog

@@ -95,6 +95,64 @@ peopleRoutes.get("/people/:personId", async (c) => {
   return c.json(found)
 })
 
+peopleRoutes.post("/people/:personId/refetch", async (c) => {
+  const userId = c.get("appUser")
+  const personId = c.req.param("personId")
+  const result = await withTenant({ appUserId: userId }, async (client) => {
+    await client.query("select pg_advisory_xact_lock(hashtext($1), hashtext($2))", [userId, personId])
+    const person = (await client.query(
+      `select id, handle, substack_profile_id from people
+       where id = $1 and user_id = $2 and archived_at is null`,
+      [personId, userId],
+    )).rows[0]
+    if (!person) return { status: 404 as const, error: "Contact not found" }
+    if (!person.handle && !person.substack_profile_id)
+      return { status: 400 as const, error: "Contact has no Substack identity" }
+    const connection = (await client.query(
+      `select id from substack_connections where user_id = $1 and status = 'active'
+       order by generation desc limit 1`,
+      [userId],
+    )).rows[0]
+    if (!connection) return { status: 409 as const, error: "No active Substack connection" }
+    const recent = (await client.query(
+      `select id, status from jobs where type = 'refetch:contact'
+       and payload->>'userId' = $1 and payload->>'personId' = $2
+       and (status in ('pending', 'running')
+         or (status in ('done', 'dead', 'failed') and created_at > now() - interval '10 minutes'))
+       order by id desc limit 1`,
+      [userId, personId],
+    )).rows[0]
+    if (recent && !["pending", "running"].includes(recent.status))
+      return { status: 429 as const, error: "This contact was refetched recently. Try again in 10 minutes." }
+    if (recent) return { status: 202 as const, jobId: String(recent.id) }
+    const inserted = await client.query(
+      `insert into jobs (type, payload, status, max_attempts)
+       values ('refetch:contact', $1, 'pending', 1) returning id`,
+      [JSON.stringify({ userId, personId, connectionId: connection.id })],
+    )
+    return { status: 202 as const, jobId: String(inserted.rows[0].id) }
+  })
+  if ("error" in result) return c.json({ error: result.error }, result.status)
+  return c.json({ jobId: result.jobId, status: "pending" }, 202)
+})
+
+peopleRoutes.get("/people/:personId/refetch/:jobId", async (c) => {
+  const userId = c.get("appUser")
+  const personId = c.req.param("personId")
+  const jobId = c.req.param("jobId")
+  if (!/^\d+$/.test(jobId)) return c.json({ error: "Job not found" }, 404)
+  const job = await withTenant({ appUserId: userId }, async (client) => {
+    const result = await client.query(
+      `select status from jobs where id = $1 and type = 'refetch:contact'
+       and payload->>'userId' = $2 and payload->>'personId' = $3`,
+      [jobId, userId, personId],
+    )
+    return result.rows[0]
+  })
+  if (!job) return c.json({ error: "Job not found" }, 404)
+  return c.json({ status: job.status })
+})
+
 peopleRoutes.patch("/people/:personId", async (c) => {
   const parsed = personInput.partial().safeParse(await c.req.json())
   if (!parsed.success) return c.json({ error: "Invalid person" }, 400)

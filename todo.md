@@ -36,6 +36,18 @@ Update this file as work completes. Last updated: 2026-09-24.
 - [ ] Deploy and verify the corrected BIG FISH count in production; install
       companion version 0.2.7 to use the new extension confirmation flow.
 
+## 2026-09-24 contact refetch
+
+- [x] Added a contact drawer Refetch action backed by a tenant-scoped queued job.
+      It refreshes the public profile image, newest activity page, and up to
+      three newest outbound feed pages through canonical ingestion. The job makes
+      at most five SDK calls, has one attempt even on 429/403, deduplicates
+      concurrent clicks, and applies a ten-minute success cooldown.
+- [x] The drawer reloads contact details and timeline and shows a success toast
+      after the job completes; failures show an error toast.
+- [ ] Deploy and verify against a live contact. This refetch covers recent pages,
+      not a full historical backfill.
+
 ## 2026-09-23 sync incident
 
 - [x] Diagnosed the stopped recurring sync: `sync:activity` dedupe matched its

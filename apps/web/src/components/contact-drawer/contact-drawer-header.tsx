@@ -1,4 +1,4 @@
-import { Ban, Edit2, ExternalLink, EyeOff, Plus, Sparkles, X } from "lucide-react"
+import { Ban, Edit2, ExternalLink, EyeOff, Plus, RefreshCw, Sparkles, X } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import {
   Select,
@@ -31,6 +31,8 @@ export function ContactDrawerHeader({
   onOpenEdit,
   onToggleIgnore,
   onAddToList,
+  onRefetch,
+  refetching,
   onClose,
 }: {
   person: Person
@@ -39,6 +41,8 @@ export function ContactDrawerHeader({
   onOpenEdit: (focus?: "name" | "handle") => void
   onToggleIgnore: () => void
   onAddToList: (listId: string) => void
+  onRefetch: () => void
+  refetching: boolean
   onClose?: () => void
 }) {
   return (
@@ -48,7 +52,7 @@ export function ContactDrawerHeader({
       </SheetDescription>
 
       {/* Row 0: Ultra-compact edge-to-edge top bar with vertical dividers, no button appearance, just padding */}
-      <div className="grid grid-cols-[1fr_1fr_1fr_auto] items-stretch border-b border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 divide-x divide-stone-200/80 dark:divide-stone-800 w-full">
+      <div className="grid grid-cols-[1fr_1fr_1fr_1fr_auto] items-stretch border-b border-stone-200/80 dark:border-stone-800 bg-stone-50/70 dark:bg-stone-950/40 divide-x divide-stone-200/80 dark:divide-stone-800 w-full">
         <button
           type="button"
           onClick={() => onOpenEdit("name")}
@@ -104,6 +108,17 @@ export function ContactDrawerHeader({
             )}
           </SelectContent>
         </Select>
+
+        <button
+          type="button"
+          onClick={onRefetch}
+          disabled={refetching}
+          className="flex items-center justify-center gap-1 py-1 px-2 h-7 text-[11px] font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100/80 dark:text-stone-300 dark:hover:text-stone-100 dark:hover:bg-stone-800/80 disabled:opacity-50 transition-colors w-full select-none"
+          title="Refetch profile image and recent interactions (up to 5 Substack requests)"
+        >
+          <RefreshCw className={`size-3 ${refetching ? "animate-spin" : ""}`} />
+          <span>{refetching ? "Refetching" : "Refetch"}</span>
+        </button>
 
         {onClose && (
           <button

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { processContactRefetch } from "./contact-refetch.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
 import { withTenant, substackResponseError } from "./tenant.js"
@@ -62,6 +63,7 @@ export interface JobHandlers {
   ) => Promise<{ skipped: boolean }>
   onImport?: (client: PoolClient, userId: string, importRunId: string, stream?: HistoryStream) => Promise<{ completed: boolean }>
   onEnrich?: (client: PoolClient, userId: string, personId: string) => Promise<unknown>
+  onContactRefetch?: (client: PoolClient, userId: string, personId: string) => Promise<unknown>
   onSubscriberSync?: (
     client: PoolClient,
     userId: string,
@@ -362,6 +364,12 @@ export async function claimAndRunJob(
         } else {
           await processProfileEnrichment(client, userId, personId)
         }
+      } else if (job.type === "refetch:contact") {
+        if (handlers?.onContactRefetch) {
+          await handlers.onContactRefetch(client, userId, personId)
+        } else {
+          await processContactRefetch(client, userId, personId)
+        }
       } else if (job.type === "reprocess:note-snapshots") {
         const result = await processStoredNoteReplay(
           client,
@@ -416,7 +424,8 @@ export async function claimAndRunJob(
         /\b401\b/.test(errorMessage)
       // A private or unavailable profile can reject optional handle lookup
       // even while the connection's main activity endpoint remains valid.
-      const optionalProfileUnauthorized = isUnauthorized && job.type === "enrich:missing-handles"
+      const optionalProfileUnauthorized = isUnauthorized &&
+        (job.type === "enrich:missing-handles" || job.type === "refetch:contact")
       const sessionExpired = (isUnauthorized && !optionalProfileUnauthorized) || /\bexpired\b/i.test(errorMessage)
       const isAudienceDenied = (
         job.type === "sync:followers" || job.type === "sync:following"
@@ -453,7 +462,7 @@ export async function claimAndRunJob(
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
         errorMessage.includes("429") || isAudienceDenied
-      const isDead = (
+      const isDead = job.type === "refetch:contact" || (
         !isRateLimited && job.attempts + 1 >= job.max_attempts
       ) || sessionExpired || optionalProfileUnauthorized
 
