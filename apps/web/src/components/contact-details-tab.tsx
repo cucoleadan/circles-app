@@ -3,6 +3,7 @@ import { Edit2, ExternalLink, Globe, User } from "lucide-react"
 import { Button } from "@workspace/ui/components/button"
 import { Separator } from "@workspace/ui/components/separator"
 import type { ListRecord, Person, TagRecord } from "../lib/types"
+import { profileUrlForPerson } from "../lib/profile-url"
 import { ContactListsEditor } from "./contact-details/contact-lists-editor"
 import { ContactNotesEditor } from "./contact-details/contact-notes-editor"
 import { ContactTagsEditor } from "./contact-details/contact-tags-editor"
@@ -36,6 +37,7 @@ export function ContactDetailsTab({
   onCreateList?: (name: string) => Promise<ListRecord | void>
   onOpenEditProfile?: () => void
 }) {
+  const profileUrl = profileUrlForPerson(person)
   return (
     <div className="space-y-3">
       {/* Private Notes */}
@@ -111,14 +113,14 @@ export function ContactDetailsTab({
               Profile URL
             </span>
             <div className="mt-0.5 truncate">
-              {person.profileUrl ? (
+              {profileUrl ? (
                 <a
-                  href={person.profileUrl}
+                  href={profileUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="text-stone-700 dark:text-stone-300 hover:text-[#f15a3a] inline-flex items-center gap-1"
                 >
-                  <span className="truncate max-w-[180px]">{person.profileUrl}</span>
+                  <span className="truncate max-w-[180px]">{profileUrl}</span>
                   <ExternalLink className="size-3 shrink-0" />
                 </a>
               ) : (

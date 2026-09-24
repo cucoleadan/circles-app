@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`024_allow_follow_interactions_and_resume_sync.sql`. Migration `024` allows
+`025_backfill_missing_profile_urls.sql`. Migration `025` fills missing public
+profile links for contacts with valid stored handles, without fetching or
+merging identities. Migration `024` allows
 follow interactions and resumes activity sync for active connections stranded
 by the check constraint. Migration `023_import_current_following.sql`
 queues a following sweep that imports missing outbound profiles. Migration

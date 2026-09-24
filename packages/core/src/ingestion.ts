@@ -307,7 +307,7 @@ export async function ensurePerson(
   // omit handles entirely. Handle lookup remains the compatibility fallback.
   // Names and avatars are not identity evidence when a stable ID is available.
   const found = await client.query(
-    `select id, substack_profile_id, handle, normalized_handle, avatar_url from people
+    `select id, substack_profile_id, handle, normalized_handle, profile_url, avatar_url from people
      where user_id = $1 and archived_at is null
        and (substack_profile_id = $2
          or ($3::text is not null and normalized_handle = $3
@@ -350,6 +350,14 @@ export async function ensurePerson(
         [id, userId, handle, normalized, profileUrl],
       )
       hasMatchingHandle = (handleUpdate.rowCount ?? 0) > 0
+    }
+    if (profileUrl && hasMatchingHandle && !existing.profile_url) {
+      await client.query(
+        `update people set profile_url = $3, updated_at = now()
+         where id = $1 and user_id = $2 and profile_url is null
+           and normalized_handle = $4`,
+        [id, userId, profileUrl, normalized],
+      )
     }
     if (avatarUrl && !existing.avatar_url) {
       await client.query(

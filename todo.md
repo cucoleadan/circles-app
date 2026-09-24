@@ -36,6 +36,16 @@ Update this file as work completes. Last updated: 2026-09-24.
 - [ ] Deploy and verify the corrected BIG FISH count in production; install
       companion version 0.2.7 to use the new extension confirmation flow.
 
+## 2026-09-24 missing contact profile links
+
+- [x] Verified Mariam Vossough's public `@mariamvossough` profile and filled
+      her missing `profile_url` in production with a guarded, audited update.
+- [x] Added a drawer/details fallback for valid stored handles and repaired
+      canonical ingestion so existing matching contacts acquire a missing URL.
+- [x] Added migration `025` to backfill missing links from valid normalized
+      handles without fetching profiles or changing contact identities.
+- [ ] Deploy migration `025` and verify the remaining missing-link count.
+
 ## 2026-09-24 contact refetch
 
 - [x] Added a contact drawer Refetch action backed by a tenant-scoped queued job.

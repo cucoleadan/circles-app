@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import { readFile } from "node:fs/promises"
 import { Pool } from "pg"
 
 import { bootstrapRoles } from "../src/bootstrap-roles.js"
@@ -1164,6 +1165,42 @@ describe("interactions", () => {
     expect(people.second).toBeTruthy()
     expect(people.second).not.toBe(people.first)
     expect(people.third).not.toBe(people.first)
+  })
+
+  test("ingestion fills a missing profile URL for an existing matching handle", async () => {
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, {
+        name: "Mariam", handle: "mariamvossough", substackProfileId: "stable-mariam",
+      })
+    )
+    await withTenant({ appUserId: userA }, (client) =>
+      client.query("update people set profile_url = null where id = $1", [person.id])
+    )
+    const profileUrl = await withTenant({ appUserId: userA }, async (client) => {
+      await ensurePerson(client, userA, new Map(), {
+        id: "stable-mariam", name: "Mariam", handle: "mariamvossough",
+      })
+      const result = await client.query("select profile_url from people where id = $1", [person.id])
+      return result.rows[0].profile_url
+    })
+    expect(profileUrl).toBe("https://substack.com/@mariamvossough")
+  })
+
+  test("profile URL migration fills missing handle links and preserves custom URLs", async () => {
+    const missing = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Missing link", handle: "missing_link" })
+    )
+    const custom = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, {
+        name: "Custom link", handle: "custom_link", profileUrl: "https://example.com/custom",
+      })
+    )
+    await migrate.query("update people set profile_url = null where id = $1", [missing.id])
+    const sql = await readFile(new URL("../migrations/025_backfill_missing_profile_urls.sql", import.meta.url), "utf8")
+    await migrate.query(sql)
+    const result = await migrate.query("select id, profile_url from people where id = any($1::text[])", [[missing.id, custom.id]])
+    expect(result.rows.find((row) => row.id === missing.id)?.profile_url).toBe("https://substack.com/@missing_link")
+    expect(result.rows.find((row) => row.id === custom.id)?.profile_url).toBe("https://example.com/custom")
   })
 
   test("follower import preserves a new stable ID when its handle conflicts", async () => {

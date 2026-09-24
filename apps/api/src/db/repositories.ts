@@ -543,6 +543,10 @@ export async function createPerson(
   input: PersonInput
 ): Promise<Person> {
   const handle = input.handle?.trim() ? input.handle : null
+  const normalizedHandle = handle ? normalizeHandle(handle) : null
+  const profileUrl = input.profileUrl ?? (normalizedHandle && /^[a-z0-9._-]+$/i.test(normalizedHandle)
+    ? `https://substack.com/@${encodeURIComponent(normalizedHandle)}`
+    : null)
   const result = await client.query(
     `insert into people
         (id, user_id, name, handle, normalized_handle, notes, relationship_status,
@@ -555,11 +559,11 @@ export async function createPerson(
       userId,
       input.name ?? (handle || "Unnamed Contact"),
       handle,
-      handle ? normalizeHandle(handle) : null,
+      normalizedHandle,
       input.notes ?? null,
       input.relationshipStatus ?? null,
       input.substackProfileId ?? null,
-      input.profileUrl ?? null,
+      profileUrl,
       input.avatarUrl ?? null,
       input.isFollower ?? false,
       input.isFollowing ?? false,

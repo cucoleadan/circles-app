@@ -13,6 +13,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { formatListTooltip } from "../../lib/date-format"
+import { profileUrlForPerson } from "../../lib/profile-url"
 import type { ListRecord, Person } from "../../lib/types"
 
 function initials(name: string) {
@@ -45,6 +46,7 @@ export function ContactDrawerHeader({
   refetching: boolean
   onClose?: () => void
 }) {
+  const profileUrl = profileUrlForPerson(person)
   return (
     <>
       <SheetDescription className="sr-only">
@@ -157,9 +159,9 @@ export function ContactDrawerHeader({
                 <SheetTitle className="text-sm sm:text-base font-bold text-stone-900 dark:text-stone-100 truncate leading-tight">
                   {person.name}
                 </SheetTitle>
-                {person.profileUrl && (
+                {profileUrl && (
                   <a
-                    href={person.profileUrl}
+                    href={profileUrl}
                     target="_blank"
                     rel="noreferrer"
                     className="text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors p-0.5"

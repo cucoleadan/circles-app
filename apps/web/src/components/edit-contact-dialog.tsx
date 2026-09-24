@@ -30,6 +30,7 @@ import {
   SelectValue,
 } from "@workspace/ui/components/select"
 import type { Person } from "../lib/types"
+import { profileUrlForPerson } from "../lib/profile-url"
 
 function initials(name: string) {
   return name
@@ -56,7 +57,7 @@ export function EditContactDialog({
   const [name, setName] = useState(person.name)
   const [handle, setHandle] = useState(person.handle ? `@${person.handle.replace(/^@/, "")}` : "")
   const [avatarUrl, setAvatarUrl] = useState(person.avatarUrl ?? "")
-  const [profileUrl, setProfileUrl] = useState(person.profileUrl ?? "")
+  const [profileUrl, setProfileUrl] = useState(profileUrlForPerson(person) ?? "")
   const [publicationUrl, setPublicationUrl] = useState(person.publicationUrl ?? "")
   const [substackProfileId, setSubstackProfileId] = useState(person.substackProfileId ?? "")
   const [isFollower, setIsFollower] = useState(Boolean(person.isFollower))
@@ -76,7 +77,7 @@ export function EditContactDialog({
       setName(person.name)
       setHandle(person.handle ? `@${person.handle.replace(/^@/, "")}` : "")
       setAvatarUrl(person.avatarUrl ?? "")
-      setProfileUrl(person.profileUrl ?? "")
+      setProfileUrl(profileUrlForPerson(person) ?? "")
       setPublicationUrl(person.publicationUrl ?? "")
       setSubstackProfileId(person.substackProfileId ?? "")
       setIsFollower(Boolean(person.isFollower))
