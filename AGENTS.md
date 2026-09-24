@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`023_import_current_following.sql`. Migration `023_import_current_following.sql`
+`024_allow_follow_interactions_and_resume_sync.sql`. Migration `024` allows
+follow interactions and resumes activity sync for active connections stranded
+by the check constraint. Migration `023_import_current_following.sql`
 queues a following sweep that imports missing outbound profiles. Migration
 `022_repair_missing_handles.sql`
 queues a paced stable-ID handle repair pass for active connections. Migration

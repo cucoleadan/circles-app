@@ -1,7 +1,16 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-23.
+Update this file as work completes. Last updated: 2026-09-24.
+
+## 2026-09-24 activity sync failure
+
+- [x] Diagnosed repeated `sync:activity` failures: activity ingestion emits
+      `follow`, but the `interactions.action_type` check constraint omitted it.
+- [x] Added migration `024` to allow follow interactions and queue an activity
+      sync for active connections left without a pending or running job.
+- [ ] Deploy migration `024` and verify the restarted activity sync and its
+      three-hour successor complete successfully.
 
 ## 2026-09-23 sync incident
 
