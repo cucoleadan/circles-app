@@ -195,6 +195,37 @@ describe("transactional edits", () => {
     expect(peopleList[0]?.lists?.[0]?.createdAt).toBeTruthy()
   })
 
+  test("list counts match visible members after archiving or ignoring contacts", async () => {
+    const [visible, archived, ignored] = await withTenant({ appUserId: userA }, async (client) => [
+      await createPerson(client, userA, { name: "Visible", handle: "visible" }),
+      await createPerson(client, userA, { name: "Archived", handle: "archived" }),
+      await createPerson(client, userA, { name: "Ignored", handle: "ignored" }),
+    ])
+    const [list, ignoredList] = await withTenant({ appUserId: userA }, async (client) => {
+      const created = await createList(client, userA, "BIG FISH")
+      const hidden = await createList(client, userA, "Ignored")
+      for (const person of [visible, archived, ignored]) {
+        await addListMember(client, userA, created.id, person.id)
+      }
+      await addListMember(client, userA, hidden.id, ignored.id)
+      await archivePerson(client, archived.id)
+      return [created, hidden]
+    })
+
+    const lists = await withTenant({ appUserId: userA }, (client) => listLists(client))
+    expect(lists.find((item) => item.id === list.id)?.count).toBe(1)
+    expect(lists.find((item) => item.id === ignoredList.id)?.count).toBe(1)
+
+    const people = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { listId: list.id })
+    )
+    expect(people.map((person) => person.id)).toEqual([visible.id])
+    const ignoredPeople = await withTenant({ appUserId: userA }, (client) =>
+      listPeople(client, { listId: ignoredList.id })
+    )
+    expect(ignoredPeople.map((person) => person.id)).toEqual([ignored.id])
+  })
+
   test("a failed membership insert rolls back the whole edit", async () => {
     await expect(
       withTenant({ appUserId: userA }, async (client) => {

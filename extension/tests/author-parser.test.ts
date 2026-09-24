@@ -160,6 +160,27 @@ describe("author-parser", () => {
       expect(info?.name).toBe("Griffin Gooch");
     });
 
+    it("prefers the linked profile name when avatar alt describes another person", () => {
+      const authorRow = createMockElement({
+        tag: "div",
+        children: [
+          {
+            tag: "a",
+            attrs: { href: "/@griffingooch" },
+            children: [{
+              tag: "img",
+              attrs: { src: "https://avatar.url", alt: "Will Parker Anderson" },
+            }],
+          },
+          { tag: "a", attrs: { href: "/@griffingooch" }, text: "Griffin Gooch" },
+        ],
+      });
+
+      const info = authorInfoFromElement(authorRow);
+      expect(info?.handle).toBe("griffingooch");
+      expect(info?.name).toBe("Griffin Gooch");
+    });
+
     it("extracts author info when passed specifically the author row element", () => {
       const mockAuthorRow = createMockElement({
         tag: "div",

@@ -30,6 +30,7 @@ export interface AuthorInfo {
 interface Candidate {
   handle: string;
   names: string[];
+  avatarNames: string[];
   hasAvatar: boolean;
   isRestacker: boolean;
 }
@@ -54,6 +55,7 @@ export function authorInfoFromElement(container: Element): AuthorInfo | null {
       candidate = {
         handle,
         names: [],
+        avatarNames: [],
         hasAvatar: false,
         isRestacker: false,
       };
@@ -69,7 +71,7 @@ export function authorInfoFromElement(container: Element): AuthorInfo | null {
         !imgAlt.startsWith("@") &&
         !imgAlt.toLowerCase().includes("restacked")
       ) {
-        candidate.names.push(imgAlt);
+        candidate.avatarNames.push(imgAlt);
       }
     }
 
@@ -109,8 +111,8 @@ export function authorInfoFromElement(container: Element): AuthorInfo | null {
   const scored = [...candidates.values()].map((c) => {
     let score = 0;
     if (c.hasAvatar) score += 30;
-    if (c.names.length > 0) score += 20;
-    if (c.hasAvatar && c.names.length > 0) score += 30; // Both avatar & display name present for same handle
+    if (c.names.length > 0 || c.avatarNames.length > 0) score += 20;
+    if (c.hasAvatar && (c.names.length > 0 || c.avatarNames.length > 0)) score += 30;
     if (c.isRestacker) score -= 100; // Penalize banner restacker header
     return { ...c, score };
   });
@@ -122,7 +124,9 @@ export function authorInfoFromElement(container: Element): AuthorInfo | null {
 
   // Invariant: The display name is strictly resolved from this chosen candidate's own links/attributes.
   // Handles and names from different authors are never cross-wired.
-  const name = best.names[0] || best.handle;
+  // A visible name link tied to this handle is stronger than avatar alt text,
+  // which can describe a restacker or quoted author in nested cards.
+  const name = best.names[0] || best.avatarNames[0] || best.handle;
 
   return { handle: best.handle, name };
 }

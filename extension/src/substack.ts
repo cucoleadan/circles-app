@@ -19,6 +19,9 @@ const STYLES = `
 .circles-modal{width:320px;max-width:calc(100vw - 32px);background:#18181b;color:#f4f4f5;border:1px solid #27272a;border-radius:12px;padding:16px;box-shadow:0 10px 40px rgba(0,0,0,.5);font-family:system-ui,-apple-system,sans-serif;}
 .circles-modal-title{margin:0 0 4px;font-size:14px;font-weight:600;color:#f4f4f5;}
 .circles-modal-sub{margin:0 0 12px;font-size:12px;color:#a1a1aa;}
+.circles-modal-profile{display:block;margin:0 0 12px;font-size:12px;color:#fb923c;text-decoration:underline;text-underline-offset:2px;}
+.circles-modal-confirm{display:flex;align-items:flex-start;gap:8px;margin:0 0 12px;font-size:12px;color:#d4d4d8;cursor:pointer;}
+.circles-modal-confirm input{margin-top:2px;accent-color:#ea580c;}
 .circles-modal-lists{display:grid;gap:5px;max-height:180px;overflow-y:auto;margin-bottom:12px;}
 .circles-modal-list{display:flex;align-items:center;gap:8px;padding:6px 8px;background:#09090b;border:1px solid #27272a;border-radius:8px;font-size:13px;cursor:pointer;color:#f4f4f5;}
 .circles-modal-list:hover{background:#27272a;}
@@ -158,10 +161,22 @@ function openListModal(
 
   const sub = document.createElement("p");
   sub.className = "circles-modal-sub";
-  sub.textContent =
-    info.name && info.name !== info.handle
-      ? info.name
-      : "Select one or more lists for this contact.";
+  sub.textContent = `Check that ${info.name} is the person at this Substack profile before saving.`;
+
+  const profileLink = document.createElement("a");
+  profileLink.className = "circles-modal-profile";
+  profileLink.href = `https://substack.com/@${encodeURIComponent(info.handle)}`;
+  profileLink.target = "_blank";
+  profileLink.rel = "noopener noreferrer";
+  profileLink.textContent = `Open @${info.handle} on Substack ↗`;
+
+  const confirmation = document.createElement("label");
+  confirmation.className = "circles-modal-confirm";
+  const confirmed = document.createElement("input");
+  confirmed.type = "checkbox";
+  const confirmationText = document.createElement("span");
+  confirmationText.textContent = "The profile matches this person";
+  confirmation.append(confirmed, confirmationText);
 
   const listsBox = document.createElement("div");
   listsBox.className = "circles-modal-lists";
@@ -226,7 +241,10 @@ function openListModal(
   add.type = "button";
   add.className = "circles-modal-btn circles-modal-add";
   add.textContent = lists.length === 0 ? "Add contact" : "Save to lists";
-  add.disabled = Boolean(error);
+  add.disabled = true;
+  confirmed.addEventListener("change", () => {
+    add.disabled = Boolean(error) || !confirmed.checked;
+  });
   add.addEventListener("click", async () => {
     const selected = [
       ...listsBox.querySelectorAll<HTMLInputElement>("input:checked"),
@@ -236,7 +254,7 @@ function openListModal(
   });
 
   actions.append(cancel, add);
-  modal.append(title, sub, listsBox, errorEl, actions);
+  modal.append(title, sub, profileLink, confirmation, listsBox, errorEl, actions);
   overlay.append(modal);
   document.body.append(overlay);
 }

@@ -339,10 +339,15 @@ async function handleCreatePerson(c: any) {
     return c.json({ ok: false, message: "Name and handle are required" }, 400)
   }
 
+  const normalizedHandle = normalizeHandle(handle)
+  if (!/^[a-z0-9](?:[a-z0-9_-]{0,62}[a-z0-9])?$/.test(normalizedHandle)) {
+    return c.json({ ok: false, message: "Invalid Substack handle" }, 400)
+  }
+
   return withTenant({ appUserId: userId }, async (client) => {
     const existing = await client.query(
       "select id from people where user_id = $1 and normalized_handle = $2 and archived_at is null limit 1",
-      [userId, normalizeHandle(handle)]
+      [userId, normalizedHandle]
     )
 
     let personId = existing.rows[0]?.id as string | undefined
@@ -351,7 +356,7 @@ async function handleCreatePerson(c: any) {
         name,
         handle,
         relationshipStatus: "new",
-        profileUrl: `https://substack.com/@${encodeURIComponent(normalizeHandle(handle))}`,
+        profileUrl: `https://substack.com/@${encodeURIComponent(normalizedHandle)}`,
       })
       personId = created.id
     }

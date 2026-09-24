@@ -261,17 +261,23 @@ export async function listPeople(
       `exists (select 1 from person_tags pt where pt.person_id = p.id and pt.tag_id = $${params.length})`
     )
   }
+  let selectedIgnoredList = false
   if (options.listId) {
     params.push(options.listId)
     conditions.push(
       `exists (select 1 from list_members lm where lm.person_id = p.id and lm.list_id = $${params.length})`
     )
+    const selectedList = await client.query(
+      "select lower(name) = 'ignored' as ignored from lists where id = $1",
+      [options.listId]
+    )
+    selectedIgnoredList = selectedList.rows[0]?.ignored === true
   }
 
   // Ignored contacts isolation:
   // Contacts in the "Ignored" list are hidden from the entire CRM,
   // appearing ONLY when explicitly viewing the "ignored" tab.
-  if (options.view === "ignored") {
+  if (options.view === "ignored" || selectedIgnoredList) {
     conditions.push(
       `exists (
         select 1 from list_members lm
@@ -897,8 +903,17 @@ export interface NamedRecord {
 export async function listLists(client: PoolLike): Promise<NamedRecord[]> {
   const result = await client.query(
     `select l.id, l.name, l.description, l.created_at as "createdAt",
-        count(lm.person_id)::int as count
-      from lists l left join list_members lm on lm.list_id = l.id
+        count(p.id)::int as count
+      from lists l
+      left join list_members lm on lm.list_id = l.id
+      left join people p on p.id = lm.person_id
+        and p.archived_at is null
+        and (lower(l.name) = 'ignored' or not exists (
+          select 1 from list_members ignored_member
+          join lists ignored_list on ignored_list.id = ignored_member.list_id
+          where ignored_member.person_id = p.id
+            and lower(ignored_list.name) = 'ignored'
+        ))
       group by l.id order by lower(l.name)`
   )
   return result.rows

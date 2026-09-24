@@ -32,6 +32,7 @@ export function AddContactDialog({
 }) {
   const [name, setName] = useState("")
   const [handle, setHandle] = useState("")
+  const [profileConfirmed, setProfileConfirmed] = useState(false)
   const [notes, setNotes] = useState("")
   const [selectedListId, setSelectedListId] = useState<string>("none")
   const [submitting, setSubmitting] = useState(false)
@@ -40,6 +41,7 @@ export function AddContactDialog({
   async function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!name.trim() || submitting) return
+    if (handle.trim() && !profileConfirmed) return
     setSubmitting(true)
     setError(null)
     try {
@@ -84,6 +86,7 @@ export function AddContactDialog({
       onCreated(createdPerson)
       setName("")
       setHandle("")
+      setProfileConfirmed(false)
       setNotes("")
       setSelectedListId("none")
       onOpenChange(false)
@@ -130,12 +133,37 @@ export function AddContactDialog({
               <Input
                 id="add-handle"
                 value={handle}
-                onChange={(e) => setHandle(e.target.value.replace(/^@/, ""))}
+                onChange={(e) => {
+                  setHandle(e.target.value.replace(/^@/, ""))
+                  setProfileConfirmed(false)
+                }}
                 placeholder="username"
                 className="pl-7 text-xs font-mono"
               />
             </div>
           </div>
+
+          {handle.trim() && (
+            <div className="space-y-2 rounded-md border border-stone-200 p-3 text-xs dark:border-stone-700">
+              <a
+                href={`https://substack.com/@${encodeURIComponent(handle.trim().toLowerCase())}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="font-medium text-orange-700 underline dark:text-orange-400"
+              >
+                Check @{handle.trim()} on Substack ↗
+              </a>
+              <label className="flex items-start gap-2 text-stone-600 dark:text-stone-300">
+                <input
+                  type="checkbox"
+                  checked={profileConfirmed}
+                  onChange={(e) => setProfileConfirmed(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>This profile belongs to {name.trim() || "this contact"}</span>
+              </label>
+            </div>
+          )}
 
           {allLists.length > 0 && (
             <div className="space-y-1.5">
@@ -190,7 +218,7 @@ export function AddContactDialog({
             <Button
               type="submit"
               size="sm"
-              disabled={submitting || !name.trim()}
+              disabled={submitting || !name.trim() || Boolean(handle.trim() && !profileConfirmed)}
               className="bg-[#191817] hover:bg-[#302e2c] text-white text-xs"
             >
               {submitting ? "Adding…" : "Add Person"}

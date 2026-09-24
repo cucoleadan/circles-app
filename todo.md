@@ -9,8 +9,32 @@ Update this file as work completes. Last updated: 2026-09-24.
       `follow`, but the `interactions.action_type` check constraint omitted it.
 - [x] Added migration `024` to allow follow interactions and queue an activity
       sync for active connections left without a pending or running job.
-- [ ] Deploy migration `024` and verify the restarted activity sync and its
-      three-hour successor complete successfully.
+- [x] Deployment applied migration `024` at 2026-09-24 07:16 UTC. Activity sync
+      succeeded for both active connections and queued their three-hour
+      successors.
+- [x] Ran activity-only backfills across both missed intervals through the
+      normal import queue. Both completed in one page; one recovered 17
+      interactions, and the other found no additional interactions.
+
+## 2026-09-24 list count mismatch
+
+- [x] Found BIG FISH had two membership rows, but one contact was archived.
+      The people grid excludes archived contacts while list counts included them.
+- [x] Verified the archived `@griffingooch` row was misnamed Will Parker
+      Anderson: the public Substack profile belongs to Griffin Gooch. Migration
+      `009` ran before these rows existed; migration `016` excluded the archived
+      row and, correctly, had no stable-ID or avatar evidence to merge it with
+      `@willparkeranderson`. Keep these identities separate.
+- [x] Corrected the archived Griffin row's name and added verified stable
+      profile IDs to it and the active Will row in production. Archive state and
+      list memberships were preserved and the corrections were audited.
+- [x] Updated list counts to match visible contacts, including Ignored-list
+      isolation. The database test passes.
+- [x] Added profile-link confirmation to contact creation and the extension's
+      list modal, and strengthened author parsing to prefer a name linked to
+      the same handle over avatar alt text. This adds no Substack reads.
+- [ ] Deploy and verify the corrected BIG FISH count in production; install
+      companion version 0.2.7 to use the new extension confirmation flow.
 
 ## 2026-09-23 sync incident
 
