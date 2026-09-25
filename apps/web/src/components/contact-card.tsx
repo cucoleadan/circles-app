@@ -5,7 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
-import { formatListTooltip } from "../lib/date-format"
+import { formatListPill, formatListTooltip } from "../lib/date-format"
 import type { Person } from "../lib/types"
 import {
   formatDate,
@@ -224,7 +224,7 @@ export function ContactCard({
                   className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-1.5 py-0.5 text-[10px] font-medium text-stone-600 dark:text-stone-300 cursor-default"
                 >
                   <Bookmark className="size-2.5 text-stone-400" />
-                  {l.name}
+                  {formatListPill(l.name, l.createdAt)}
                 </span>
               </TooltipTrigger>
               <TooltipContent side="top" className="z-[70] text-xs">

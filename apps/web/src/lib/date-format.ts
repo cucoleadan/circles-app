@@ -16,3 +16,8 @@ export function formatListTooltip(name: string, iso: string | null | undefined):
   const addedDate = formatListAddedDate(iso)
   return addedDate ? `Added to ${name} on ${addedDate}` : `List: ${name}`
 }
+
+export function formatListPill(name: string, iso: string | null | undefined): string {
+  const addedDate = formatListAddedDate(iso)
+  return addedDate ? `${name} - ${addedDate.slice(0, -4).replaceAll(".", "-")}${addedDate.slice(-2)}'` : name
+}

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { formatListAddedDate, formatListTooltip } from "./date-format.js"
+import { formatListAddedDate, formatListPill, formatListTooltip } from "./date-format.js"
 
 describe("formatListAddedDate and formatListTooltip", () => {
   test("formats valid ISO timestamp as dd.mm.yyyy", () => {
@@ -29,5 +29,11 @@ describe("formatListAddedDate and formatListTooltip", () => {
   test("formatListTooltip falls back gracefully when date is missing", () => {
     expect(formatListTooltip("VIP", null)).toBe("List: VIP")
     expect(formatListTooltip("VIP", undefined)).toBe("List: VIP")
+  })
+
+  test("formatListPill displays the membership date when available", () => {
+    const d = new Date(2026, 8, 20, 12, 0, 0)
+    expect(formatListPill("FRIENDS", d.toISOString())).toBe("FRIENDS - 20-09-26'")
+    expect(formatListPill("FRIENDS", null)).toBe("FRIENDS")
   })
 })
