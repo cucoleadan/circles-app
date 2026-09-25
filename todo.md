@@ -1,7 +1,14 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-24.
+Update this file as work completes. Last updated: 2026-09-25.
+
+## 2026-09-25 audience 403 retries
+
+- [x] Cap follower and following job retries after Substack 403 responses at
+      the job's configured attempt limit (five by default). Exhausted jobs move
+      to dead letter and their import stream is marked failed when applicable.
+- [ ] Deploy and verify that the repeatedly failing follower job stops retrying.
 
 ## 2026-09-24 activity sync failure
 

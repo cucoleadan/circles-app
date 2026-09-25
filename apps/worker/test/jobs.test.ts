@@ -294,43 +294,51 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     )).toBe(true)
   })
 
-  test("temporary follower 403s stay queued instead of failing the import", async () => {
-    const executedQueries: { sql: string; params?: any[] }[] = []
-    const mockClient: any = {
-      query: async (sql: string, params: any[] = []) => {
-        executedQueries.push({ sql, params })
-        if (sql.includes("select id, type, payload")) return { rows: [{
-          id: "job-403",
-          type: "sync:followers",
-          payload: JSON.stringify({
-            userId: "user-1", connectionId: "conn-1",
-            importRunId: "run-1", stream: "followers",
-          }),
-          attempts: 4,
-          max_attempts: 5,
-        }] }
-        return { rows: [] }
-      },
-      release: () => {},
-    }
-    const originalError = console.error
-    console.error = () => {}
-    try {
-      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
-        onFollowerSync: async () => {
-          const error: any = new Error("Substack follower-list API failed (403)")
-          error.status = 403
-          throw error
+  test.each([
+    ["sync:followers", "onFollowerSync"],
+    ["sync:following", "onFollowingSync"],
+  ] as const)("audience 403s retry up to the job attempt limit for %s", async (jobType, handlerName) => {
+    for (const attempts of [3, 4]) {
+      const executedQueries: { sql: string; params?: any[] }[] = []
+      const mockClient: any = {
+        query: async (sql: string, params: any[] = []) => {
+          executedQueries.push({ sql, params })
+          if (sql.includes("select id, type, payload")) return { rows: [{
+            id: "job-403",
+            type: jobType,
+            payload: JSON.stringify({
+              userId: "user-1", connectionId: "conn-1",
+              importRunId: "run-1", stream: jobType === "sync:followers" ? "followers" : "following",
+            }),
+            attempts,
+            max_attempts: 5,
+          }] }
+          return { rows: [] }
         },
-      })
-    } finally {
-      console.error = originalError
-    }
+        release: () => {},
+      }
+      const originalError = console.error
+      console.error = () => {}
+      try {
+        await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+          [handlerName]: async () => {
+            const error: any = new Error("Substack follower-list API failed (403)")
+            error.status = 403
+            throw error
+          },
+        })
+      } finally {
+        console.error = originalError
+      }
 
-    expect(executedQueries.some((query) => query.sql.includes("status = 'dead'"))).toBe(false)
-    expect(executedQueries.some((query) =>
-      query.sql.includes("update import_run_streams") && query.params?.[2]?.includes("retrying"),
-    )).toBe(true)
+      expect(executedQueries.some((query) => query.sql.includes("status = 'dead'"))).toBe(attempts === 4)
+      expect(executedQueries.some((query) =>
+        query.sql.includes("update import_run_streams") && query.params?.[2]?.includes("retrying"),
+      )).toBe(attempts === 3)
+      expect(executedQueries.some((query) =>
+        query.sql.includes("update import_run_streams") && query.params?.[3] === "retry_limit",
+      )).toBe(attempts === 4)
+    }
   })
 
   test("marks the connection expired and dead-letters a 401 job", async () => {

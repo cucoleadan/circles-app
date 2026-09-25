@@ -463,7 +463,7 @@ export async function claimAndRunJob(
         jobError?.statusCode === 429 ||
         errorMessage.includes("429") || isAudienceDenied
       const isDead = job.type === "refetch:contact" || (
-        !isRateLimited && job.attempts + 1 >= job.max_attempts
+        (!isRateLimited || isAudienceDenied) && job.attempts + 1 >= job.max_attempts
       ) || sessionExpired || optionalProfileUnauthorized
 
       if (isDead) {
