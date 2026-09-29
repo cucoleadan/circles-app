@@ -1167,6 +1167,39 @@ describe("interactions", () => {
     expect(people.third).not.toBe(people.first)
   })
 
+  test("handle-only activity reuses a contact that already has a stable profile ID", async () => {
+    const existing = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, {
+        name: "Known Reader",
+        handle: "known_reader",
+        substackProfileId: "known-reader-profile",
+      })
+    )
+
+    const result = await withTenant({ appUserId: userA }, async (client) => {
+      const stats = await ingestActivityBatch(client, {
+        userId: userA,
+        ownerHandle: "owner",
+        items: [{
+          id: "handle-only-like",
+          kind: "like",
+          actor: { name: "Known Reader", handle: "known_reader" },
+        }],
+      })
+      const people = await client.query(
+        "select id from people where normalized_handle = 'known_reader' order by id",
+      )
+      const interaction = await client.query(
+        "select person_id from interactions where external_id = 'handle-only-like'",
+      )
+      return { stats, people: people.rows, interaction: interaction.rows[0] }
+    })
+
+    expect(result.stats).toMatchObject({ processedItems: 1, newPeople: 0, newInteractions: 1 })
+    expect(result.people).toEqual([{ id: existing.id }])
+    expect(result.interaction).toEqual({ person_id: existing.id })
+  })
+
   test("ingestion fills a missing profile URL for an existing matching handle", async () => {
     const person = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, {

@@ -72,17 +72,19 @@ describe("In-memory mock ingestion unit tests", () => {
           return { rows: [{ count }] }
         }
 
-        if (lower.includes("select id from people") && lower.includes("archived_at is null")) {
+        if (lower.includes("select id,") && lower.includes("from people") && lower.includes("archived_at is null")) {
           const [userId, profileId, normalized] = params.length === 3
             ? params
             : [params[0], null, params[1]]
           const found = Array.from(people.values()).find(
             (p) => p.user_id === userId && !p.archived_at && (
               (profileId && p.substack_profile_id === profileId) ||
-              (normalized && p.normalized_handle === normalized)
+              (normalized && p.normalized_handle === normalized && (
+                !profileId || !p.substack_profile_id || p.substack_profile_id === profileId
+              ))
             )
           )
-          return { rows: found ? [{ id: found.id }] : [] }
+          return { rows: found ? [found] : [] }
         }
 
         if (lower.includes("insert into people")) {
@@ -96,7 +98,7 @@ describe("In-memory mock ingestion unit tests", () => {
             profile_url: profileUrl,
             substack_profile_id: substackProfileId,
           })
-          return { rows: [] }
+          return { rows: [{ id, normalized_handle: normalized }] }
         }
 
         if (lower.includes("insert into interactions")) {

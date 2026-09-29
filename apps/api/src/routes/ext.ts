@@ -259,6 +259,7 @@ ext.post("/activity", async (c) => {
       )
     }
 
+    await client.query("savepoint extension_capture_ingestion")
     try {
       let stats: any
       if (payload?.kind === "conversation") {
@@ -289,14 +290,19 @@ ext.post("/activity", async (c) => {
         "update ingestion_batches set status = 'processed', processed_at = now() where id = $1 and user_id = $2",
         [batchId, userId]
       )
+      await client.query("release savepoint extension_capture_ingestion")
 
       return c.json({ ok: true, captured: stats.processedItems, ...stats })
     } catch (error: any) {
+      await client.query("rollback to savepoint extension_capture_ingestion")
+      const errorMessage = String(error?.message || error)
       await client.query(
         "update ingestion_batches set status = 'failed', error = $3 where id = $1 and user_id = $2",
-        [batchId, userId, String(error?.message || error)]
+        [batchId, userId, errorMessage]
       )
-      throw error
+      await client.query("release savepoint extension_capture_ingestion")
+      console.error("[Circles API] Extension capture ingestion failed:", errorMessage)
+      return c.json({ ok: false, message: "Capture ingestion failed" }, 500)
     }
   })
 })

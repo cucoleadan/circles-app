@@ -1,7 +1,21 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-25.
+Update this file as work completes. Last updated: 2026-09-29.
+
+## 2026-09-29 extension capture identity failure
+
+- [x] Diagnosed repeated extension capture failures as handle-only authors failing
+      to match an existing contact that already had a stable Substack profile ID.
+      The ignored unique-handle insert then returned a phantom person ID and the
+      interaction failed its foreign-key constraint.
+- [x] Allow handle-only evidence to reuse an existing stable-ID contact, require
+      person inserts to return a real row before using their ID, and preserve the
+      original capture error through a transaction savepoint.
+- [x] Added regression coverage; core/worker tests, API/database tests, typecheck,
+      and the production build pass.
+- [ ] Deploy and verify the extension's retained capture queue drains without new
+      `interactions_person_id_fkey` errors. No extension package rebuild is needed.
 
 ## 2026-09-25 audience 403 retries
 

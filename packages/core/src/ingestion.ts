@@ -311,7 +311,7 @@ export async function ensurePerson(
      where user_id = $1 and archived_at is null
        and (substack_profile_id = $2
          or ($3::text is not null and normalized_handle = $3
-           and (substack_profile_id is null or substack_profile_id = $2)))
+           and ($2::text is null or substack_profile_id is null or substack_profile_id = $2)))
      order by case
        when substack_profile_id = $2 then 0
        else 1
@@ -384,10 +384,11 @@ export async function ensurePerson(
   const safeHandle = conflictingHandle?.rows[0] ? null : handle
   const safeNormalized = safeHandle ? normalized : null
 
-  await client.query(
+  const inserted = await client.query(
     `insert into people (id, user_id, name, handle, normalized_handle, profile_url, substack_profile_id, avatar_url, source)
      values ($1, $2, $3, $4, $5, $6, $7, $8, 'extension')
-     on conflict do nothing`,
+     on conflict do nothing
+     returning id, normalized_handle`,
     [newId, userId, name, safeHandle, safeNormalized, safeNormalized ? profileUrl : null, substackProfileId, avatarUrl]
   )
 
@@ -396,7 +397,7 @@ export async function ensurePerson(
      where user_id = $1 and archived_at is null
        and (substack_profile_id = $2
          or ($3::text is not null and normalized_handle = $3
-           and (substack_profile_id is null or substack_profile_id = $2)))
+           and ($2::text is null or substack_profile_id is null or substack_profile_id = $2)))
      order by case
        when substack_profile_id = $2 then 0
        else 1
@@ -404,10 +405,12 @@ export async function ensurePerson(
      limit 1`,
     [userId, substackProfileId, normalized]
   )
-  const finalId = (check.rows[0]?.id as string) ?? newId
+  const resolved = check.rows[0] ?? inserted.rows[0]
+  const finalId = resolved?.id as string | undefined
+  if (!finalId) return null
   personCache.set(cacheKey, finalId)
   if (substackProfileId) personCache.set(`profile:${substackProfileId}`, finalId)
-  if (normalized && (check.rows[0]?.normalized_handle === normalized || (!check.rows[0] && finalId === newId))) {
+  if (normalized && resolved.normalized_handle === normalized) {
     personCache.set(`handle:${normalized}`, finalId)
   }
   return finalId
