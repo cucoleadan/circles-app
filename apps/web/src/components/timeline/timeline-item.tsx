@@ -1,7 +1,6 @@
 import {
   ArrowDownLeft,
   ArrowUpRight,
-  ExternalLink,
   Heart,
   MessageCircle,
   MessageSquare,
@@ -80,17 +79,84 @@ export function formatDate(iso: string) {
 }
 
 export function targetLabel(targetType: string | null) {
-  if (targetType === "note") return "Note"
+  if (targetType === "note") return "note"
   if (targetType === "comment") return "comment"
   if (targetType === "post") return "post"
-  return "Substack content"
+  return "content"
 }
 
 export function interactionLabel(item: Interaction, personName: string) {
-  const actor = item.direction === "inbound" ? personName : "You"
-  if (item.actionType !== "like") return actor
-  const possessive = item.direction === "inbound" ? "your" : `${personName}’s`
-  return `${actor} liked ${possessive} ${targetLabel(item.targetType)}`
+  const target = targetLabel(item.targetType)
+
+  if (item.direction === "inbound") {
+    switch (item.actionType) {
+      case "like":
+        return `${personName} liked your ${target}`
+      case "restack":
+        return `${personName} restacked your ${target}`
+      case "comment":
+        return `${personName} commented on your ${target}`
+      case "reply":
+        return `${personName} replied to you`
+      case "subscribe":
+        return `${personName} subscribed to you`
+      case "mention":
+        return `${personName} mentioned you`
+      default:
+        return `${personName} interacted with you`
+    }
+  }
+
+  switch (item.actionType) {
+    case "like":
+      return `You liked ${personName}’s ${target}`
+    case "restack":
+      return `You restacked ${personName}’s ${target}`
+    case "comment":
+      return `You commented on ${personName}’s ${target}`
+    case "reply":
+      return `You replied to ${personName}`
+    case "subscribe":
+      return `You subscribed to ${personName}`
+    case "mention":
+      return `You mentioned ${personName}`
+    default:
+      return `You interacted with ${personName}`
+  }
+}
+
+function actionWord(actionType: string) {
+  switch (actionType) {
+    case "like":
+      return "liked"
+    case "restack":
+      return "restacked"
+    case "comment":
+      return "commented"
+    case "reply":
+      return "replied"
+    case "subscribe":
+      return "subscribed"
+    case "mention":
+      return "mentioned"
+    default:
+      return "interacted"
+  }
+}
+
+function actionTextColor(actionType: string) {
+  switch (actionType) {
+    case "like":
+      return "text-rose-600 dark:text-rose-400"
+    case "restack":
+      return "text-violet-600 dark:text-violet-400"
+    case "comment":
+      return "text-emerald-600 dark:text-emerald-400"
+    case "reply":
+      return "text-sky-600 dark:text-sky-400"
+    default:
+      return "text-stone-600 dark:text-stone-300"
+  }
 }
 
 export function TimelineItem({
@@ -100,18 +166,20 @@ export function TimelineItem({
   item: Interaction
   personName: string
 }) {
-  const badge = actionBadge(item.actionType, item.body)
-  const Icon = badge.icon
   const isInbound = item.direction === "inbound"
+  const ActionIcon = actionBadge(item.actionType, item.body).icon
+  const actor = isInbound ? personName : "You"
+  const label = interactionLabel(item, personName)
+  const verb = actionWord(item.actionType)
+  const remainder = label.slice(actor.length)
+  const verbStart = remainder.indexOf(verb)
+  const beforeVerb = verbStart >= 0 ? remainder.slice(0, verbStart) : remainder
+  const afterVerb = verbStart >= 0 ? remainder.slice(verbStart + verb.length) : ""
 
   return (
     <div className="relative pb-2.5 last:pb-1">
       <span
-        className={`absolute -left-5 top-0.5 flex size-4 items-center justify-center rounded border text-[9px] ${
-          isInbound
-            ? "border-emerald-300 bg-emerald-100 text-emerald-800"
-            : "border-sky-300 bg-sky-100 text-sky-800"
-        }`}
+        className="absolute -left-5 top-2 flex size-4 items-center justify-center rounded border border-stone-300 bg-stone-100 text-stone-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-400"
         title={isInbound ? "Inbound (from them)" : "Outbound (from you)"}
       >
         {isInbound ? (
@@ -121,55 +189,23 @@ export function TimelineItem({
         )}
       </span>
 
-      <div className="rounded border border-stone-200/80 bg-white/70 p-2.5 shadow-none transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
-        <div className="flex flex-wrap items-center justify-between gap-1.5 text-xs">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10.5px] font-semibold ${badge.color}`}
-            >
-              <Icon className="size-2.5" />
-              {badge.label}
-              <span className="opacity-75 font-normal">+{badge.pts}</span>
+      <div className="rounded border border-stone-200/80 bg-white/70 px-2.5 py-2 shadow-none transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
+        <div className="flex items-center justify-between gap-2 text-xs">
+          <span className="flex min-w-0 items-center gap-1.5" title={label}>
+            <ActionIcon className={`size-3 shrink-0 ${actionTextColor(item.actionType)}`} aria-hidden="true" />
+            <span className="truncate text-stone-600 dark:text-stone-300">
+              <strong className="font-semibold text-stone-900 dark:text-stone-100">{actor}</strong>
+              {beforeVerb}
+              {verbStart >= 0 && (
+                <strong className={`font-semibold ${actionTextColor(item.actionType)}`}>{verb}</strong>
+              )}
+              {afterVerb}
             </span>
-            <span className="text-[10.5px] font-medium text-stone-500 truncate max-w-[220px]">
-              {interactionLabel(item, personName)}
-            </span>
-          </div>
+          </span>
           <span className="text-[10.5px] text-muted-foreground shrink-0">
             {formatDate(item.occurredAt)}
           </span>
         </div>
-
-        {item.body && (
-          <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-stone-800 dark:text-stone-200 font-sans">
-            {item.body}
-          </p>
-        )}
-
-        {(item.targetTitle || item.targetBody || item.targetUrl || item.actionType === "like") && (
-          <div className="mt-1.5 border-t border-stone-100 pt-1.5 text-[10.5px] text-muted-foreground dark:border-stone-800">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate font-medium text-stone-600 dark:text-stone-400">
-                {item.targetTitle || (item.targetBody ? targetLabel(item.targetType) : "Target content unavailable")}
-              </span>
-              {item.targetUrl && (
-                <a
-                  href={item.targetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="ml-auto inline-flex shrink-0 items-center gap-0.5 text-[#f15a3a] hover:underline"
-                >
-                  View <ExternalLink className="size-2.5" />
-                </a>
-              )}
-            </div>
-            {item.targetBody && (
-              <blockquote className="mt-1 max-h-20 overflow-hidden whitespace-pre-wrap border-l-2 border-stone-200 pl-2 leading-relaxed text-stone-600 dark:border-stone-700 dark:text-stone-400">
-                {item.targetBody}
-              </blockquote>
-            )}
-          </div>
-        )}
       </div>
     </div>
   )

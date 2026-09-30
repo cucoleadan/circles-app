@@ -43,13 +43,6 @@ export function ContactCard({
   const reciprocity = getReciprocityBadge(person)
   const priorityReason = getPriorityReason(person)
   const profileUrl = profileUrlForPerson(person)
-  const lastEngagementDirection = person.lastActionDirection === "inbound" || person.lastActionDirection === "outbound"
-    ? person.lastActionDirection
-    : person.lastInboundAt && (!person.lastOutboundAt || person.lastInboundAt >= person.lastOutboundAt)
-      ? "inbound"
-      : person.lastOutboundAt
-        ? "outbound"
-        : null
 
   return (
     <div
@@ -230,20 +223,16 @@ export function ContactCard({
           )}
         </div>
 
-        {/* Last engagement */}
-        <div className="mt-2.5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
-          {lastEngagementDirection === "inbound" ? (
+        {/* Timestamps */}
+        <div className="mt-2.5 flex items-center justify-between text-[10.5px] text-muted-foreground">
+          <span className="flex items-center gap-1" title="Last interaction heard from them">
             <ArrowDownLeft className="size-3 text-emerald-600 dark:text-emerald-400" />
-          ) : lastEngagementDirection === "outbound" ? (
-            <ArrowUpRight className="size-3 text-sky-600 dark:text-sky-400" />
-          ) : null}
-          <span>Last engagement:</span>
-          <span className="font-medium text-stone-700 dark:text-stone-300">
-            {formatDate(person.lastInteractionAt)}
+            {formatDate(person.lastInboundAt) || "Never"}
           </span>
-          {lastEngagementDirection && (
-            <span>· {lastEngagementDirection === "inbound" ? "from them" : "by you"}</span>
-          )}
+          <span className="flex items-center gap-1" title="Last outreach interaction given by you">
+            <ArrowUpRight className="size-3 text-sky-600 dark:text-sky-400" />
+            {formatDate(person.lastOutboundAt) || "Never"}
+          </span>
         </div>
 
         {/* Relationship Status Note / Preview */}
