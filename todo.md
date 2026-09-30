@@ -1,7 +1,30 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-29.
+Update this file as work completes. Last updated: 2026-09-30.
+
+## 2026-09-30 recent sync progress
+
+- [x] The Sync button opens a side panel and starts a manual sync. The panel
+      polls tenant-scoped queue progress every three seconds and shows the
+      activity page, Notes/posts, outbound actions, and audience steps.
+- [x] Worker jobs retain safe processed/new counts in migration `026`; the
+      progress API omits raw job payloads and private error details.
+- [x] Future scheduled activity jobs no longer prevent a manual sync from
+      being queued.
+- [ ] Deploy migration `026` and verify a live sync runs through the panel.
+
+## 2026-09-30 contact overview cleanup
+
+- [x] Attach a Substack profile link to the score pill on every contact card
+      when the contact has a usable profile URL or handle. Opening it does not
+      open the CRM contact drawer.
+- [x] Link the displayed @handle to the same Substack profile on contact cards
+      and in the contact drawer; the details tab handle is linked as well.
+- [x] Reduce card clutter by showing received/given and conversation counts,
+      plus one labeled last-engagement date and direction in place of two
+      separate timestamps. Typecheck and build pass.
+- [ ] Deploy and visually verify the card layout with live contact data.
 
 ## 2026-09-29 extension capture identity failure
 

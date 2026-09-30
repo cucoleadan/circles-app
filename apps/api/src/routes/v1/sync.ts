@@ -5,6 +5,82 @@ import type { V1Env } from "./types.js"
 
 export const syncRoutes = new Hono<V1Env>()
 
+function publicJobError(value: unknown): string | null {
+  if (typeof value !== "string" || !value) return null
+  if (/expired|\b401\b/i.test(value)) return "Substack session expired"
+  if (/rate limit|\b429\b/i.test(value)) return "Substack rate limited this step; it will retry if possible"
+  if (/\b403\b|rejected the audience request/i.test(value)) return "Substack rejected this request"
+  return "This step failed; check the server logs for details"
+}
+
+syncRoutes.get("/sync/progress", async (c) => {
+  const appUser = c.get("appUser")
+  const progress = await withTenant({ appUserId: appUser }, async (client) => {
+    const connection = await client.query(
+      `select id from substack_connections where user_id = $1 order by generation desc limit 1`,
+      [appUser],
+    )
+    const connectionId = connection.rows[0]?.id as string | undefined
+    if (!connectionId) return { run: null, lastSyncedAt: null }
+
+    const state = await client.query(
+      `select last_synced_at as "lastSyncedAt" from sync_state
+       where connection_id = $1 and user_id = $2`,
+      [connectionId, appUser],
+    )
+    const parent = await client.query(
+      `select id, type, status, attempts, max_attempts as "maxAttempts",
+              run_at as "runAt", locked_at as "startedAt", created_at as "createdAt",
+              updated_at as "updatedAt", last_error as "lastError", result
+       from jobs
+       where type = 'sync:activity'
+         and payload->>'userId' = $1
+         and payload->>'connectionId' = $2
+         and (status <> 'pending' or run_at <= now())
+       order by id desc limit 1`,
+      [appUser, connectionId],
+    )
+    const run = parent.rows[0]
+    if (!run) return { run: null, lastSyncedAt: state.rows[0]?.lastSyncedAt ?? null }
+
+    const children = await client.query(
+      `select id, type, status, attempts, max_attempts as "maxAttempts",
+              run_at as "runAt", locked_at as "startedAt", created_at as "createdAt",
+              updated_at as "updatedAt", last_error as "lastError", result,
+              payload->>'stream' as stream, payload->>'outboundStage' as "outboundStage"
+       from jobs
+       where payload->>'parentJobId' = $1
+         and payload->>'userId' = $2
+         and payload->>'connectionId' = $3
+       order by id asc limit 200`,
+      [String(run.id), appUser, connectionId],
+    )
+    const steps = [run, ...children.rows].map((job) => ({
+      id: String(job.id),
+      type: job.type,
+      stream: job.stream ?? null,
+      outboundStage: job.outboundStage ?? null,
+      status: job.status,
+      attempts: job.attempts,
+      maxAttempts: job.maxAttempts,
+      runAt: job.runAt,
+      startedAt: job.startedAt,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      result: job.result ?? null,
+      error: publicJobError(job.lastError),
+    }))
+    const status = steps.some((step) => step.status === "dead" || step.status === "failed") ? "failed"
+      : steps.some((step) => step.status === "running" || step.status === "pending") ? "running"
+        : "complete"
+    return {
+      run: { id: String(run.id), status, startedAt: run.createdAt, steps },
+      lastSyncedAt: state.rows[0]?.lastSyncedAt ?? null,
+    }
+  })
+  return c.json(progress)
+})
+
 syncRoutes.get("/sync", async (c) => {
   const appUser = c.get("appUser")
   const state = await withTenant({ appUserId: appUser }, async (client) => {
@@ -50,7 +126,7 @@ syncRoutes.post("/sync", async (c) => {
        where not exists (
          select 1 from jobs existing
          where existing.type = 'sync:activity'
-           and existing.status in ('pending', 'running')
+           and (existing.status = 'running' or (existing.status = 'pending' and existing.run_at <= now()))
            and existing.payload->>'connectionId' = $2::text
        )
        returning id`,

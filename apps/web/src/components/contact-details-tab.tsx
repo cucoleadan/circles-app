@@ -90,7 +90,17 @@ export function ContactDetailsTab({
             </span>
             <div className="mt-0.5 font-mono text-stone-800 dark:text-stone-200 truncate">
               {person.handle ? (
-                `@${person.handle}`
+                profileUrl ? (
+                  <a
+                    href={profileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="hover:text-[#f15a3a] hover:underline"
+                    title={`Open @${person.handle} on Substack`}
+                  >
+                    @{person.handle}
+                  </a>
+                ) : `@${person.handle}`
               ) : (
                 <span className="text-muted-foreground italic font-sans">None set</span>
               )}

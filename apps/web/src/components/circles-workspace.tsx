@@ -19,6 +19,7 @@ import { CirclesMetricsRibbon } from "./circles-metrics-ribbon"
 import { CirclesSidebar } from "./circles-sidebar"
 import { ContactDrawer } from "./contact-drawer"
 import { SettingsDialog } from "./settings-dialog"
+import { SyncProgressPanel } from "./sync-progress-panel"
 import { CirclesContactsGrid } from "./workspace/circles-contacts-grid"
 import { CirclesMobileStrip } from "./workspace/circles-mobile-strip"
 import { CirclesNavbar } from "./workspace/circles-navbar"
@@ -53,6 +54,9 @@ export function CirclesWorkspace({
   const [connectionStatus, setConnectionStatus] = useState<"active" | "expired" | "none">("active")
   const [refreshKey, setRefreshKey] = useState(0)
   const [isSyncing, setIsSyncing] = useState(false)
+  const [isSyncPanelOpen, setIsSyncPanelOpen] = useState(false)
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null)
+  const [syncRefreshKey, setSyncRefreshKey] = useState(0)
   const [notice, setNotice] = useState<string | null>(null)
 
   function refetchPeople() {
@@ -114,15 +118,19 @@ export function CirclesWorkspace({
 
   async function triggerSync() {
     if (isSyncing) return
+    setIsSyncPanelOpen(true)
     setIsSyncing(true)
-    setNotice("Refreshing Substack activity in the background…")
+    setSyncFeedback("Requesting a sync…")
     try {
       const res = await fetch("/api/v1/sync", { method: "POST" })
+      const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
         throw new Error(body.error || "Sync request failed")
       }
-      setNotice("Sync job enqueued! Activity is processing.")
+      setSyncFeedback(body.enqueued
+        ? "Sync queued. The steps below will update as the worker processes them."
+        : body.message || "A sync is already queued or was recently completed.")
+      setSyncRefreshKey((key) => key + 1)
       setTimeout(() => {
         fetch("/api/v1/circles")
           .then((res) => res.json())
@@ -130,10 +138,9 @@ export function CirclesWorkspace({
           .catch(() => {})
       }, 3000)
     } catch (err: any) {
-      setNotice(`Sync note: ${err.message}`)
+      setSyncFeedback(err.message || "Could not start the sync")
     } finally {
-      setTimeout(() => setIsSyncing(false), 1000)
-      setTimeout(() => setNotice(null), 4000)
+      setIsSyncing(false)
     }
   }
 
@@ -267,6 +274,14 @@ export function CirclesWorkspace({
         allLists={lists}
         allTags={tags}
         onCreateList={handleCreateList}
+      />
+
+      <SyncProgressPanel
+        open={isSyncPanelOpen}
+        onOpenChange={setIsSyncPanelOpen}
+        refreshKey={syncRefreshKey}
+        feedback={syncFeedback}
+        isRequesting={isSyncing}
       />
 
       <AddContactDialog

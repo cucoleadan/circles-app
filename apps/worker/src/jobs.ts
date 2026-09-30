@@ -91,6 +91,16 @@ export interface JobHandlers {
   ) => Promise<any>
 }
 
+function numericSummary(value: unknown, fields: string[]): Record<string, number> {
+  if (!value || typeof value !== "object") return {}
+  const data = value as Record<string, unknown>
+  return Object.fromEntries(fields.flatMap((field) =>
+    typeof data[field] === "number" && Number.isFinite(data[field])
+      ? [[field, data[field] as number]]
+      : []
+  ))
+}
+
 export async function claimAndRunJob(
   pool: Pool,
   workerId: string,
@@ -144,11 +154,15 @@ export async function claimAndRunJob(
       offset, runStartedAt, fullSweep, limit, afterId,
     } = payload
 
+    let jobResult: Record<string, number | boolean> | null = null
     try {
       if (job.type === "sync:activity") {
         const result = handlers?.onSync
           ? await handlers.onSync(client, userId, connectionId)
           : await processActivitySync(client, userId, connectionId)
+        jobResult = result.skipped
+          ? { skipped: true }
+          : numericSummary("stats" in result ? result.stats : null, ["processedItems", "newInteractions", "newPeople"])
         if (!result.skipped) {
           const scheduledHistory: Array<{
             stream: ScheduledHistoryStream
@@ -174,7 +188,7 @@ export async function claimAndRunJob(
                    and coalesce(existing.payload->>'outboundStage', '') = $5
                )`,
               [
-                JSON.stringify({ ...payload, stream: scheduled.stream, outboundStage: scheduled.outboundStage }),
+                JSON.stringify({ ...payload, parentJobId: String(job.id), stream: scheduled.stream, outboundStage: scheduled.outboundStage }),
                 scheduled.delay,
                 connectionId,
                 scheduled.stream,
@@ -224,7 +238,7 @@ export async function claimAndRunJob(
                )`,
               [
                 audience.type,
-                JSON.stringify(audience.payload),
+                JSON.stringify({ ...audience.payload, parentJobId: String(job.id) }),
                 audience.delay,
                 connectionId,
               ],
@@ -247,6 +261,9 @@ export async function claimAndRunJob(
         const result = handlers?.onHistorySync
           ? await handlers.onHistorySync(client, userId, connectionId, stream, outboundStage)
           : await processScheduledHistorySync(client, userId, connectionId, stream, outboundStage)
+        jobResult = result.skipped
+          ? { skipped: true }
+          : numericSummary("stats" in result ? result.stats : null, ["items", "newInteractions", "newPeople"])
         if (result.skipped) {
           console.log(`[Circles Worker] Skipped ${stream} sync for inactive connection ${connectionId}.`)
         }
@@ -261,6 +278,7 @@ export async function claimAndRunJob(
           invalid: Number(payload.invalid ?? 0) + Number(result.invalid ?? 0),
           deactivated: Number(payload.deactivated ?? 0) + Number(result.deactivated ?? 0),
         }
+        jobResult = result.skipped ? { skipped: true } : { ...totals, completed: Boolean(result.completed) }
         const continueImport = importRunId && stream === "subscribers"
           ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
           : !result.completed && !result.skipped
@@ -292,6 +310,7 @@ export async function claimAndRunJob(
           updated: Number(payload.updated ?? 0) + Number(result.updated ?? 0),
           failed: Number(payload.failed ?? 0) + Number(result.failed ?? 0),
         }
+        jobResult = result.skipped ? { skipped: true } : { ...totals, completed: Boolean(result.completed) }
         const continueImport = importRunId && stream === "followers"
           ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
           : fullSweep === true && !result.completed && !result.skipped
@@ -325,6 +344,9 @@ export async function claimAndRunJob(
               `${result.created ?? 0} new contacts.`,
           )
         }
+        jobResult = result.skipped
+          ? { skipped: true }
+          : numericSummary(result, ["checked", "updated", "subscribed", "created", "failed"])
       } else if (job.type === "enrich:missing-handles") {
         const result = handlers?.onMissingHandleBackfill
           ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId)
@@ -408,8 +430,8 @@ export async function claimAndRunJob(
 
       // Mark job done
       await client.query(
-        "update jobs set status = 'done', last_error = null, updated_at = now() where id = $1 and lease_token = $2",
-        [job.id, leaseToken]
+        "update jobs set status = 'done', last_error = null, result = $3::jsonb, updated_at = now() where id = $1 and lease_token = $2",
+        [job.id, leaseToken, jobResult ? JSON.stringify(jobResult) : null]
       )
     } catch (jobError: any) {
       console.error(

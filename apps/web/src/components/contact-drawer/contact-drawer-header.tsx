@@ -174,9 +174,19 @@ export function ContactDrawerHeader({
 
               <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground flex-wrap">
                 {person.handle ? (
-                  <span className="font-mono text-stone-700 dark:text-stone-300 font-medium text-xs">
-                    @{person.handle}
-                  </span>
+                  profileUrl ? (
+                    <a
+                      href={profileUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-mono text-stone-700 dark:text-stone-300 font-medium text-xs hover:text-[#f15a3a] dark:hover:text-[#f15a3a] hover:underline"
+                      title={`Open @${person.handle} on Substack`}
+                    >
+                      @{person.handle}
+                    </a>
+                  ) : (
+                    <span className="font-mono text-stone-700 dark:text-stone-300 font-medium text-xs">@{person.handle}</span>
+                  )
                 ) : (
                   <button
                     type="button"

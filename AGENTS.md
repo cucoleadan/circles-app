@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`025_backfill_missing_profile_urls.sql`. Migration `025` fills missing public
+`026_sync_job_results.sql`. Migration `026` stores safe per-job sync counters
+for the tenant-scoped `/api/v1/sync/progress` panel; activity jobs link their
+scheduled child jobs for progress tracking. Migration `025` fills missing public
 profile links for contacts with valid stored handles, without fetching or
 merging identities. Migration `024` allows
 follow interactions and resumes activity sync for active connections stranded

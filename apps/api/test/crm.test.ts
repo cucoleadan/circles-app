@@ -745,6 +745,15 @@ describe("interactions", () => {
     const getConnBody = (await getConnRes.json()) as any
     expect(getConnBody.connection.id).toBe(connBody.connection.id)
 
+    // A future scheduled run must not prevent the manual Sync button from working.
+    await withTenant({ appUserId: userA }, async (client) => {
+      await client.query(
+        `insert into jobs (type, payload, status, run_at)
+         values ('sync:activity', $1, 'pending', now() + interval '3 hours')`,
+        [JSON.stringify({ userId: userA, connectionId: connBody.connection.id })],
+      )
+    })
+
     // 3. POST /sync (first call: enqueued)
     const syncRes1 = await v1.fetch(
       new Request("http://localhost:3000/sync", {
@@ -756,6 +765,48 @@ describe("interactions", () => {
     const syncBody1 = (await syncRes1.json()) as any
     expect(syncBody1.enqueued).toBe(true)
     expect(syncBody1.jobId).toBeDefined()
+
+    const pendingProgress = await v1.fetch(new Request("http://localhost:3000/sync/progress", {
+      headers: { cookie: signedCookieA },
+    }))
+    expect(pendingProgress.status).toBe(200)
+    const pendingBody = (await pendingProgress.json()) as any
+    expect(pendingBody.run.id).toBe(String(syncBody1.jobId))
+    expect(pendingBody.run.status).toBe("running")
+    expect(pendingBody.run.steps).toHaveLength(1)
+
+    await withTenant({ appUserId: userA }, async (client) => {
+      await client.query(
+        `update jobs set status = 'done', result = '{"processedItems":12,"newInteractions":2,"newPeople":1}'::jsonb
+         where id = $1`,
+        [syncBody1.jobId],
+      )
+      await client.query(
+        `insert into jobs (type, payload, status, run_at, last_error)
+         values ('sync:history', $1, 'pending', now() + interval '10 seconds',
+                 'private request detail that must stay on the server')`,
+        [JSON.stringify({
+          userId: userA,
+          connectionId: connBody.connection.id,
+          parentJobId: String(syncBody1.jobId),
+          stream: "owned_notes",
+        })],
+      )
+    })
+    const progressRes = await v1.fetch(new Request("http://localhost:3000/sync/progress", {
+      headers: { cookie: signedCookieA },
+    }))
+    expect(progressRes.status).toBe(200)
+    const progressBody = (await progressRes.json()) as any
+    expect(progressBody.run.steps).toHaveLength(2)
+    expect(progressBody.run.steps[0].result.newInteractions).toBe(2)
+    expect(progressBody.run.steps[1].stream).toBe("owned_notes")
+    expect(JSON.stringify(progressBody)).not.toContain("private request detail")
+
+    const otherTenantProgress = await v1.fetch(new Request("http://localhost:3000/sync/progress", {
+      headers: { cookie: signedCookieB },
+    }))
+    expect((await otherTenantProgress.json() as any).run).toBeNull()
 
     // 4. Update sync_state last_synced_at to now() to test cooldown
     await withTenant({ appUserId: userA }, async (client) => {

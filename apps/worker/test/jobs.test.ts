@@ -71,7 +71,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     }
 
     const result = await claimAndRunJob(mockPool, "test-worker-1", {
-      onSync: async () => ({ skipped: false }),
+      onSync: async () => ({ skipped: false, stats: { processedItems: 12, newInteractions: 2, newPeople: 1 } }),
     })
     expect(result).toBe(true)
 
@@ -93,6 +93,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
 
     expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(true)
     expect(executedQueries.some((q) => q.params?.[0] === "sync:followers")).toBe(true)
+    const historyJob = executedQueries.find((q) => q.sql.includes("select 'sync:history'") && q.params?.[0])
+    expect(JSON.parse(historyJob?.params?.[0]).parentJobId).toBe("job-101")
 
     // Verify job was marked as done
     const doneUpdate = executedQueries.find((q) =>
@@ -100,6 +102,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     )
     expect(doneUpdate).toBeDefined()
     expect(doneUpdate?.params?.[0]).toBe("job-101")
+    expect(JSON.parse(doneUpdate?.params?.[2])).toEqual({
+      processedItems: 12, newInteractions: 2, newPeople: 1,
+    })
   })
 
   test("schedules next page when import:history job is not yet completed", async () => {

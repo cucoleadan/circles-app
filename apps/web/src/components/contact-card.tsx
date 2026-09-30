@@ -1,4 +1,4 @@
-import { ArrowDownLeft, ArrowUpRight, Bookmark, Clock, MessageSquare } from "lucide-react"
+import { ArrowDownLeft, ArrowUpRight, Bookmark, MessageSquare } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import {
   Tooltip,
@@ -6,6 +6,7 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip"
 import { formatListPill, formatListTooltip } from "../lib/date-format"
+import { profileUrlForPerson } from "../lib/profile-url"
 import type { Person } from "../lib/types"
 import {
   formatDate,
@@ -20,6 +21,14 @@ import {
 export { formatDate, getPriorityReason, getReciprocityBadge, initials, statusColors }
 export type { ReciprocityInfo }
 
+function SubstackMark() {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-3.5">
+      <path d="M3 3h18v2H3zm0 4h18v2H3zm0 4h18v11l-9-5-9 5z" />
+    </svg>
+  )
+}
+
 export function ContactCard({
   person,
   onSelect,
@@ -33,6 +42,14 @@ export function ContactCard({
   const isHighAdvocate = (person.engagementScore ?? 0) >= 30
   const reciprocity = getReciprocityBadge(person)
   const priorityReason = getPriorityReason(person)
+  const profileUrl = profileUrlForPerson(person)
+  const lastEngagementDirection = person.lastActionDirection === "inbound" || person.lastActionDirection === "outbound"
+    ? person.lastActionDirection
+    : person.lastInboundAt && (!person.lastOutboundAt || person.lastInboundAt >= person.lastOutboundAt)
+      ? "inbound"
+      : person.lastOutboundAt
+        ? "outbound"
+        : null
 
   return (
     <div
@@ -77,9 +94,21 @@ export function ContactCard({
                 {person.name}
               </p>
               {person.handle ? (
-                <p className="text-xs text-muted-foreground truncate font-mono">
-                  @{person.handle}
-                </p>
+                profileUrl ? (
+                  <a
+                    href={profileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
+                    className="block truncate font-mono text-xs text-muted-foreground hover:text-[#f15a3a] hover:underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-[#f15a3a]"
+                    title={`Open @${person.handle} on Substack`}
+                  >
+                    @{person.handle}
+                  </a>
+                ) : (
+                  <p className="truncate font-mono text-xs text-muted-foreground">@{person.handle}</p>
+                )
               ) : (
                 <p className="text-xs text-stone-400 truncate italic">
                   Substack profile
@@ -89,18 +118,34 @@ export function ContactCard({
           </div>
 
           <div className="flex flex-col items-end gap-1 shrink-0">
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                hasEngagement
-                  ? isHighAdvocate
-                    ? "bg-[#f15a3a] text-white shadow-2xs"
-                    : "bg-[#f15a3a]/10 text-[#f15a3a] dark:bg-[#f15a3a]/20"
-                  : "bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400"
-              }`}
-              title="Calculated relationship score"
-            >
-              {person.engagementScore ?? 0} pts
-            </span>
+            <div className="inline-flex items-stretch overflow-hidden rounded-full shadow-2xs">
+              <span
+                className={`px-2 py-0.5 text-xs font-semibold ${
+                  hasEngagement
+                    ? isHighAdvocate
+                      ? "bg-[#f15a3a] text-white"
+                      : "bg-[#f15a3a]/10 text-[#f15a3a] dark:bg-[#f15a3a]/20"
+                    : "bg-stone-100 text-stone-600 dark:bg-stone-800 dark:text-stone-400"
+                }`}
+                title="Calculated relationship score"
+              >
+                {person.engagementScore ?? 0} pts
+              </span>
+              {profileUrl && (
+                <a
+                  href={profileUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(event) => event.stopPropagation()}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  aria-label={`Open ${person.name}'s Substack profile`}
+                  title={`Open ${person.name}'s Substack profile`}
+                  className="inline-flex items-center justify-center border-l border-[#f15a3a]/20 bg-[#fff0eb] px-2 text-[#f15a3a] transition-colors hover:bg-[#ffdfd4] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[#f15a3a] dark:border-[#f15a3a]/30 dark:bg-[#f15a3a]/20 dark:hover:bg-[#f15a3a]/30"
+                >
+                  <SubstackMark />
+                </a>
+              )}
+            </div>
 
             {person.driftStatus === "drifting" && (
               <span
@@ -171,10 +216,6 @@ export function ContactCard({
 
         {/* Middle: Metrics and Tags */}
         <div className="mt-3 flex flex-wrap items-center gap-1.5 text-[11px] text-stone-500">
-          <span className="inline-flex items-center gap-1 rounded-md bg-stone-100 dark:bg-stone-800 px-2 py-0.5 font-medium">
-            <Clock className="size-2.5 text-stone-400" />
-            {person.interactionCount} actions
-          </span>
           <span className="inline-flex items-center rounded-md bg-emerald-50 px-2 py-0.5 font-medium text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">
             {person.inboundInteractionCount ?? 0} received
           </span>
@@ -187,23 +228,22 @@ export function ContactCard({
               {person.conversationCount} convos
             </span>
           )}
-          {(person.restackCount ?? 0) > 0 && (
-            <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-0.5 font-medium text-purple-700 dark:bg-purple-950/50 dark:text-purple-300">
-              🔁 {person.restackCount}
-            </span>
-          )}
         </div>
 
-        {/* Timestamps */}
-        <div className="mt-2.5 flex items-center justify-between text-[10.5px] text-muted-foreground">
-          <span className="flex items-center gap-1" title="Last interaction heard from them">
+        {/* Last engagement */}
+        <div className="mt-2.5 flex items-center gap-1.5 text-[10.5px] text-muted-foreground">
+          {lastEngagementDirection === "inbound" ? (
             <ArrowDownLeft className="size-3 text-emerald-600 dark:text-emerald-400" />
-            {formatDate(person.lastInboundAt) || "Never"}
-          </span>
-          <span className="flex items-center gap-1" title="Last outreach interaction given by you">
+          ) : lastEngagementDirection === "outbound" ? (
             <ArrowUpRight className="size-3 text-sky-600 dark:text-sky-400" />
-            {formatDate(person.lastOutboundAt) || "Never"}
+          ) : null}
+          <span>Last engagement:</span>
+          <span className="font-medium text-stone-700 dark:text-stone-300">
+            {formatDate(person.lastInteractionAt)}
           </span>
+          {lastEngagementDirection && (
+            <span>· {lastEngagementDirection === "inbound" ? "from them" : "by you"}</span>
+          )}
         </div>
 
         {/* Relationship Status Note / Preview */}
