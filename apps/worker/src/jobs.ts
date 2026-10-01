@@ -302,9 +302,12 @@ export async function claimAndRunJob(
           ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
           : !result.completed && !result.skipped
         if (continueImport) {
+          // Scheduled sweeps run unattended, so space their Substack reads out;
+          // manual and import sweeps keep the faster pace the user is waiting on.
+          const pageDelay = payload.manual === false && !importRunId ? "30 seconds" : "2 seconds"
           await client.query(
             `insert into jobs (type, payload, status, run_at)
-             values ('sync:subscribers', $1, 'pending', now() + interval '2 seconds')`,
+             values ('sync:subscribers', $1, 'pending', now() + $2::interval)`,
             [JSON.stringify({
               ...payload,
               ...(result.mode && { mode: result.mode }),
@@ -317,7 +320,7 @@ export async function claimAndRunJob(
               total: result.total,
               runStartedAt: result.runStartedAt ?? runStartedAt,
               ...totals,
-            })],
+            }), pageDelay],
           )
         } else if (!result.skipped) {
           console.log(

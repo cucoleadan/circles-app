@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { claimAndRunJob } from "../src/jobs.js"
-import { nextIncrementalSubscriberOffset } from "../src/audience.js"
+import { nextIncrementalSubscriberOffset, processSubscriberSyncPage } from "../src/audience.js"
 
 describe("Worker queue runner (claimAndRunJob)", () => {
   test("contact refetch dies on the first 429 instead of exceeding its request cap", async () => {
@@ -467,7 +467,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     })
 
     const nextPage = executedQueries.find((query) =>
-      query.sql.includes("'sync:subscribers'") && query.sql.includes("2 seconds")
+      query.sql.includes("'sync:subscribers'") && query.params?.[1] === "2 seconds"
     )
     expect(nextPage).toBeDefined()
     expect(JSON.parse(nextPage?.params?.[0] ?? "{}")).toMatchObject({
@@ -699,7 +699,7 @@ describe("Incremental subscriber sync", () => {
         executedQueries.push({ sql, params })
         if (sql.includes("select id, type, payload")) return { rows: [{
           id: "job-inc", type: "sync:subscribers",
-          payload: { userId: "user-1", connectionId: "conn-1", offset: 0, mode: "incremental" },
+          payload: { userId: "user-1", connectionId: "conn-1", offset: 0, mode: "incremental", manual: false },
           attempts: 0, max_attempts: 5,
         }] }
         return { rows: [] }
@@ -717,9 +717,35 @@ describe("Incremental subscriber sync", () => {
       },
     })
     expect(received).toMatchObject({ pages: 0 })
-    const nextPage = executedQueries.find((q) => q.sql.includes("'sync:subscribers'") && q.sql.includes("2 seconds"))
+    const nextPage = executedQueries.find((q) => q.sql.includes("'sync:subscribers'") && q.params?.[1] === "30 seconds")
     expect(JSON.parse(nextPage?.params?.[0])).toMatchObject({
       mode: "incremental", offset: 100, direction: "desc", since: since.toISOString(), pages: 1,
     })
+  })
+})
+
+describe("Full subscriber sweep", () => {
+  test("overlaps pages so a mid-sweep unsubscribe cannot skip anyone", async () => {
+    const mockClient: any = {
+      query: async (sql: string) => {
+        if (sql.includes("select ciphertext, publication_url, status")) {
+          return { rows: [{ ciphertext: "sid", publication_url: "https://example.substack.com", status: "active" }] }
+        }
+        return { rows: [], rowCount: 0 }
+      },
+    }
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      count: 250,
+      subscribers: Array.from({ length: 100 }, (_, index) => ({ user_id: index + 1 })),
+    }))) as any
+    try {
+      const middle = await processSubscriberSyncPage(mockClient, "user-1", "conn-1", 100)
+      expect(middle).toMatchObject({ completed: false, nextOffset: 190, deactivated: 0 })
+      const last = await processSubscriberSyncPage(mockClient, "user-1", "conn-1", 190)
+      expect(last).toMatchObject({ completed: true })
+    } finally {
+      globalThis.fetch = originalFetch
+    }
   })
 })

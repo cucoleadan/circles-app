@@ -14,6 +14,7 @@ import { withTenant, substackResponseError } from "./tenant.js"
 import { finishImportIfReady } from "./imports.js"
 
 export const SUBSCRIBER_PAGE_SIZE = 100
+export const SUBSCRIBER_PAGE_OVERLAP = 10
 export const INCREMENTAL_SUBSCRIBER_MAX_PAGES = 10
 /** Re-read subscribers this far behind the newest stored subscription. */
 const INCREMENTAL_SUBSCRIBER_OVERLAP_MS = 24 * 60 * 60 * 1000
@@ -168,8 +169,12 @@ export async function processSubscriberSyncPage(
       page.subscribers,
       new Date().toISOString(),
     )
-    const nextOffset = offset + page.received
-    const completed = page.received === 0 || nextOffset >= page.total
+    const completed = page.received === 0 || offset + page.received >= page.total
+    // Overlap pages so a subscriber who leaves mid-sweep cannot shift someone
+    // else past a page boundary and get them wrongly marked unsubscribed.
+    const nextOffset = completed
+      ? offset + page.received
+      : offset + Math.max(1, page.received - SUBSCRIBER_PAGE_OVERLAP)
     const deactivated = completed
       ? await reconcileSubscriberSnapshot(client, userId, runStartedAt.toISOString())
       : 0
