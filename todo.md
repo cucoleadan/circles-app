@@ -130,8 +130,12 @@ Update this file as work completes. Last updated: 2026-09-30.
       run in batches; one canonical `refreshPersonStats` in core.
 - [x] Done jobs older than 14 days and dead jobs older than 30 days are pruned.
 - [x] Optional `SESSION_TOKEN_KEY` encrypts Substack session tokens at rest.
-- [ ] Deploy, confirm migration `027` applied, the evidence replay completed,
-      and `Synced connection … from N page(s)` appears in worker logs.
+- [x] Deployed `027` (2026-10-01 12:41 UTC): incremental subscriber sync used
+      2 requests (Substack returns subscribers oldest-first) and activity sync
+      read 2 pages. The evidence replay hit `interactions_active_action_target_idx`
+      on a Like soft-removed by migration `011`; ingestion now keeps such
+      duplicates removed and migration `028` re-queues the replay.
+- [ ] Deploy `028` and confirm the evidence replay finishes without errors.
 - [ ] Optionally set `SESSION_TOKEN_KEY` in Dokploy for api and worker, then
       reconnect Substack to encrypt the stored session.
 - [ ] Scheduled owned Notes/posts history still fetches reply trees inside a DB

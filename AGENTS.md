@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`027_self_healing_sync_and_evidence_replay.sql`. Migration `027` adds the
+`028_retry_evidence_replay.sql`, which re-queues the evidence replay after
+ingestion stopped restoring soft-removed duplicate Likes/restacks beside their
+active row. Migration `027` adds the
 `seed_missing_activity_syncs()` `SECURITY DEFINER` function the worker calls
 every 5 minutes to restart the recurring sync for any active connection that
 lost its job chain, and queues an evidence replay that recovers activity the old

@@ -689,7 +689,21 @@ export async function ingestActivityBatch(
     } else {
       await client.query(
         `update interactions
-         set removed_at = null, person_id = $4, direction = $5,
+         set removed_at = case
+               -- Only one active Like/restack may exist per person and target.
+               -- A replayed duplicate (e.g. one soft-removed by migration 011)
+               -- stays removed instead of colliding with the surviving row.
+               when $6 in ('like', 'restack') and exists (
+                 select 1 from interactions other
+                 where other.user_id = $1 and other.person_id = $4
+                   and other.direction = $5 and other.action_type = $6
+                   and other.target_type = coalesce($7, interactions.target_type)
+                   and other.target_id = coalesce($8, interactions.target_id)
+                   and other.removed_at is null and other.id <> interactions.id
+               ) then coalesce(interactions.removed_at, now())
+               else null
+             end,
+             person_id = $4, direction = $5,
              action_type = $6,
              target_type = coalesce($7, target_type),
              target_id = coalesce($8, target_id),

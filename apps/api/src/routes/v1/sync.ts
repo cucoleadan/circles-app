@@ -7,10 +7,50 @@ export const syncRoutes = new Hono<V1Env>()
 
 function publicJobError(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null
-  if (/expired|\b401\b/i.test(value)) return "Substack session expired"
+  if (/^Substack session expired|\b401\b/i.test(value)) return "Substack session expired"
+  if (/lease expired/i.test(value)) return "The worker restarted during this step; it will retry"
   if (/rate limit|\b429\b/i.test(value)) return "Substack rate limited this step; it will retry if possible"
   if (/\b403\b|rejected the audience request/i.test(value)) return "Substack rejected this request"
   return "This step failed; check the server logs for details"
+}
+
+/** Job types that run as a chain of page jobs carrying cumulative totals. */
+const PAGED_STEP_TYPES = new Set(["sync:subscribers", "sync:followers"])
+
+type ProgressStep = {
+  id: string
+  type: string
+  status: string
+  startedAt: unknown
+  createdAt: unknown
+  pages: number
+  [key: string]: unknown
+}
+
+/**
+ * Shows each paged sweep as one step. Pages run in order and each carries the
+ * running totals, so the latest page holds the sweep's status, counts, and
+ * error; the first page holds when the sweep started.
+ */
+export function collapsePagedSteps<T extends ProgressStep>(steps: T[]): T[] {
+  const collapsed: T[] = []
+  const chains = new Map<string, number>()
+  for (const step of steps) {
+    const index = PAGED_STEP_TYPES.has(step.type) ? chains.get(step.type) : undefined
+    if (index === undefined) {
+      if (PAGED_STEP_TYPES.has(step.type)) chains.set(step.type, collapsed.length)
+      collapsed.push(step)
+      continue
+    }
+    const first = collapsed[index]!
+    collapsed[index] = {
+      ...step,
+      startedAt: first.startedAt ?? step.startedAt,
+      createdAt: first.createdAt,
+      pages: first.pages + 1,
+    }
+  }
+  return collapsed
 }
 
 syncRoutes.get("/sync/progress", async (c) => {
@@ -55,7 +95,7 @@ syncRoutes.get("/sync/progress", async (c) => {
        order by id asc limit 200`,
       [String(run.id), appUser, connectionId],
     )
-    const steps = [run, ...children.rows].map((job) => ({
+    const steps = collapsePagedSteps([run, ...children.rows].map((job) => ({
       id: String(job.id),
       type: job.type,
       stream: job.stream ?? null,
@@ -69,7 +109,8 @@ syncRoutes.get("/sync/progress", async (c) => {
       updatedAt: job.updatedAt,
       result: job.result ?? null,
       error: publicJobError(job.lastError),
-    }))
+      pages: 1,
+    })))
     const status = steps.some((step) => step.status === "dead" || step.status === "failed") ? "failed"
       : steps.some((step) => step.status === "running" || step.status === "pending") ? "running"
         : "complete"

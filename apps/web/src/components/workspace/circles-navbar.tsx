@@ -84,7 +84,7 @@ export function CirclesNavbar({
               onClick={onSync}
               disabled={isSyncing}
               className="h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3"
-              title="Sync latest Substack activity and view progress"
+              title="View Substack sync status"
             >
               <RefreshCw
                 className={`size-3.5 ${isSyncing ? "animate-spin text-[#f15a3a]" : ""} sm:mr-1.5`}

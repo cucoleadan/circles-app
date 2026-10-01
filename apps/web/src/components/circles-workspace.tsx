@@ -116,9 +116,14 @@ export function CirclesWorkspace({
     filters.updateUrl({ person: id })
   }
 
+  // Opening the panel only shows status; a sync starts from its Sync now button.
+  function openSyncPanel() {
+    if (!isSyncing) setSyncFeedback(null)
+    setIsSyncPanelOpen(true)
+  }
+
   async function triggerSync() {
     if (isSyncing) return
-    setIsSyncPanelOpen(true)
     setIsSyncing(true)
     setSyncFeedback("Requesting a sync…")
     try {
@@ -178,7 +183,7 @@ export function CirclesWorkspace({
           setIsSettingsOpen(true)
         }}
         onOpenAdd={() => setIsAddOpen(true)}
-        onSync={triggerSync}
+        onSync={openSyncPanel}
         isSyncing={isSyncing}
         connectionStatus={connectionStatus}
         onLogout={logout}
@@ -282,6 +287,7 @@ export function CirclesWorkspace({
         refreshKey={syncRefreshKey}
         feedback={syncFeedback}
         isRequesting={isSyncing}
+        onSync={triggerSync}
       />
 
       <AddContactDialog

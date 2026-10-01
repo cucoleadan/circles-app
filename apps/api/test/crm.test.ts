@@ -411,6 +411,41 @@ describe("interactions", () => {
     expect(notFound).toBeNull()
   })
 
+  test("replaying a soft-removed duplicate like never collides with the active like", async () => {
+    const like = (id: string) => ({
+      id,
+      kind: "like",
+      actor: { id: 777, name: "Dupe", handle: "@dupe" },
+      target_kind: "note",
+      target_id: "note-dup-1",
+      created_at: new Date().toISOString(),
+    })
+    await withTenant({ appUserId: userA }, (client) =>
+      ingestActivityBatch(client, { userId: userA, ownerHandle: "myhandle", items: [like("like-old")] })
+    )
+    // Mirror migration 011: the older duplicate was soft-removed and a newer
+    // capture of the same Like became the active row.
+    await withTenant({ appUserId: userA }, async (client) => {
+      await client.query("update interactions set removed_at = now() where external_id = 'like-old'")
+      await ingestActivityBatch(client, { userId: userA, ownerHandle: "myhandle", items: [like("like-new")] })
+    })
+
+    // Replaying the retained batch that contained the removed duplicate.
+    await withTenant({ appUserId: userA }, (client) =>
+      ingestActivityBatch(client, { userId: userA, ownerHandle: "myhandle", items: [like("like-old")] })
+    )
+
+    const rows = await withTenant({ appUserId: userA }, (client) =>
+      client.query(
+        "select external_id, removed_at is null as active from interactions where target_id = 'note-dup-1' order by external_id"
+      )
+    )
+    expect(rows.rows).toEqual([
+      { external_id: "like-new", active: true },
+      { external_id: "like-old", active: false },
+    ])
+  })
+
   test("ingests activity items and calculates engagement score accurately (1/2/3/3)", async () => {
     const stats = await withTenant({ appUserId: userA }, (client) =>
       ingestActivityBatch(client, {

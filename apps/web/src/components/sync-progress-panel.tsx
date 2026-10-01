@@ -17,6 +17,8 @@ type SyncStep = {
   updatedAt: string
   result: Record<string, number | boolean> | null
   error: string | null
+  /** Page jobs merged into this step (subscriber and follower sweeps). */
+  pages?: number
 }
 
 type SyncProgress = {
@@ -24,6 +26,7 @@ type SyncProgress = {
   lastSyncedAt: string | null
 }
 
+// Display order for result counts; stored results come back in key-length order.
 const countLabels: Record<string, string> = {
   processedItems: "activity items",
   items: "items",
@@ -63,9 +66,13 @@ function timestamp(value: string | null): string {
 
 function stepDetail(step: SyncStep): string {
   if (step.result?.skipped === true) return "Skipped because the connection was inactive"
-  const counts = Object.entries(step.result ?? {})
-    .filter(([key, value]) => key in countLabels && typeof value === "number")
-    .map(([key, value]) => `${value} ${countLabels[key]}`)
+  const result = step.result ?? {}
+  const counts = Object.keys(countLabels)
+    .filter((key) => typeof result[key] === "number")
+    .map((key) => `${result[key]} ${countLabels[key]}`)
+  if ((step.pages ?? 1) > 1) {
+    counts.push(`${step.pages} pages${step.status === "pending" || step.status === "running" ? " so far" : ""}`)
+  }
   if (counts.length > 0) return counts.join(" · ")
   if (step.status === "pending" && step.error) return `Retry queued · ${step.error}`
   if (step.status === "pending") return `Queued for ${timestamp(step.runAt)}`
@@ -80,12 +87,15 @@ export function SyncProgressPanel({
   refreshKey,
   feedback,
   isRequesting,
+  onSync,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   refreshKey: number
   feedback: string | null
   isRequesting: boolean
+  /** Starts a manual sync; opening the panel alone never does. */
+  onSync: () => void
 }) {
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -141,12 +151,28 @@ export function SyncProgressPanel({
                   {run ? run.status === "complete" ? "Sync finished" : run.status === "failed" ? "Sync needs attention" : "Sync in progress" : "No recent sync run"}
                 </p>
                 <p className="mt-0.5 text-[11px] text-stone-500">
-                  {run ? `Started ${timestamp(run.startedAt)}` : "Press Sync to start a refresh."}
+                  {run ? `Started ${timestamp(run.startedAt)}` : "Press Sync now to start a refresh."}
                 </p>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={loading} title="Refresh progress" className="size-7 rounded">
-                <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button variant="ghost" size="icon" onClick={() => void refresh()} disabled={loading} title="Refresh progress" className="size-7 rounded">
+                  <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={onSync}
+                  disabled={isRequesting || active}
+                  title={active ? "A sync is already running" : "Fetch the latest Substack activity now"}
+                  className="h-7 rounded bg-[#f15a3a] px-2.5 text-[11px] font-semibold text-white hover:bg-[#d94b2e]"
+                >
+                  {isRequesting ? (
+                    <LoaderCircle className="mr-1 size-3 animate-spin" />
+                  ) : (
+                    <RefreshCw className="mr-1 size-3" />
+                  )}
+                  {active ? "Sync running" : "Sync now"}
+                </Button>
+              </div>
             </div>
             <p className="mt-2 border-t border-stone-100 pt-2 text-[11px] text-stone-500 dark:border-stone-800">
               Latest activity page synced: {timestamp(progress?.lastSyncedAt ?? null)}
