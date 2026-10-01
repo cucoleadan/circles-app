@@ -160,9 +160,12 @@ function actionTextColor(actionType: string) {
 export function TimelineItem({
   item,
   personName,
+  showDivider = false,
 }: {
   item: Interaction
   personName: string
+  /** Draws the fading separator above this row. */
+  showDivider?: boolean
 }) {
   const isInbound = item.direction === "inbound"
   const ActionIcon = actionBadge(item.actionType, item.body).icon
@@ -187,13 +190,15 @@ export function TimelineItem({
   // Conversation layout: their actions sit on the left with the time on the
   // right; yours sit on the right with the time on the left.
   return (
-    <div className={`flex pb-2 last:pb-1 ${isInbound ? "justify-start" : "justify-end"}`}>
+    <div>
+      {showDivider && (
+        <div
+          aria-hidden="true"
+          className="h-px bg-linear-to-r from-transparent via-stone-200 to-transparent dark:via-stone-700/80"
+        />
+      )}
       <div
-        className={`flex w-[88%] items-center gap-2 rounded border px-2.5 py-2 text-xs transition-colors ${
-          isInbound
-            ? "border-stone-200/80 bg-white/70 hover:bg-white dark:border-stone-800 dark:bg-stone-900/60"
-            : "border-[#f15a3a]/25 bg-[#f15a3a]/[0.04] hover:bg-[#f15a3a]/[0.07] dark:border-[#f15a3a]/30 dark:bg-[#f15a3a]/10"
-        }`}
+        className="flex w-full items-center gap-2 rounded px-1.5 py-2.5 text-xs transition-colors hover:bg-stone-50 dark:hover:bg-stone-900/60"
         aria-label={`${label}, ${formatDate(item.occurredAt)}`}
       >
         {!isInbound && time}
@@ -203,7 +208,13 @@ export function TimelineItem({
         >
           <ActionIcon className={`size-3 shrink-0 ${actionTextColor(item.actionType)}`} aria-hidden="true" />
           <span className="truncate text-stone-600 dark:text-stone-300">
-            <strong className="font-semibold text-stone-900 dark:text-stone-100">{actor}</strong>
+            <strong
+              className={`font-semibold ${
+                isInbound ? "text-stone-900 dark:text-stone-100" : "text-[#c2410c] dark:text-[#f8916f]"
+              }`}
+            >
+              {actor}
+            </strong>
             {beforeVerb}
             {verbStart >= 0 && (
               <strong className={`font-semibold ${actionTextColor(item.actionType)}`}>{verb}</strong>

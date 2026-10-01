@@ -220,8 +220,8 @@ export function Timeline({
             <span className="truncate">{personName}</span>
             <span className="text-[#c2410c] dark:text-[#f8916f]">You</span>
           </div>
-          {filteredInteractions.map((item) => (
-            <TimelineItem key={item.id} item={item} personName={personName} />
+          {filteredInteractions.map((item, index) => (
+            <TimelineItem key={item.id} item={item} personName={personName} showDivider={index > 0} />
           ))}
         </div>
       )}
