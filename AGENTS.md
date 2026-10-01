@@ -166,6 +166,9 @@ Scheduled/manual sync always reads the newest activity page, recent owned
 Notes/posts, and the newest Likes, restacks, and authored-replies pages.
 Subscriber and follower audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
+Scheduled subscriber refreshes read only new subscribers (incremental, never
+reconciling) and run the full reconciling sweep at most once per ~23 hours per
+connection.
 Historical cursors belong to backfill jobs, not incremental sync. Activity,
 owned Notes, owned posts, and outbound history have independent
 status/completeness state so one stream cannot silently advance another.

@@ -13,12 +13,66 @@ import {
 import { withTenant, substackResponseError } from "./tenant.js"
 import { finishImportIfReady } from "./imports.js"
 
+export const SUBSCRIBER_PAGE_SIZE = 100
+export const INCREMENTAL_SUBSCRIBER_MAX_PAGES = 10
+/** Re-read subscribers this far behind the newest stored subscription. */
+const INCREMENTAL_SUBSCRIBER_OVERLAP_MS = 24 * 60 * 60 * 1000
+
+export type SubscriberSortDirection = "asc" | "desc"
+
+export interface IncrementalSubscriberState {
+  since?: string | null
+  direction?: SubscriberSortDirection | null
+  pages?: number
+}
+
+/**
+ * Plan the next page of an incremental subscriber read. Substack's sort
+ * direction for subscription_created_at is detected from the page itself, so
+ * the walk reads newest-first either way and stops at the checkpoint.
+ */
+export function nextIncrementalSubscriberOffset(input: {
+  offset: number
+  total: number
+  received: number
+  dates: Array<string | null | undefined>
+  direction?: SubscriberSortDirection | null
+  since: Date
+  pages: number
+  limit?: number
+  maxPages?: number
+}): { direction: SubscriberSortDirection; nextOffset: number | null } {
+  const limit = input.limit ?? SUBSCRIBER_PAGE_SIZE
+  const maxPages = input.maxPages ?? INCREMENTAL_SUBSCRIBER_MAX_PAGES
+  const times = input.dates
+    .map((value) => (value ? new Date(value).getTime() : Number.NaN))
+    .filter((value) => Number.isFinite(value))
+  const probing = !input.direction
+  const direction: SubscriberSortDirection = input.direction
+    ?? (times.length >= 2 && times[0]! < times[times.length - 1]! ? "asc" : "desc")
+
+  if (input.received === 0 || input.pages >= maxPages) return { direction, nextOffset: null }
+  const reachedCheckpoint = times.some((value) => value < input.since.getTime())
+
+  if (direction === "desc") {
+    const next = input.offset + input.received
+    return { direction, nextOffset: reachedCheckpoint || next >= input.total ? null : next }
+  }
+  // Ascending: the newest subscribers are at the end of the list.
+  if (probing) {
+    return { direction, nextOffset: input.received >= input.total ? null : Math.max(0, input.total - limit) }
+  }
+  if (reachedCheckpoint || input.offset === 0) return { direction, nextOffset: null }
+  return { direction, nextOffset: Math.max(0, input.offset - limit) }
+}
+
 export async function processSubscriberSyncPage(
   client: PoolClient,
   userId: string,
   connectionId: string,
   offset = 0,
   runStartedAtValue?: unknown,
+  incremental?: IncrementalSubscriberState | null,
 ) {
   const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
   const conn = await withTenant(client, userId, async () => {
@@ -33,6 +87,25 @@ export async function processSubscriberSyncPage(
   const publicationUrl = String(conn.publication_url ?? "").replace(/\/$/, "")
   if (!publicationUrl) throw new Error("Publication URL is not set on the active connection")
 
+  let since: Date | null = null
+  if (incremental) {
+    const stored = incremental.since ? new Date(incremental.since) : null
+    if (stored && !Number.isNaN(stored.getTime())) {
+      since = stored
+    } else {
+      const newest = await withTenant(client, userId, async () => {
+        const result = await client.query(
+          `select max(subscribed_at) as newest from people
+           where user_id = $1 and archived_at is null and is_subscriber = true`,
+          [userId],
+        )
+        return result.rows[0]?.newest
+      })
+      // Without a stored subscriber there is no checkpoint; fall back to a full sweep.
+      if (newest) since = new Date(new Date(newest).getTime() - INCREMENTAL_SUBSCRIBER_OVERLAP_MS)
+    }
+  }
+
   const response = await fetch(`${publicationUrl}/api/v1/subscriber-stats`, {
     method: "POST",
     headers: {
@@ -41,7 +114,7 @@ export async function processSubscriberSyncPage(
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     },
     body: JSON.stringify({
-      limit: 100,
+      limit: SUBSCRIBER_PAGE_SIZE,
       offset,
       filters: { order_by: "subscription_created_at" },
     }),
@@ -49,6 +122,45 @@ export async function processSubscriberSyncPage(
   if (!response.ok) throw substackResponseError("Substack subscriber API failed", response.status)
 
   const page = parseSubscriberStatsPage(await response.json())
+
+  if (since) {
+    const pages = Number(incremental?.pages ?? 0) + 1
+    const plan = nextIncrementalSubscriberOffset({
+      offset,
+      total: page.total,
+      received: page.received,
+      dates: page.subscribers.map((sub) => sub.subscription_created_at),
+      direction: incremental?.direction,
+      since,
+      pages,
+    })
+    return withTenant(client, userId, async () => {
+      const batch = await upsertSubscribersBatch(
+        client,
+        userId,
+        page.subscribers,
+        new Date().toISOString(),
+      )
+      return {
+        completed: plan.nextOffset === null,
+        skipped: false,
+        mode: "incremental" as const,
+        nextOffset: plan.nextOffset ?? offset + page.received,
+        direction: plan.direction,
+        since: since!.toISOString(),
+        pages,
+        total: page.total,
+        processed: page.subscribers.length,
+        matched: batch.matched,
+        created: batch.created,
+        invalid: page.skipped + batch.skipped,
+        // Incremental reads never see the whole list, so they never clear memberships.
+        deactivated: 0,
+        runStartedAt: runStartedAt.toISOString(),
+      }
+    })
+  }
+
   return withTenant(client, userId, async () => {
     const batch = await upsertSubscribersBatch(
       client,
@@ -64,6 +176,7 @@ export async function processSubscriberSyncPage(
     return {
       completed,
       skipped: false,
+      mode: "full" as const,
       nextOffset,
       total: page.total,
       processed: page.subscribers.length,

@@ -22,6 +22,7 @@ import {
   recordMissingHandleProgress,
   profileHandle,
   processMissingHandleBackfill,
+  type IncrementalSubscriberState,
 } from "./audience.js"
 import {
   processProfileEnrichment,
@@ -70,6 +71,7 @@ export interface JobHandlers {
     connectionId: string,
     offset: number,
     runStartedAt: unknown,
+    incremental?: IncrementalSubscriberState | null,
   ) => Promise<any>
   onFollowerSync?: (
     client: PoolClient,
@@ -196,6 +198,18 @@ export async function claimAndRunJob(
               ],
             )
           }
+          // Scheduled syncs read only new subscribers; one full sweep per day
+          // re-reads the whole list so unsubscribes can be reconciled safely.
+          const recentFullSweep = await client.query(
+            `select 1 from jobs
+             where type = 'sync:subscribers' and status = 'done'
+               and payload->>'connectionId' = $1
+               and coalesce(payload->>'mode', 'full') = 'full'
+               and result->>'completed' = 'true'
+               and updated_at > now() - interval '23 hours'
+             limit 1`,
+            [connectionId],
+          )
           const audienceJobs = [
             {
               type: "sync:subscribers",
@@ -206,6 +220,7 @@ export async function claimAndRunJob(
                 offset: 0,
                 runStartedAt: new Date().toISOString(),
                 manual: false,
+                mode: recentFullSweep.rows[0] ? "incremental" : "full",
               },
             },
             {
@@ -268,9 +283,13 @@ export async function claimAndRunJob(
           console.log(`[Circles Worker] Skipped ${stream} sync for inactive connection ${connectionId}.`)
         }
       } else if (job.type === "sync:subscribers") {
+        const incremental: IncrementalSubscriberState | null = payload.mode === "incremental" && !importRunId
+          ? { since: payload.since, direction: payload.direction, pages: Number(payload.pages ?? 0) }
+          : null
         const result = handlers?.onSubscriberSync
-          ? await handlers.onSubscriberSync(client, userId, connectionId, Number(offset ?? 0), runStartedAt)
-          : await processSubscriberSyncPage(client, userId, connectionId, Number(offset ?? 0), runStartedAt)
+          ? await handlers.onSubscriberSync(client, userId, connectionId, Number(offset ?? 0), runStartedAt, incremental)
+          : await processSubscriberSyncPage(client, userId, connectionId, Number(offset ?? 0), runStartedAt, incremental)
+        const incrementalPage = result.mode === "incremental"
         const totals = {
           processed: Number(payload.processed ?? 0) + Number(result.processed ?? 0),
           matched: Number(payload.matched ?? 0) + Number(result.matched ?? 0),
@@ -288,6 +307,12 @@ export async function claimAndRunJob(
              values ('sync:subscribers', $1, 'pending', now() + interval '2 seconds')`,
             [JSON.stringify({
               ...payload,
+              ...(result.mode && { mode: result.mode }),
+              ...(incrementalPage && {
+                since: result.since,
+                direction: result.direction,
+                pages: result.pages,
+              }),
               offset: result.nextOffset,
               total: result.total,
               runStartedAt: result.runStartedAt ?? runStartedAt,
@@ -296,7 +321,8 @@ export async function claimAndRunJob(
           )
         } else if (!result.skipped) {
           console.log(
-            `[Circles Worker] Subscriber sync complete: ${totals.processed} processed, ` +
+            `[Circles Worker] ${incrementalPage ? "Incremental subscriber" : "Subscriber"} sync complete: ` +
+              `${totals.processed} processed, ` +
               `${totals.matched} matched, ${totals.created} created, ` +
               `${totals.deactivated} unsubscribed, ${totals.invalid} skipped.`,
           )

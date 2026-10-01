@@ -152,7 +152,12 @@ What exists:
   `owned_posts`, `activity`, `outbound_actions`), single-active-import concurrency
   with `POST /imports/:id/cancel` and stop button in UI, and deduped 15-minute
   sync restricted to items in the last 15-minute window. Each scheduled sync
-  also queues a full subscriber refresh and one paced follower-status batch.
+  also queues a subscriber refresh and one paced follower-status batch. The
+  subscriber refresh is incremental (newest subscribers back to the newest
+  stored subscription minus one day, at most 10 pages, no unsubscribe
+  reconciliation) unless no full sweep finished for that connection in the last
+  23 hours, in which case it runs the full reconciling sweep. Manual subscriber
+  syncs and imports always run the full sweep.
 - Migrations runner (`apps/api/src/migrate.ts`) with `app_migrations` ledger;
   `001_auth.sql` through `007_profile_identity.sql` (full schema with
   tenant RLS, composite foreign keys, per-stream sync/import state, owned-content

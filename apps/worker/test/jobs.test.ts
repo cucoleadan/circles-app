@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { claimAndRunJob } from "../src/jobs.js"
+import { nextIncrementalSubscriberOffset } from "../src/audience.js"
 
 describe("Worker queue runner (claimAndRunJob)", () => {
   test("contact refetch dies on the first 429 instead of exceeding its request cap", async () => {
@@ -630,5 +631,95 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     }
     expect(queries.some((query) => query.sql.includes("update jobs set status = 'dead'"))).toBe(true)
     expect(queries.some((query) => query.sql.includes("update substack_connections set status = 'expired'"))).toBe(false)
+  })
+})
+
+describe("Incremental subscriber sync", () => {
+  const since = new Date("2026-09-30T00:00:00.000Z")
+
+  test("walks a newest-first list until it passes the checkpoint", () => {
+    expect(nextIncrementalSubscriberOffset({
+      offset: 0, total: 2924, received: 100, pages: 1, since,
+      dates: ["2026-10-01T10:00:00.000Z", "2026-09-30T12:00:00.000Z"],
+    })).toEqual({ direction: "desc", nextOffset: 100 })
+    expect(nextIncrementalSubscriberOffset({
+      offset: 100, total: 2924, received: 100, pages: 2, since, direction: "desc",
+      dates: ["2026-09-30T06:00:00.000Z", "2026-09-29T12:00:00.000Z"],
+    })).toEqual({ direction: "desc", nextOffset: null })
+  })
+
+  test("jumps to the end of an oldest-first list and walks backwards", () => {
+    expect(nextIncrementalSubscriberOffset({
+      offset: 0, total: 2924, received: 100, pages: 1, since,
+      dates: ["2021-01-01T00:00:00.000Z", "2021-02-01T00:00:00.000Z"],
+    })).toEqual({ direction: "asc", nextOffset: 2824 })
+    expect(nextIncrementalSubscriberOffset({
+      offset: 2824, total: 2924, received: 100, pages: 2, since, direction: "asc",
+      dates: ["2026-09-30T01:00:00.000Z", "2026-10-01T09:00:00.000Z"],
+    })).toEqual({ direction: "asc", nextOffset: 2724 })
+    expect(nextIncrementalSubscriberOffset({
+      offset: 2724, total: 2924, received: 100, pages: 3, since, direction: "asc",
+      dates: ["2026-09-28T01:00:00.000Z", "2026-09-30T01:00:00.000Z"],
+    })).toEqual({ direction: "asc", nextOffset: null })
+  })
+
+  test("stops at the page cap", () => {
+    expect(nextIncrementalSubscriberOffset({
+      offset: 900, total: 2924, received: 100, pages: 10, since, direction: "desc",
+      dates: ["2026-10-01T10:00:00.000Z"],
+    }).nextOffset).toBeNull()
+  })
+
+  test("scheduled sync runs incremental reads after a recent full sweep", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-sync", type: "sync:activity",
+          payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 0, max_attempts: 5,
+        }] }
+        if (sql.includes("coalesce(payload->>'mode', 'full') = 'full'")) return { rows: [{ "?column?": 1 }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onSync: async () => ({ skipped: false }),
+    })
+    const subscribers = executedQueries.find((q) => q.params?.[0] === "sync:subscribers")
+    expect(JSON.parse(subscribers?.params?.[1]).mode).toBe("incremental")
+  })
+
+  test("incremental pages carry their checkpoint and never reconcile", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    let received: any
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-inc", type: "sync:subscribers",
+          payload: { userId: "user-1", connectionId: "conn-1", offset: 0, mode: "incremental" },
+          attempts: 0, max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+      onSubscriberSync: async (_c, _u, _conn, _offset, _run, incremental) => {
+        received = incremental
+        return {
+          completed: false, mode: "incremental", nextOffset: 100, direction: "desc",
+          since: since.toISOString(), pages: 1, total: 2924, processed: 100, matched: 100,
+          created: 0, invalid: 0, deactivated: 0, runStartedAt: "2026-10-01T10:00:00.000Z",
+        }
+      },
+    })
+    expect(received).toMatchObject({ pages: 0 })
+    const nextPage = executedQueries.find((q) => q.sql.includes("'sync:subscribers'") && q.sql.includes("2 seconds"))
+    expect(JSON.parse(nextPage?.params?.[0])).toMatchObject({
+      mode: "incremental", offset: 100, direction: "desc", since: since.toISOString(), pages: 1,
+    })
   })
 })
