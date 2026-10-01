@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto"
 import { Pool } from "pg"
+import { installFetchTimeout } from "@workspace/core"
 import { claimAndRunJob } from "./jobs.js"
+import { MAINTENANCE_INTERVAL_MS, runQueueMaintenance } from "./maintenance.js"
 
 const dedicatedUrl = process.env.APP_DATABASE_URL
 const baseUrl = process.env.DATABASE_URL
@@ -22,15 +24,30 @@ if (!connectionString) {
   }
 }
 
-const db = new Pool({ connectionString, max: 4 })
+installFetchTimeout()
+
+const db = new Pool({
+  connectionString,
+  max: 4,
+  connectionTimeoutMillis: 10_000,
+  // Jobs that still read Substack inside a transaction are bounded by the
+  // 30-second fetch timeout; anything idle far longer is a stuck handler.
+  idle_in_transaction_session_timeout: 120_000,
+  statement_timeout: 120_000,
+})
 const workerId = randomUUID()
 let isRunning = true
+let nextMaintenanceAt = 0
 
 console.log(`[Circles Worker ${workerId}] Starting background queue runner...`)
 
 async function loop() {
   while (isRunning) {
     try {
+      if (Date.now() >= nextMaintenanceAt) {
+        nextMaintenanceAt = Date.now() + MAINTENANCE_INTERVAL_MS
+        await runQueueMaintenance(db)
+      }
       const didWork = await claimAndRunJob(db, workerId)
       // One worker process owns the queue loop. Keep a gap after every
       // authenticated job so independently scheduled streams cannot burst the

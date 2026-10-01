@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { processContactRefetch } from "./contact-refetch.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
-import { withTenant, substackResponseError } from "./tenant.js"
+import { withTenant, substackResponseError, SESSION_EXPIRED_MESSAGE } from "./tenant.js"
 import {
   finishImportIfReady,
   processHistoryImport,
@@ -110,10 +110,18 @@ export async function claimAndRunJob(
 ): Promise<boolean> {
   const client = await pool.connect()
   try {
-    // Reset expired leases
+    // Reclaim expired leases. The lost run counts as an attempt so a job that
+    // repeatedly crashes or hangs the worker eventually dead-letters instead of
+    // looping forever. The recurring activity sync is never dead-lettered here.
     await client.query(
       `update jobs
-       set status = 'pending', run_at = now()
+       set status = case
+             when attempts >= max_attempts and type <> 'sync:activity' then 'dead'
+             else 'pending'
+           end,
+           run_at = now(),
+           last_error = 'Worker lease expired before the job finished',
+           updated_at = now()
        where status = 'running' and lease_expires_at < now()`
     )
 
@@ -157,6 +165,13 @@ export async function claimAndRunJob(
     } = payload
 
     let jobResult: Record<string, number | boolean> | null = null
+    // Follow-up jobs (next pages, the next scheduled sync) are queued in the
+    // same transaction that marks this job done, and only while this worker
+    // still holds the lease, so a crash can never fork a duplicate chain.
+    const followUps: Array<{ sql: string; params: unknown[] }> = []
+    const enqueue = (sql: string, params: unknown[]) => {
+      followUps.push({ sql, params })
+    }
     try {
       if (job.type === "sync:activity") {
         const result = handlers?.onSync
@@ -178,7 +193,7 @@ export async function claimAndRunJob(
             { stream: "outbound_actions", outboundStage: "replies", delay: 50 },
           ]
           for (const scheduled of scheduledHistory) {
-            await client.query(
+            enqueue(
               `insert into jobs (type, payload, status, run_at)
                select 'sync:history', $1, 'pending', now() + ($2 || ' seconds')::interval
                where not exists (
@@ -242,7 +257,7 @@ export async function claimAndRunJob(
             },
           ]
           for (const audience of audienceJobs) {
-            await client.query(
+            enqueue(
               `insert into jobs (type, payload, status, run_at)
                select $1, $2, 'pending', now() + ($3 || ' seconds')::interval
                where not exists (
@@ -259,7 +274,7 @@ export async function claimAndRunJob(
               ],
             )
           }
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              select 'sync:activity', $1, 'pending', now() + interval '3 hours'
              where not exists (
@@ -305,7 +320,7 @@ export async function claimAndRunJob(
           // Scheduled sweeps run unattended, so space their Substack reads out;
           // manual and import sweeps keep the faster pace the user is waiting on.
           const pageDelay = payload.manual === false && !importRunId ? "30 seconds" : "2 seconds"
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:subscribers', $1, 'pending', now() + $2::interval)`,
             [JSON.stringify({
@@ -344,7 +359,7 @@ export async function claimAndRunJob(
           ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
           : fullSweep === true && !result.completed && !result.skipped
         if (continueImport) {
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:followers', $1, 'pending', now() + interval '5 seconds')`,
             [JSON.stringify({
@@ -384,7 +399,7 @@ export async function claimAndRunJob(
           ? await recordMissingHandleProgress(client, userId, importRunId, result)
           : !result.completed && !result.skipped
         if (keepGoing) {
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('enrich:missing-handles', $1, 'pending', now() + interval '2 seconds')`,
             [JSON.stringify({ ...payload, afterId: result.afterId })],
@@ -397,17 +412,15 @@ export async function claimAndRunJob(
         if (!result.completed) {
           // Keep pages small and spaced out; other streams share the same
           // authenticated Substack session and are interleaved by this queue.
-          await withTenant(client, userId, async () => {
-            await client.query(
-              `insert into jobs (type, payload, status, run_at)
-               select 'import:history', $1, 'pending', now() + interval '2 seconds'
-               where exists (
-                 select 1 from import_runs
-                 where id = $2 and status = 'running'
-               )`,
-              [JSON.stringify(payload), importRunId]
-            )
-          })
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             select 'import:history', $1, 'pending', now() + interval '2 seconds'
+             where exists (
+               select 1 from import_runs
+               where id = $2 and status = 'running'
+             )`,
+            [JSON.stringify(payload), importRunId]
+          )
         }
       } else if (job.type === "enrich:profile") {
         if (handlers?.onEnrich) {
@@ -429,7 +442,7 @@ export async function claimAndRunJob(
           payload.afterNoteId ?? null,
         )
         if (!result.completed) {
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('reprocess:note-snapshots', $1, 'pending', now() + interval '10 seconds')`,
             [JSON.stringify({ ...payload, afterNoteId: result.nextCursor })],
@@ -447,7 +460,7 @@ export async function claimAndRunJob(
           },
         )
         if (!result.completed && result.cursor) {
-          await client.query(
+          enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('reprocess:interaction-evidence', $1, 'pending', now() + interval '1 second')`,
             [JSON.stringify({ ...payload, ...result.cursor })],
@@ -457,11 +470,24 @@ export async function claimAndRunJob(
         throw new Error(`Unknown job type: ${job.type}`)
       }
 
-      // Mark job done
-      await client.query(
-        "update jobs set status = 'done', last_error = null, result = $3::jsonb, updated_at = now() where id = $1 and lease_token = $2",
-        [job.id, leaseToken, jobResult ? JSON.stringify(jobResult) : null]
-      )
+      // Mark job done and queue its follow-ups atomically.
+      await client.query("begin")
+      try {
+        if (userId) await client.query("select set_config('app.user_id', $1, true)", [userId])
+        const done = await client.query(
+          "update jobs set status = 'done', last_error = null, result = $3::jsonb, updated_at = now() where id = $1 and lease_token = $2",
+          [job.id, leaseToken, jobResult ? JSON.stringify(jobResult) : null]
+        )
+        if (done.rowCount !== 0) {
+          for (const followUp of followUps) await client.query(followUp.sql, followUp.params)
+        } else {
+          console.warn(`[Circles Worker] Job ${job.id} lost its lease; skipped ${followUps.length} follow-up jobs.`)
+        }
+        await client.query("commit")
+      } catch (completionError) {
+        await client.query("rollback")
+        throw completionError
+      }
     } catch (jobError: any) {
       console.error(
         `[Circles Worker] Job ${job.id} (${job.type}) failed:`,
@@ -477,17 +503,25 @@ export async function claimAndRunJob(
       // even while the connection's main activity endpoint remains valid.
       const optionalProfileUnauthorized = isUnauthorized &&
         (job.type === "enrich:missing-handles" || job.type === "refetch:contact")
-      const sessionExpired = (isUnauthorized && !optionalProfileUnauthorized) || /\bexpired\b/i.test(errorMessage)
-      const isAudienceDenied = (
-        job.type === "sync:followers" || job.type === "sync:following"
-      ) && (
+      // Only an upstream 401 (or this worker's own expiry error) proves the
+      // session is dead. Matching the word "expired" anywhere would also catch
+      // unrelated failures such as an expired TLS certificate.
+      const sessionExpired = (isUnauthorized && !optionalProfileUnauthorized) ||
+        errorMessage === SESSION_EXPIRED_MESSAGE
+      // Substack's Cloudflare edge answers bursts with a 403 challenge page;
+      // treat it like a rate limit on sync/import work and back off.
+      const isUpstreamChallenge = /^(sync|import):/.test(job.type) && (
         jobError?.status === 403 || jobError?.statusCode === 403 || /\b403\b/.test(errorMessage)
       )
+      const isAudienceDenied = isUpstreamChallenge &&
+        (job.type === "sync:followers" || job.type === "sync:following")
       const failureMessage = sessionExpired
-        ? "Substack session expired"
+        ? SESSION_EXPIRED_MESSAGE
         : isAudienceDenied
           ? "Substack temporarily rejected the audience request"
-          : errorMessage
+          : isUpstreamChallenge
+            ? "Substack temporarily rejected the request"
+            : errorMessage
 
       // The request transaction has already rolled back at this point, so
       // persist expiry in a fresh tenant transaction instead of losing it.
@@ -512,10 +546,15 @@ export async function claimAndRunJob(
       }
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
-        errorMessage.includes("429") || isAudienceDenied
-      const isDead = job.type === "refetch:contact" || (
-        (!isRateLimited || isAudienceDenied) && job.attempts + 1 >= job.max_attempts
-      ) || sessionExpired || optionalProfileUnauthorized
+        /\b429\b/.test(errorMessage) || isUpstreamChallenge
+      // The recurring activity sync owns the 3-hour schedule; dead-lettering it
+      // would silently stop all syncing, so it backs off and keeps retrying.
+      const keepsRetrying = job.type === "sync:activity"
+      const isDead = sessionExpired || optionalProfileUnauthorized || job.type === "refetch:contact" || (
+        !keepsRetrying &&
+        (!isRateLimited || isUpstreamChallenge) &&
+        job.attempts + 1 >= job.max_attempts
+      )
 
       if (isDead) {
         await client.query(
@@ -539,7 +578,7 @@ export async function claimAndRunJob(
           })
         }
       } else {
-        const retryDelaySeconds = isRateLimited
+        const retryDelaySeconds = isRateLimited || keepsRetrying
           ? Math.min(1800, 60 * (2 ** Math.min(job.attempts, 5)))
           : Math.min(300, (job.attempts + 1) * 30)
         await client.query(

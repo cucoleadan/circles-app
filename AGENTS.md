@@ -78,7 +78,11 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`026_sync_job_results.sql`. Migration `026` stores safe per-job sync counters
+`027_self_healing_sync_and_evidence_replay.sql`. Migration `027` adds the
+`seed_missing_activity_syncs()` `SECURITY DEFINER` function the worker calls
+every 5 minutes to restart the recurring sync for any active connection that
+lost its job chain, and queues an evidence replay that recovers activity the old
+3-hour `created_at` filter discarded. Migration `026` stores safe per-job sync counters
 for the tenant-scoped `/api/v1/sync/progress` panel; activity jobs link their
 scheduled child jobs for progress tracking. Migration `025` fills missing public
 profile links for contacts with valid stored handles, without fetching or
@@ -162,8 +166,18 @@ Relationship rules:
 
 ## Sync and historical coverage
 
-Scheduled/manual sync always reads the newest activity page, recent owned
-Notes/posts, and the newest Likes, restacks, and authored-replies pages.
+Scheduled/manual sync reads activity pages newest-first back to the last
+successful activity sync minus a 30-minute overlap (at most 5 pages; first sync
+reads one page) and ingests every item on those pages without a time filter,
+because grouped notifications gain new senders after creation. It refreshes the
+reply trees of the 6 newest owned Notes from the last 7 days and the 3 newest
+posts from the last 14 days, and re-reads the newest Likes, restacks, and
+authored-replies pages over a 24-hour window. The `sync:activity` job never
+dead-letters except on session expiry; the worker's queue maintenance re-seeds
+it for any active connection without one, and connecting schedules it at once.
+Connecting rejects a session Substack does not verify, keeping the current
+connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
+set; always read them through `openSessionToken`, never `ciphertext` directly.
 Subscriber and follower audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
 Scheduled subscriber refreshes read only new subscribers (incremental, never

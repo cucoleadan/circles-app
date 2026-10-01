@@ -3,6 +3,7 @@ import {
   createSubstackClient,
   ingestActivityBatch,
   normalizeActivityPage,
+  openSessionToken,
 } from "@workspace/core"
 import {
   normalizeOutboundProfileFeed,
@@ -28,7 +29,7 @@ export async function processProfileEnrichment(
 
     // 2. Fetch active connection
     const connRes = await client.query(
-      `select id, ciphertext, publication_url
+      `select id, key_id, iv, ciphertext, publication_url
        from substack_connections
        where user_id = $1 and status = 'active'
        order by generation desc limit 1`,
@@ -40,7 +41,7 @@ export async function processProfileEnrichment(
     // 3. Try to fetch profile via Substack SDK or public reader API
     try {
       const sdk = createSubstackClient({
-        sessionToken: conn.ciphertext,
+        sessionToken: openSessionToken(conn),
         publicationUrl: conn.publication_url,
       })
       let profileData: any = null

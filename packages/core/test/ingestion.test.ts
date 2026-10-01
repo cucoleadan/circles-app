@@ -154,7 +154,7 @@ describe("In-memory mock ingestion unit tests", () => {
         }
 
         if (lower.includes("insert into relationship_stats")) {
-          const personId = params[0]
+          for (const personId of Array.isArray(params[0]) ? params[0] : [params[0]]) {
           const personInteractions = interactions.filter((i) => i.person_id === personId)
 
           let engagementScore = 0
@@ -171,6 +171,7 @@ describe("In-memory mock ingestion unit tests", () => {
             interaction_count: personInteractions.length,
             engagement_score: engagementScore,
           })
+          }
           return { rows: [] }
         }
 

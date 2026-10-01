@@ -393,56 +393,114 @@ export async function upsertSubscribersBatch(
   let created = 0
   let skipped = 0
 
+  const rows: Array<{
+    substackProfileId: string
+    handle: string | null
+    normalized: string | null
+    name: string
+    avatarUrl: string | null
+    subscribedAt: string | null
+    tier: string
+  }> = []
+  const seenProfileIds = new Set<string>()
   for (const sub of subscribers) {
     const substackProfileId = sub.id ? String(sub.id).trim() : null
     if (!substackProfileId) {
       skipped++
       continue
     }
+    // Overlapping sweep pages can repeat a subscriber; count it once per batch.
+    if (seenProfileIds.has(substackProfileId)) continue
+    seenProfileIds.add(substackProfileId)
     const rawHandle = sub.handle?.trim()
     const handle = rawHandle ? rawHandle.replace(/^@/, "") : null
-    const normalized = handle ? normalizeHandle(handle) : null
-    const name = sub.name?.trim() || handle || `Subscriber ${substackProfileId}`
-    const avatarUrl = sub.photo_url || null
     const parsedSubscribedAt = sub.subscription_created_at
       ? new Date(sub.subscription_created_at)
       : null
-    const subscribedAt = parsedSubscribedAt && !Number.isNaN(parsedSubscribedAt.getTime())
-      ? parsedSubscribedAt.toISOString()
-      : null
-    const tier = sub.subscription_type || "free"
+    rows.push({
+      substackProfileId,
+      handle,
+      normalized: handle ? normalizeHandle(handle) : null,
+      name: sub.name?.trim() || handle || `Subscriber ${substackProfileId}`,
+      avatarUrl: sub.photo_url || null,
+      subscribedAt: parsedSubscribedAt && !Number.isNaN(parsedSubscribedAt.getTime())
+        ? parsedSubscribedAt.toISOString()
+        : null,
+      tier: sub.subscription_type || "free",
+    })
+  }
+  if (rows.length === 0) return { matched, created, skipped }
 
-    const found = await client.query(
-      `select id from people
-       where user_id = $1 and archived_at is null
-         and (substack_profile_id = $2
-           or ($3::text is not null and normalized_handle = $3
-             and (substack_profile_id is null or substack_profile_id = $2)))
-       order by case
-         when substack_profile_id = $2 then 0
-         else 1
-       end
-       limit 1`,
-      [userId, substackProfileId, normalized]
-    )
+  // Resolve the whole page in one lookup. Stable profile ID wins; a handle only
+  // matches a contact that has no conflicting profile ID.
+  const existing = await client.query(
+    `select id, substack_profile_id, normalized_handle from people
+     where user_id = $1 and archived_at is null
+       and (substack_profile_id = any($2::text[]) or normalized_handle = any($3::text[]))`,
+    [
+      userId,
+      rows.map((row) => row.substackProfileId),
+      rows.flatMap((row) => (row.normalized ? [row.normalized] : [])),
+    ],
+  )
+  const byProfileId = new Map<string, string>()
+  const byHandle = new Map<string, { id: string; profileId: string | null }>()
+  for (const person of existing.rows) {
+    if (person.substack_profile_id) byProfileId.set(String(person.substack_profile_id), person.id)
+    if (person.normalized_handle) {
+      byHandle.set(person.normalized_handle, {
+        id: person.id,
+        profileId: person.substack_profile_id ? String(person.substack_profile_id) : null,
+      })
+    }
+  }
 
-    if (found.rows[0]) {
-      await client.query(
-        `update people
-         set is_subscriber = true,
-             subscribed_at = coalesce(subscribed_at, $2::timestamptz),
-             subscription_tier = coalesce($3, subscription_tier),
-             substack_profile_id = coalesce(substack_profile_id, $4),
-             avatar_url = coalesce(avatar_url, $5),
-             subscriber_checked_at = coalesce($6::timestamptz, subscriber_checked_at),
-             updated_at = now()
-         where id = $1`,
-        [found.rows[0].id, subscribedAt, tier, substackProfileId, avatarUrl, observedAt ?? null]
-      )
-      matched++
+  const updates: Array<(typeof rows)[number] & { personId: string }> = []
+  const updatedPeople = new Set<string>()
+  const unmatched: typeof rows = []
+  for (const row of rows) {
+    const handleMatch = row.normalized ? byHandle.get(row.normalized) : undefined
+    const personId = byProfileId.get(row.substackProfileId) ??
+      (handleMatch && (!handleMatch.profileId || handleMatch.profileId === row.substackProfileId)
+        ? handleMatch.id
+        : undefined)
+    if (!personId) {
+      unmatched.push(row)
       continue
     }
+    matched++
+    if (updatedPeople.has(personId)) continue
+    updatedPeople.add(personId)
+    updates.push({ ...row, personId })
+  }
 
+  if (updates.length > 0) {
+    await client.query(
+      `update people p
+       set is_subscriber = true,
+           subscribed_at = coalesce(p.subscribed_at, v.subscribed_at),
+           subscription_tier = coalesce(v.tier, p.subscription_tier),
+           substack_profile_id = coalesce(p.substack_profile_id, v.profile_id),
+           avatar_url = coalesce(p.avatar_url, v.avatar_url),
+           subscriber_checked_at = coalesce($6::timestamptz, p.subscriber_checked_at),
+           updated_at = now()
+       from unnest($1::text[], $2::timestamptz[], $3::text[], $4::text[], $5::text[])
+         as v(id, subscribed_at, tier, profile_id, avatar_url)
+       where p.id = v.id and p.user_id = $7`,
+      [
+        updates.map((row) => row.personId),
+        updates.map((row) => row.subscribedAt),
+        updates.map((row) => row.tier),
+        updates.map((row) => row.substackProfileId),
+        updates.map((row) => row.avatarUrl),
+        observedAt ?? null,
+        userId,
+      ],
+    )
+  }
+
+  for (const row of unmatched) {
+    const { substackProfileId, handle, normalized, name, avatarUrl, subscribedAt, tier } = row
     const newId = randomUUID()
     const conflictingHandle = normalized ? await client.query(
       `select 1 from people where user_id = $1 and archived_at is null

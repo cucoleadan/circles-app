@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto"
+import { createHash, randomUUID } from "node:crypto"
 import type { PoolClient } from "pg"
 
 export type PoolLike = PoolClient
@@ -250,17 +250,41 @@ export function normalizeActivityPage(value: unknown): ActivityItemInput[] {
   return normalized
 }
 
-function parseTimestamp(val: unknown): string {
-  if (typeof val === "number") {
+/** Returns null when the source has no usable time, so replays never move it to "now". */
+function parseTimestamp(val: unknown): string | null {
+  if (typeof val === "number" && Number.isFinite(val)) {
     // If seconds, convert to ms
     const ms = val < 1e11 ? val * 1000 : val
-    return new Date(ms).toISOString()
+    const d = new Date(ms)
+    return Number.isNaN(d.getTime()) ? null : d.toISOString()
   }
   if (typeof val === "string" && val.trim().length > 0) {
     const d = new Date(val)
     if (!Number.isNaN(d.getTime())) return d.toISOString()
   }
-  return new Date().toISOString()
+  return null
+}
+
+/** Stable fallback identity for captures that carry no upstream ID, so replays stay idempotent. */
+function contentExternalId(item: unknown): string {
+  return `hash-${createHash("sha256").update(JSON.stringify(item)).digest("hex").slice(0, 40)}`
+}
+
+/** Most tree nodes accepted from one conversation payload. */
+export const MAX_CONVERSATION_COMMENTS = 2000
+const MAX_CONVERSATION_DEPTH = 50
+
+/**
+ * Drift status derived from the last interaction at read time. Stored values
+ * are only refreshed when a person is touched, so they go stale as time passes.
+ */
+export function driftStatusSql(lastInteractionColumn: string) {
+  return `(case
+    when ${lastInteractionColumn} is null then 'new'
+    when ${lastInteractionColumn} > now() - interval '30 days' then 'active'
+    when ${lastInteractionColumn} > now() - interval '90 days' then 'drifting'
+    else 'cold'
+  end)`
 }
 
 function classifyAction(kind: string | undefined, body: string | null | undefined): string {
@@ -416,7 +440,10 @@ export async function ensurePerson(
   return finalId
 }
 
-export async function refreshPersonStats(client: PoolLike, personId: string) {
+/** Rebuilds per-person totals for one person or a batch of people in two statements. */
+export async function refreshPersonStats(client: PoolLike, personIds: string | Iterable<string>) {
+  const ids = typeof personIds === "string" ? [personIds] : [...new Set(personIds)]
+  if (ids.length === 0) return
   await client.query(
      `insert into relationship_stats
         (person_id, user_id, interaction_count, conversation_count,
@@ -461,7 +488,7 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         ), 0)::int,
         now()
       from interactions i
-      where i.person_id = $1 and i.removed_at is null
+      where i.person_id = any($1::text[]) and i.removed_at is null
       group by i.person_id, i.user_id
      on conflict (person_id) do update
       set interaction_count = excluded.interaction_count,
@@ -477,7 +504,7 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
         outbound_interaction_count = excluded.outbound_interaction_count,
         outbound_engagement_score = excluded.outbound_engagement_score,
         updated_at = now()`,
-    [personId]
+    [ids]
   )
   await client.query(
     `update relationship_stats
@@ -486,11 +513,12 @@ export async function refreshPersonStats(client: PoolLike, personId: string) {
          outbound_engagement_score = 0, first_interacted_at = null,
          last_interaction_at = null, last_inbound_at = null, last_outbound_at = null,
          last_conversation_at = null, drift_status = 'new', updated_at = now()
-     where person_id = $1
+     where person_id = any($1::text[])
        and not exists (
-         select 1 from interactions where person_id = $1 and removed_at is null
+         select 1 from interactions
+         where interactions.person_id = relationship_stats.person_id and removed_at is null
        )`,
-    [personId]
+    [ids]
   )
 }
 
@@ -572,7 +600,7 @@ export async function ingestActivityBatch(
     const occurredAt = parseTimestamp(item.occurredAt || item.created_at || item.createdAt || item.updated_at)
 
     const externalId =
-      String(item.external_id || item.externalId || item.id || item.item_key || item.comment_id || item.commentId || randomUUID())
+      String(item.external_id || item.externalId || item.id || item.item_key || item.comment_id || item.commentId || contentExternalId(item))
 
     const targetType = item.target_kind || item.targetKind || "post"
     const threadKind = item.thread_kind || item.threadKind || (targetType === "note" ? "note" : "post")
@@ -630,7 +658,8 @@ export async function ingestActivityBatch(
           (id, user_id, connection_id, person_id, external_id, source, direction,
            action_type, target_type, target_id, target_title, target_url,
            target_body, thread_kind, thread_root_id, body, occurred_at, metadata)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
+               coalesce($17::timestamptz, now()), $18)
        on conflict do nothing
        returning id`,
       [
@@ -669,7 +698,8 @@ export async function ingestActivityBatch(
              target_body = coalesce(nullif($11, ''), target_body),
              thread_kind = coalesce($12, thread_kind),
              thread_root_id = coalesce($13, thread_root_id),
-             body = coalesce(nullif($14, ''), body), occurred_at = $15,
+             body = coalesce(nullif($14, ''), body),
+             occurred_at = coalesce($15::timestamptz, occurred_at),
              metadata = metadata || $16::jsonb
          where (user_id = $1 and external_id = $2
            and (($3::text is null and connection_id is null) or connection_id = $3))
@@ -698,10 +728,7 @@ export async function ingestActivityBatch(
     }
   }
 
-  // Refresh all touched people stats
-  for (const pid of touchedPersonIds) {
-    await refreshPersonStats(client, pid)
-  }
+  await refreshPersonStats(client, touchedPersonIds)
 
   const finalPersonRes = await client.query(
     "select count(*)::int as count from people where user_id = $1",
@@ -772,7 +799,11 @@ export async function ingestConversationReplies(
     comment: ConversationCommentInput,
     parentId: string | null,
     parentAuthor: InteractionAuthorInput | null,
+    depth = 0,
   ) {
+    // Bound work per payload; one capture must not turn into unbounded queries.
+    if (processedItems >= MAX_CONVERSATION_COMMENTS || depth > MAX_CONVERSATION_DEPTH) return
+    if (!comment || typeof comment !== "object" || comment.id === undefined || comment.id === null) return
     processedItems++
     const actor = commentAuthor(comment)
     const isOwner = authorIsOwner(actor)
@@ -797,7 +828,8 @@ export async function ingestConversationReplies(
             (id, user_id, connection_id, person_id, external_id, source, direction,
              action_type, target_type, target_id, target_url,
              thread_kind, thread_root_id, body, occurred_at, metadata)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+                 coalesce($15::timestamptz, now()), $16)
          on conflict do nothing
          returning id`,
         [
@@ -827,7 +859,7 @@ export async function ingestConversationReplies(
            set person_id = $4, source = $5, direction = $6, action_type = $7,
                target_type = $8, target_id = $9, target_url = $10,
                thread_kind = $11, thread_root_id = $12, body = $13,
-               occurred_at = $14, metadata = $15, removed_at = null
+               occurred_at = coalesce($14::timestamptz, occurred_at), metadata = $15, removed_at = null
            where user_id = $1 and external_id = $2
              and (($3::text is null and connection_id is null) or connection_id = $3)`,
           [
@@ -843,18 +875,16 @@ export async function ingestConversationReplies(
 
     if (Array.isArray(comment.children)) {
       for (const child of comment.children) {
-        await traverse(child, String(comment.id), actor)
+        await traverse(child, String(comment.id), actor, depth + 1)
       }
     }
   }
 
-  for (const comment of conversation.comments) {
+  for (const comment of Array.isArray(conversation.comments) ? conversation.comments : []) {
     await traverse(comment, null, null)
   }
 
-  for (const pid of touchedPersonIds) {
-    await refreshPersonStats(client, pid)
-  }
+  await refreshPersonStats(client, touchedPersonIds)
 
   const finalPersonRes = await client.query(
     "select count(*)::int as count from people where user_id = $1",

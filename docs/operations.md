@@ -36,6 +36,21 @@ Required Dokploy environment variables for the compose application:
 - `BETTER_AUTH_SECRET` — high-entropy secret (32+ random bytes)
 - `ALLOW_SIGNUP` — `false` after the initial account exists
 
+Optional:
+
+- `SESSION_TOKEN_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`).
+  When set on both `api` and `worker`, Substack session tokens saved from then
+  on are encrypted at rest (AES-256-GCM, `key_id = 'env-v1'`). Existing
+  `plain` rows keep working and become encrypted on the next reconnect. Once
+  any connection is encrypted the key must stay configured and unchanged, or
+  that connection can no longer sync until it is reconnected.
+
+Queue self-healing: every 5 minutes the worker calls
+`seed_missing_activity_syncs()` (migration `027`, `SECURITY DEFINER` owned by
+`circles_migrate`), which queues a `sync:activity` job for any active
+connection without a pending or running one, and prunes `done` jobs older than
+14 days and `dead` jobs older than 30 days.
+
 Row level security: every tenant table is protected by a policy comparing
 `user_id` with `app_tenant_id()` (`current_setting('app.user_id')`). The API
 sets that value transaction-locally (`withTenant` in `apps/api/src/db/tenant.ts`)

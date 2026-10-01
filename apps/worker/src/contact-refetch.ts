@@ -1,5 +1,5 @@
 import type { PoolClient } from "pg"
-import { createSubstackClient, ingestActivityBatch, normalizeActivityPage } from "@workspace/core"
+import { createSubstackClient, ingestActivityBatch, normalizeActivityPage, openSessionToken } from "@workspace/core"
 import { preserveActivityEvidence } from "./activity.js"
 import { syncRecentOutboundActions, type OutboundStage } from "./history.js"
 import { withTenant } from "./tenant.js"
@@ -21,7 +21,7 @@ export async function processContactRefetch(client: PoolClient, userId: string, 
       throw new Error("Contact has no Substack identity")
 
     const connection = (await client.query(
-      `select id, ciphertext, publication_url, profile_id, profile_handle
+      `select id, key_id, iv, ciphertext, publication_url, profile_id, profile_handle
        from substack_connections where user_id = $1 and status = 'active'
        order by generation desc limit 1`,
       [userId],
@@ -29,7 +29,7 @@ export async function processContactRefetch(client: PoolClient, userId: string, 
     if (!connection) throw new Error("No active Substack connection")
 
     const sdk = createSubstackClient({
-      sessionToken: connection.ciphertext,
+      sessionToken: openSessionToken(connection),
       publicationUrl: connection.publication_url,
     })
     // One public profile request, one activity page, and at most three owner-feed

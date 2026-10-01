@@ -1,4 +1,5 @@
 import { serve } from "@hono/node-server"
+import { installFetchTimeout } from "@workspace/core"
 import { Hono } from "hono"
 import { z } from "zod"
 
@@ -14,6 +15,8 @@ import {
 import { withTenant } from "./db/tenant.js"
 import { ext } from "./routes/ext.js"
 import { v1 } from "./routes/v1.js"
+
+installFetchTimeout()
 
 const app = new Hono()
 

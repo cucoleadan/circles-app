@@ -112,6 +112,27 @@ beforeEach(async () => {
     restart identity cascade`)
 })
 
+
+/** Answers the Substack SDK's authenticated-profile lookup without network access. */
+async function withStubbedSubstackProfile<T>(fn: () => Promise<T>): Promise<T> {
+  const originalFetch = globalThis.fetch
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = String(input instanceof Request ? input.url : input)
+    if (url.includes("/handle/options")) {
+      return Response.json({ potentialHandles: [{ type: "existing", handle: "tester" }] })
+    }
+    if (url.includes("/public_profile")) {
+      return Response.json({ id: 4242, name: "Tester", handle: "tester" })
+    }
+    return new Response("unexpected request in test", { status: 500 })
+  }) as typeof fetch
+  try {
+    return await fn()
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+}
+
 describe("tenant isolation", () => {
   test("each tenant only sees its own people", async () => {
     await withTenant({ appUserId: userA }, (client) =>
@@ -303,6 +324,8 @@ describe("interactions", () => {
     expect((await v1.fetch(new Request(url, { method: "POST", headers: { cookie: signedCookieA } }))).status).toBe(429)
   })
   test("dedupe by external id and cursor pagination stay consistent", async () => {
+    // Drift is derived from the last interaction at read time, so keep it recent.
+    const recentBase = Date.now() - 2 * 24 * 60 * 60 * 1000
     const person = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Alice", handle: "@alice" })
     )
@@ -313,7 +336,7 @@ describe("interactions", () => {
         personId: person.id,
         direction: "inbound",
         actionType: "comment",
-        occurredAt: new Date("2026-09-01T10:00:00Z").toISOString(),
+        occurredAt: new Date(recentBase).toISOString(),
       })
       expect(first).not.toBeNull()
 
@@ -322,7 +345,7 @@ describe("interactions", () => {
         personId: person.id,
         direction: "inbound",
         actionType: "comment",
-        occurredAt: new Date("2026-09-01T10:00:00Z").toISOString(),
+        occurredAt: new Date(recentBase).toISOString(),
       })
       expect(duplicate).toBeNull()
 
@@ -335,7 +358,7 @@ describe("interactions", () => {
           threadKind: "note",
           threadRootId: "note-1",
           occurredAt: new Date(
-            Date.parse("2026-09-01T10:00:00Z") + i * 60_000
+            recentBase + i * 60_000
           ).toISOString(),
         })
       }
@@ -685,7 +708,7 @@ describe("interactions", () => {
   })
 
   test("POST /connect (JSON) connects Substack session and /install updates user", async () => {
-    const connectRes = await ext.fetch(
+    const connectRes = await withStubbedSubstackProfile(() => ext.fetch(
       new Request("http://localhost:3000/connect", {
         method: "POST",
         headers: {
@@ -697,7 +720,7 @@ describe("interactions", () => {
           publicationUrl: "https://testpub.substack.com",
         }),
       })
-    )
+    ))
     expect(connectRes.status).toBe(200)
     const connectBody = (await connectRes.json()) as any
     expect(connectBody.ok).toBe(true)
@@ -717,9 +740,61 @@ describe("interactions", () => {
     expect(installBody.ok).toBe(true)
   })
 
+  test("a session Substack rejects never replaces the working connection", async () => {
+    const connect = (sessionToken: string) => ext.fetch(
+      new Request("http://localhost:3000/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: signedCookieA },
+        body: JSON.stringify({ sessionToken }),
+      })
+    )
+    expect((await withStubbedSubstackProfile(() => connect("working-session"))).status).toBe(200)
+
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response("unauthorized", { status: 401 })) as unknown as typeof fetch
+    const originalWarn = console.warn
+    console.warn = () => {}
+    try {
+      const rejected = await connect("stale-session")
+      expect(rejected.status).toBe(400)
+      expect(((await rejected.json()) as any).ok).toBe(false)
+    } finally {
+      globalThis.fetch = originalFetch
+      console.warn = originalWarn
+    }
+
+    const active = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select ciphertext, profile_id from substack_connections where status = 'active'")
+    )
+    expect(active.rows).toHaveLength(1)
+    expect(active.rows[0].ciphertext).toBe("working-session")
+    expect(active.rows[0].profile_id).toBe("4242")
+  })
+
+  test("queue maintenance restarts a stranded scheduled sync", async () => {
+    await withStubbedSubstackProfile(() => ext.fetch(
+      new Request("http://localhost:3000/connect", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: signedCookieA },
+        body: JSON.stringify({ sessionToken: "stranded-session" }),
+      })
+    ))
+    // Simulate a chain that ended: no queued or running activity job remains.
+    await migrate.query("update jobs set status = 'dead' where type = 'sync:activity' and status in ('pending', 'running')")
+
+    const seeded = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select seed_missing_activity_syncs() as seeded")
+    )
+    expect(Number(seeded.rows[0].seeded)).toBeGreaterThanOrEqual(1)
+    const again = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select seed_missing_activity_syncs() as seeded")
+    )
+    expect(Number(again.rows[0].seeded)).toBe(0)
+  })
+
   test("connection, sync with cooldown, and import runs lifecycle via v1 API", async () => {
     // 1. POST /connection
-    const connRes = await v1.fetch(
+    const connRes = await withStubbedSubstackProfile(() => v1.fetch(
       new Request("http://localhost:3000/connection", {
         method: "POST",
         headers: {
@@ -730,10 +805,21 @@ describe("interactions", () => {
           sessionToken: "test-v1-session-cookie",
         }),
       })
-    )
+    ))
     expect(connRes.status).toBe(201)
     const connBody = (await connRes.json()) as any
     expect(connBody.connection.id).toBeDefined()
+    expect(connBody.connection.profileId).toBe("4242")
+
+    // Connecting schedules the first sync so the recurring chain starts at once.
+    const seeded = await withTenant({ appUserId: userA }, (client) =>
+      client.query(
+        "select id from jobs where type = 'sync:activity' and status = 'pending' and payload->>'connectionId' = $1",
+        [connBody.connection.id],
+      )
+    )
+    expect(seeded.rows).toHaveLength(1)
+    await migrate.query("update jobs set status = 'done' where id = $1", [seeded.rows[0].id])
 
     // 2. GET /connection
     const getConnRes = await v1.fetch(

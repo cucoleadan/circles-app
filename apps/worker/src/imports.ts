@@ -4,6 +4,7 @@ import {
   ingestActivityBatch,
   normalizeActivityPage,
   type ActivityItemInput,
+  openSessionToken,
 } from "@workspace/core"
 import {
   syncOwnedNotesPage,
@@ -73,7 +74,7 @@ export async function processHistoryImport(
 
     // 2. Fetch connection
     const connRes = await client.query(
-      `select ciphertext, publication_url, profile_handle, profile_id, status
+      `select key_id, iv, ciphertext, publication_url, profile_handle, profile_id, status
        from substack_connections
        where id = $1 and user_id = $2`,
       [run.connection_id, userId]
@@ -95,7 +96,7 @@ export async function processHistoryImport(
     }
 
     const sdk = createSubstackClient({
-      sessionToken: conn.ciphertext,
+      sessionToken: openSessionToken(conn),
       publicationUrl: conn.publication_url,
     })
 

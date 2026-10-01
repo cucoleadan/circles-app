@@ -22,3 +22,6 @@ export function substackResponseError(message: string, status: number) {
   error.status = status
   return error
 }
+
+/** Error message the worker uses when Substack rejects the stored session. */
+export const SESSION_EXPIRED_MESSAGE = "Substack session expired"

@@ -1,10 +1,12 @@
 import { createHash, randomUUID } from "node:crypto"
 import { Hono } from "hono"
+import { bodyLimit } from "hono/body-limit"
 import {
   createSubstackClient,
   ingestActivityBatch,
   ingestConversationReplies,
   normalizeActivityPage,
+  openSessionToken,
   type ActivityItemInput,
 } from "@workspace/core"
 
@@ -18,6 +20,11 @@ import {
   listLists,
   normalizeHandle,
 } from "../db/repositories.js"
+import {
+  replaceSubstackConnection,
+  SubstackVerificationError,
+  verifySubstackSession,
+} from "../db/connections.js"
 import { withTenant } from "../db/tenant.js"
 
 export const ext = new Hono<{ Variables: { appUser: string; userEmail: string } }>()
@@ -170,8 +177,16 @@ ext.get("/companion", async (c) => {
   })
 })
 
+/** Largest capture body accepted from the extension queue. */
+const MAX_CAPTURE_BYTES = 2 * 1024 * 1024
+
+const captureBodyLimit = bodyLimit({
+  maxSize: MAX_CAPTURE_BYTES,
+  onError: (c) => c.json({ ok: false, message: "Capture payload is too large" }, 413),
+})
+
 // POST /api/ext/activity - Receive passively captured activity batches
-ext.post("/activity", async (c) => {
+ext.post("/activity", captureBodyLimit, async (c) => {
   const userId = c.get("appUser")
   let payload: any
   try {
@@ -180,18 +195,17 @@ ext.post("/activity", async (c) => {
     return c.json({ ok: false, message: "Invalid JSON payload" }, 400)
   }
 
-  return withTenant({ appUserId: userId }, async (client) => {
+  // Read connection state and dedupe in a short transaction.
+  const state = await withTenant({ appUserId: userId }, async (client) => {
     const connRes = await client.query(
-      `select id, profile_id, profile_handle, ciphertext, publication_url
+      `select id, profile_id, profile_handle, key_id, iv, ciphertext, publication_url
        from substack_connections
        where user_id = $1 and status = 'active'
        order by generation desc limit 1`,
       [userId]
     )
     const conn = connRes.rows[0]
-    const connectionId = conn?.id ?? null
-    const ownerHandle = conn?.profile_handle ?? null
-    const ownerId = conn?.profile_id ?? null
+    const connectionId: string | null = conn?.id ?? null
 
     // Reject cross-account queued data if expectedConnectionId does not match
     if (
@@ -199,14 +213,7 @@ ext.post("/activity", async (c) => {
       connectionId &&
       payload.expectedConnectionId !== connectionId
     ) {
-      return c.json(
-        {
-          ok: false,
-          rejected: true,
-          message: "Connection mismatch. Queued data belongs to a different or revoked connection.",
-        },
-        409
-      )
+      return { kind: "mismatch" as const }
     }
 
     // Deduplicate the captured payload before any optional Substack lookup.
@@ -219,38 +226,64 @@ ext.post("/activity", async (c) => {
       "select id, status from ingestion_batches where user_id = $1 and dedupe_key = $2",
       [userId, dedupeKey]
     )
-    if (existingBatch.rows[0]?.status === "processed") {
-      return c.json({ ok: true, deduplicated: true, captured: 0, message: "Batch already ingested" })
+    if (existingBatch.rows[0]?.status === "processed") return { kind: "duplicate" as const }
+    return {
+      kind: "ingest" as const,
+      conn,
+      connectionId,
+      dedupeKey,
+      existingBatchId: (existingBatch.rows[0]?.id as string | undefined) ?? null,
     }
+  })
 
-    // Mutation responses often omit the target identity. Resolve it from the
-    // authenticated reader API so outbound actions attach to the actual person,
-    // including replies made from the owner's own post/Note page.
-    if (
-      payload?.kind === "outbound-action" &&
-      (payload.targetKind === "comment" || !payload?.targetAuthor?.handle || !payload?.targetBody) &&
-      conn?.ciphertext
-    ) {
-      try {
-        const sdk = createSubstackClient({
-          sessionToken: conn.ciphertext,
-          publicationUrl: conn.publication_url,
-        })
-        const target = payload.targetKind === "post"
-          ? await sdk.getPost(payload.targetId)
-          : await sdk.getComment(payload.targetId)
-        const context = substackTargetContext(target, payload.targetKind, String(payload.targetId))
-        if (context.author) payload.targetAuthor = context.author
-        if (context.targetBody) payload.targetBody = context.targetBody
-        if (context.targetTitle) payload.targetTitle = context.targetTitle
-        if (context.targetUrl) payload.targetUrl = context.targetUrl
-      } catch (error) {
-        console.warn("Could not resolve outbound Substack target author:", error)
-      }
+  if (state.kind === "mismatch") {
+    return c.json(
+      {
+        ok: false,
+        rejected: true,
+        message: "Connection mismatch. Queued data belongs to a different or revoked connection.",
+      },
+      409
+    )
+  }
+  if (state.kind === "duplicate") {
+    return c.json({ ok: true, deduplicated: true, captured: 0, message: "Batch already ingested" })
+  }
+
+  const { conn, connectionId, dedupeKey } = state
+  const ownerHandle = conn?.profile_handle ?? null
+  const ownerId = conn?.profile_id ?? null
+
+  // Mutation responses often omit the target identity. Resolve it from the
+  // authenticated reader API so outbound actions attach to the actual person,
+  // including replies made from the owner's own post/Note page. This runs
+  // outside any transaction so a slow upstream never holds a pooled connection.
+  if (
+    payload?.kind === "outbound-action" &&
+    (payload.targetKind === "comment" || !payload?.targetAuthor?.handle || !payload?.targetBody) &&
+    conn?.ciphertext
+  ) {
+    try {
+      const sdk = createSubstackClient({
+        sessionToken: openSessionToken(conn),
+        publicationUrl: conn.publication_url,
+      })
+      const target = payload.targetKind === "post"
+        ? await sdk.getPost(payload.targetId)
+        : await sdk.getComment(payload.targetId)
+      const context = substackTargetContext(target, payload.targetKind, String(payload.targetId))
+      if (context.author) payload.targetAuthor = context.author
+      if (context.targetBody) payload.targetBody = context.targetBody
+      if (context.targetTitle) payload.targetTitle = context.targetTitle
+      if (context.targetUrl) payload.targetUrl = context.targetUrl
+    } catch (error) {
+      console.warn("Could not resolve outbound Substack target author:", (error as Error)?.message ?? error)
     }
+  }
 
-    const batchId = existingBatch.rows[0]?.id ?? randomUUID()
-    if (!existingBatch.rows[0]) {
+  return withTenant({ appUserId: userId }, async (client) => {
+    const batchId = state.existingBatchId ?? randomUUID()
+    if (!state.existingBatchId) {
       await client.query(
         `insert into ingestion_batches (id, user_id, source, dedupe_key, payload, status, received_at)
          values ($1, $2, 'extension', $3, $4, 'received', now())
@@ -429,72 +462,25 @@ async function handleConnect(c: any) {
     return c.json({ ok: false, message: "Substack session token is required" }, 400)
   }
 
-  // Verify connection with Substack SDK
-  let profileName: string | null = null
-  let profileHandle: string | null = null
-  let profileId: string | null = null
-
+  let profile
   try {
-    const client = createSubstackClient({ sessionToken, publicationUrl })
-    const self = (await client.getAuthenticatedProfile()) as {
-      id?: string | number
-      name?: string
-      handle?: string
-    }
-    profileName = self?.name ?? null
-    profileHandle = self?.handle ?? null
-    profileId = self?.id ? String(self.id) : null
+    profile = await verifySubstackSession(sessionToken, publicationUrl)
   } catch (error) {
-    console.warn("Could not verify Substack credentials with SDK:", error)
+    // Keep the existing working connection when the new session is not usable.
+    if (error instanceof SubstackVerificationError) {
+      return c.json({ ok: false, submit: { ok: false, message: error.message } }, 400)
+    }
+    throw error
   }
 
-  return withTenant({ appUserId: userId }, async (client) => {
-    const genRes = await client.query(
-      "select coalesce(max(generation), 0) + 1 as next_gen from substack_connections where user_id = $1",
-      [userId]
-    )
-    const nextGen = genRes.rows[0]?.next_gen ?? 1
+  await withTenant({ appUserId: userId }, (client) =>
+    replaceSubstackConnection(client, userId, { sessionToken, publicationUrl, profile })
+  )
 
-    await client.query(
-      "update substack_connections set status = 'revoked', updated_at = now() where user_id = $1 and status = 'active'",
-      [userId]
-    )
-
-    const connId = randomUUID()
-    await client.query(
-      `insert into substack_connections
-          (id, user_id, generation, status, publication_url, envelope_version,
-           key_id, wrapped_key, iv, ciphertext,
-           profile_id, profile_name, profile_handle, last_verified_at)
-       values ($1, $2, $3, 'active', $4, 1, 'plain', 'plain', 'plain', $5, $6, $7, $8, now())`,
-      [
-        connId,
-        userId,
-        nextGen,
-        publicationUrl,
-        sessionToken,
-        profileId,
-        profileName,
-        profileHandle,
-      ]
-    )
-
-    await client.query(
-      `insert into sync_state (connection_id, user_id, status, next_run_at)
-       values ($1, $2, 'idle', now())
-       on conflict (connection_id) do nothing`,
-      [connId, userId]
-    )
-
-    return c.json({
-      ok: true,
-      submit: { ok: true, message: "Connected Substack successfully." },
-      profile: {
-        id: profileId,
-        name: profileName,
-        handle: profileHandle,
-      },
-    })
+  return c.json({
+    ok: true,
+    submit: { ok: true, message: "Connected Substack successfully." },
+    profile,
   })
 }
 

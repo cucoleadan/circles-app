@@ -102,6 +102,41 @@ Update this file as work completes. Last updated: 2026-09-30.
 - [ ] Deploy and verify against a live contact. This refetch covers recent pages,
       not a full historical backfill.
 
+## 2026-10-01 backend reliability pass
+
+- [x] Recurring sync self-heals: migration `027` adds
+      `seed_missing_activity_syncs()`, called by worker maintenance every 5
+      minutes; connecting schedules the first sync; `sync:activity` never
+      dead-letters except on session expiry and backs off up to 30 minutes.
+- [x] Activity sync pages back to the last successful sync (30-minute overlap,
+      max 5 pages) with no `created_at` filter; migration `027` queues an
+      evidence replay to recover grouped-notification likers and overflow
+      items dropped by the old filter.
+- [x] Scheduled reply refresh covers the 6 newest Notes (7 days) and 3 newest
+      posts (14 days); outbound pages use a 24-hour window.
+- [x] Connect verifies the Substack session first and keeps the working
+      connection when verification fails (extension, web, and CLI paths share
+      `replaceSubstackConnection`).
+- [x] 30-second fetch timeout for all outbound requests; API/worker pools have
+      connection, statement, and idle-in-transaction timeouts; the extension
+      capture route resolves targets outside its transaction and caps bodies at
+      2 MB and conversation trees at 2,000 comments.
+- [x] Follow-up jobs commit atomically with job completion under the lease;
+      expired leases count as attempts; only a 401 expires a connection;
+      Cloudflare 403s on sync/import work back off like rate limits.
+- [x] Drift status is derived from `last_interaction_at` at read time;
+      timestamp-less captures no longer move interactions to "now"; id-less
+      captures get a stable content hash; stats refresh and subscriber upserts
+      run in batches; one canonical `refreshPersonStats` in core.
+- [x] Done jobs older than 14 days and dead jobs older than 30 days are pruned.
+- [x] Optional `SESSION_TOKEN_KEY` encrypts Substack session tokens at rest.
+- [ ] Deploy, confirm migration `027` applied, the evidence replay completed,
+      and `Synced connection … from N page(s)` appears in worker logs.
+- [ ] Optionally set `SESSION_TOKEN_KEY` in Dokploy for api and worker, then
+      reconnect Substack to encrypt the stored session.
+- [ ] Scheduled owned Notes/posts history still fetches reply trees inside a DB
+      transaction (bounded by the fetch timeout); split fetch/ingest if needed.
+
 ## 2026-09-23 sync incident
 
 - [x] Diagnosed the stopped recurring sync: `sync:activity` dedupe matched its

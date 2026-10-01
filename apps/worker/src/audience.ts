@@ -9,6 +9,7 @@ import {
   reconcileSubscriberSnapshot,
   shouldAbortFollowerSweep,
   upsertSubscribersBatch,
+  openSessionToken,
 } from "@workspace/core"
 import { withTenant, substackResponseError } from "./tenant.js"
 import { finishImportIfReady } from "./imports.js"
@@ -78,7 +79,7 @@ export async function processSubscriberSyncPage(
   const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
   const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, publication_url, status
+      `select key_id, iv, ciphertext, publication_url, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -110,7 +111,7 @@ export async function processSubscriberSyncPage(
   const response = await fetch(`${publicationUrl}/api/v1/subscriber-stats`, {
     method: "POST",
     headers: {
-      cookie: `substack.sid=${conn.ciphertext}`,
+      cookie: `substack.sid=${openSessionToken(conn)}`,
       "content-type": "application/json",
       "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
     },
@@ -204,7 +205,7 @@ export async function processFollowerSyncBatch(
   const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
   const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, profile_id, status
+      `select key_id, iv, ciphertext, profile_id, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -217,7 +218,7 @@ export async function processFollowerSyncBatch(
 
   const response = await fetch(
     `https://substack.com/api/v1/user/${encodeURIComponent(conn.profile_id)}/subscriber-lists?lists=followers`,
-    { headers: { cookie: `substack.sid=${conn.ciphertext}`, accept: "application/json" } },
+    { headers: { cookie: `substack.sid=${openSessionToken(conn)}`, accept: "application/json" } },
   )
   if (!response.ok) throw substackResponseError("Substack follower-list API failed", response.status)
   const page = parseFollowerList(await response.json())
@@ -245,7 +246,7 @@ export async function processFollowingSync(
 ) {
   const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, publication_url, profile_id, status
+      `select key_id, iv, ciphertext, publication_url, profile_id, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -256,7 +257,7 @@ export async function processFollowingSync(
   }
 
   const sdk = createSubstackClient({
-    sessionToken: conn.ciphertext,
+    sessionToken: openSessionToken(conn),
     publicationUrl: conn.publication_url,
   })
   const page = parseFollowerList(
@@ -328,7 +329,7 @@ export async function processMissingHandleBackfill(
 ) {
   const state = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select ciphertext, publication_url, status
+      `select key_id, iv, ciphertext, publication_url, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -362,7 +363,7 @@ export async function processMissingHandleBackfill(
   let handle: string | null = null
   try {
     const sdk = createSubstackClient({
-      sessionToken: state.connection.ciphertext,
+      sessionToken: openSessionToken(state.connection),
       publicationUrl: state.connection.publication_url,
     })
     handle = profileHandle(await sdk.getProfileById(state.person.substack_profile_id))

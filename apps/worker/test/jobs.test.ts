@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { claimAndRunJob } from "../src/jobs.js"
 import { nextIncrementalSubscriberOffset, processSubscriberSyncPage } from "../src/audience.js"
+import { needsAnotherActivityPage } from "../src/activity.js"
 
 describe("Worker queue runner (claimAndRunJob)", () => {
   test("contact refetch dies on the first 429 instead of exceeding its request cap", async () => {
@@ -163,8 +164,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
 
     const mockJob = {
       id: "job-102",
-      type: "sync:activity",
-      payload: JSON.stringify({ userId: "user-1", connectionId: "conn-1" }),
+      type: "sync:history",
+      payload: JSON.stringify({ userId: "user-1", connectionId: "conn-1", stream: "owned_notes" }),
       attempts: 1,
       max_attempts: 3,
     }
@@ -188,7 +189,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     console.error = () => {}
     try {
       const result = await claimAndRunJob(mockPool, "test-worker-1", {
-        onSync: async () => {
+        onHistorySync: async () => {
           throw new Error("Temporary network timeout")
         },
       })
@@ -211,8 +212,8 @@ describe("Worker queue runner (claimAndRunJob)", () => {
 
     const mockJob = {
       id: "job-103",
-      type: "sync:activity",
-      payload: JSON.stringify({ userId: "user-1", connectionId: "conn-1" }),
+      type: "sync:history",
+      payload: JSON.stringify({ userId: "user-1", connectionId: "conn-1", stream: "owned_notes" }),
       attempts: 4,
       max_attempts: 5, // Next attempt = 5 >= 5 -> dead
     }
@@ -236,7 +237,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     console.error = () => {}
     try {
       const result = await claimAndRunJob(mockPool, "test-worker-1", {
-        onSync: async () => {
+        onHistorySync: async () => {
           throw new Error("Permanent fatal error")
         },
       })
@@ -728,7 +729,7 @@ describe("Full subscriber sweep", () => {
   test("overlaps pages so a mid-sweep unsubscribe cannot skip anyone", async () => {
     const mockClient: any = {
       query: async (sql: string) => {
-        if (sql.includes("select ciphertext, publication_url, status")) {
+        if (sql.includes("ciphertext, publication_url, status")) {
           return { rows: [{ ciphertext: "sid", publication_url: "https://example.substack.com", status: "active" }] }
         }
         return { rows: [], rowCount: 0 }
@@ -747,5 +748,98 @@ describe("Full subscriber sweep", () => {
     } finally {
       globalThis.fetch = originalFetch
     }
+  })
+})
+
+describe("Recurring activity sync resilience", () => {
+  test("never dead-letters the activity sync on repeated non-auth failures", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-activity", type: "sync:activity",
+          payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 9, max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        onSync: async () => { throw Object.assign(new Error("Substack request failed with 403"), { status: 403 }) },
+      })
+    } finally {
+      console.error = originalError
+    }
+    expect(executedQueries.some((q) => q.sql.includes("set status = 'dead'"))).toBe(false)
+    const retry = executedQueries.find((q) => q.sql.includes("set status = 'pending'") && q.sql.includes("seconds"))
+    expect(retry?.params?.[1]).toBe(1800)
+    expect(executedQueries.some((q) => q.sql.includes("set status = 'expired'"))).toBe(false)
+  })
+
+  test("an unrelated 'expired' message does not expire the Substack connection", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-tls", type: "sync:history",
+          payload: { userId: "user-1", connectionId: "conn-1", stream: "owned_posts" }, attempts: 0, max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        onHistorySync: async () => { throw new Error("certificate has expired") },
+      })
+    } finally {
+      console.error = originalError
+    }
+    expect(executedQueries.some((q) => q.sql.includes("set status = 'expired'"))).toBe(false)
+  })
+
+  test("follow-up jobs are skipped when the lease was lost", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-lost", type: "sync:activity",
+          payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 0, max_attempts: 5,
+        }] }
+        if (sql.includes("set status = 'done'")) return { rows: [], rowCount: 0 }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const originalWarn = console.warn
+    console.warn = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        onSync: async () => ({ skipped: false }),
+      })
+    } finally {
+      console.warn = originalWarn
+    }
+    expect(executedQueries.some((q) => q.sql.includes("insert into jobs"))).toBe(false)
+    expect(executedQueries.some((q) => q.sql === "commit")).toBe(true)
+  })
+
+  test("reads activity pages back to the checkpoint", () => {
+    const checkpoint = new Date("2026-10-01T08:00:00.000Z")
+    const recent = [{ id: "a", created_at: "2026-09-30T01:00:00.000Z", updated_at: "2026-10-01T09:00:00.000Z" }]
+    expect(needsAnotherActivityPage(recent, checkpoint, "cursor", 1)).toBe(true)
+    const reached = [{ id: "b", created_at: "2026-10-01T07:00:00.000Z", updated_at: "2026-10-01T07:30:00.000Z" }]
+    expect(needsAnotherActivityPage(reached, checkpoint, "cursor", 1)).toBe(false)
+    expect(needsAnotherActivityPage(recent, null, "cursor", 1)).toBe(false)
+    expect(needsAnotherActivityPage(recent, checkpoint, null, 1)).toBe(false)
+    expect(needsAnotherActivityPage(recent, checkpoint, "cursor", 5)).toBe(false)
   })
 })

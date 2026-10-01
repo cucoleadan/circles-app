@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto"
 
 import type { PoolClient } from "pg"
 
+import { driftStatusSql } from "@workspace/core"
+
 import { withTenant } from "./tenant.js"
 
 export type PoolLike = PoolClient
@@ -31,7 +33,7 @@ const personStatsColumns = `coalesce(s.interaction_count, 0) as "interactionCoun
     s.last_inbound_at as "lastInboundAt",
     s.last_outbound_at as "lastOutboundAt",
     s.last_conversation_at as "lastConversationAt",
-    coalesce(s.drift_status, 'new') as "driftStatus"`
+    ${driftStatusSql("s.last_interaction_at")} as "driftStatus"`
 
 // insert/update RETURNING clauses cannot use the `p.` table alias
 const plainPersonColumns = personColumns.replaceAll("p.", "")
@@ -344,7 +346,7 @@ export async function listPeople(
     conditions.push("coalesce(s.interaction_count, 0) = 0")
   } else if (options.view === "opportunities") {
     conditions.push(
-      "(coalesce(s.engagement_score, 0) > 0 and (s.drift_status in ('drifting', 'cold') or s.last_interaction_at < now() - interval '14 days'))"
+      "(coalesce(s.engagement_score, 0) > 0 and s.last_interaction_at < now() - interval '14 days')"
     )
   } else if (options.view === "follows-not-subscribed") {
     conditions.push("(p.is_follower = true and coalesce(p.is_subscriber, false) = false)")
@@ -815,84 +817,8 @@ export async function personInteractions(
   return { interactions: rows, nextCursor }
 }
 
-/** Rebuilds the per-person totals so overview reads never scan interactions. */
-export async function refreshPersonStats(client: PoolLike, personId: string) {
-  await client.query(
-     `insert into relationship_stats
-        (person_id, user_id, interaction_count, conversation_count,
-         first_interacted_at, last_interaction_at, last_inbound_at, last_outbound_at,
-         last_conversation_at, drift_status, engagement_score,
-         inbound_interaction_count, outbound_interaction_count,
-         outbound_engagement_score, updated_at)
-     select i.person_id, i.user_id, count(*),
-        count(distinct i.thread_root_id) filter
-          (where i.thread_root_id is not null and i.action_type in ('comment', 'reply')),
-        min(i.occurred_at), max(i.occurred_at),
-        max(i.occurred_at) filter (where i.direction = 'inbound'),
-        max(i.occurred_at) filter (where i.direction = 'outbound'),
-        max(i.occurred_at) filter (where i.thread_root_id is not null),
-        case
-          when max(i.occurred_at) is null then 'new'
-          when max(i.occurred_at) > now() - interval '30 days' then 'active'
-          when max(i.occurred_at) > now() - interval '90 days' then 'drifting'
-          else 'cold'
-        end,
-        coalesce(sum(
-          case
-            when i.direction = 'inbound' and i.action_type = 'like' then 1
-            when i.direction = 'inbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
-            when i.direction = 'inbound' and i.action_type = 'restack' then 3
-            when i.direction = 'inbound' and i.action_type in ('comment', 'reply') then 3
-            when i.direction = 'inbound' then 1
-            else 0
-          end
-        ), 0)::int,
-        count(*) filter (where i.direction = 'inbound')::int,
-        count(*) filter (where i.direction = 'outbound')::int,
-        coalesce(sum(
-          case
-            when i.direction = 'outbound' and i.action_type = 'like' then 1
-            when i.direction = 'outbound' and i.action_type = 'restack' and (i.body is null or trim(i.body) = '') then 2
-            when i.direction = 'outbound' and i.action_type = 'restack' then 3
-            when i.direction = 'outbound' and i.action_type in ('comment', 'reply') then 3
-            when i.direction = 'outbound' then 1
-            else 0
-          end
-        ), 0)::int,
-        now()
-      from interactions i
-      where i.person_id = $1 and i.removed_at is null
-      group by i.person_id, i.user_id
-     on conflict (person_id) do update
-      set interaction_count = excluded.interaction_count,
-        conversation_count = excluded.conversation_count,
-        first_interacted_at = excluded.first_interacted_at,
-        last_interaction_at = excluded.last_interaction_at,
-        last_inbound_at = excluded.last_inbound_at,
-        last_outbound_at = excluded.last_outbound_at,
-        last_conversation_at = excluded.last_conversation_at,
-        drift_status = excluded.drift_status,
-        engagement_score = excluded.engagement_score,
-        inbound_interaction_count = excluded.inbound_interaction_count,
-        outbound_interaction_count = excluded.outbound_interaction_count,
-        outbound_engagement_score = excluded.outbound_engagement_score,
-        updated_at = now()`,
-    [personId]
-  )
-  await client.query(
-    `update relationship_stats
-     set interaction_count = 0, conversation_count = 0, engagement_score = 0,
-         inbound_interaction_count = 0, outbound_interaction_count = 0,
-         outbound_engagement_score = 0, first_interacted_at = null,
-         last_interaction_at = null, last_inbound_at = null, last_outbound_at = null,
-         last_conversation_at = null, drift_status = 'new', updated_at = now()
-     where person_id = $1
-       and not exists (
-         select 1 from interactions where person_id = $1 and removed_at is null
-       )`,
-    [personId]
-  )
-}
+/** Per-person totals are rebuilt by the canonical ingestion module. */
+export { refreshPersonStats } from "@workspace/core"
 
 // ------------------------------------------------------------ lists and tags
 
@@ -1077,14 +1003,14 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
        group by relationship_status`
   )
   const stats = await client.query(
-    `select s.drift_status as status, count(*)::int as count
+    `select ${driftStatusSql("s.last_interaction_at")} as status, count(*)::int as count
        from relationship_stats s
        join people p on p.id = s.person_id
        where p.archived_at is null
          and not exists (
            select 1 from list_members lm join lists l on l.id = lm.list_id where lm.person_id = p.id and lower(l.name) = 'ignored'
          )
-       group by s.drift_status`
+       group by 1`
   )
   const interactions = await client.query(
     "select count(*)::int as count from interactions where removed_at is null"
