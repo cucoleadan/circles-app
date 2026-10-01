@@ -468,7 +468,8 @@ async function handleConnect(c: any) {
   } catch (error) {
     // Keep the existing working connection when the new session is not usable.
     if (error instanceof SubstackVerificationError) {
-      return c.json({ ok: false, submit: { ok: false, message: error.message } }, 400)
+      // Released extensions read the top-level message on non-2xx responses.
+      return c.json({ ok: false, message: error.message, submit: { ok: false, message: error.message } }, 400)
     }
     throw error
   }

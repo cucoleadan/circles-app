@@ -757,7 +757,9 @@ describe("interactions", () => {
     try {
       const rejected = await connect("stale-session")
       expect(rejected.status).toBe(400)
-      expect(((await rejected.json()) as any).ok).toBe(false)
+      const rejectedBody = (await rejected.json()) as any
+      expect(rejectedBody.ok).toBe(false)
+      expect(rejectedBody.message).toContain("Substack did not accept this session")
     } finally {
       globalThis.fetch = originalFetch
       console.warn = originalWarn

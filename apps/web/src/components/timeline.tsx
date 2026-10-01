@@ -215,7 +215,11 @@ export function Timeline({
           </Button>
         </div>
       ) : (
-        <div className="relative pl-5 before:absolute before:left-2 before:top-2 before:bottom-2 before:w-px before:bg-stone-200 dark:before:bg-stone-800">
+        <div>
+          <div className="mb-1.5 flex items-center justify-between text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <span className="truncate">{personName}</span>
+            <span className="text-[#c2410c] dark:text-[#f8916f]">You</span>
+          </div>
           {filteredInteractions.map((item) => (
             <TimelineItem key={item.id} item={item} personName={personName} />
           ))}

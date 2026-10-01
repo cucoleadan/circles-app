@@ -1,6 +1,4 @@
 import {
-  ArrowDownLeft,
-  ArrowUpRight,
   Heart,
   MessageCircle,
   MessageSquare,
@@ -176,36 +174,44 @@ export function TimelineItem({
   const beforeVerb = verbStart >= 0 ? remainder.slice(0, verbStart) : remainder
   const afterVerb = verbStart >= 0 ? remainder.slice(verbStart + verb.length) : ""
 
-  return (
-    <div className="relative pb-2.5 last:pb-1">
-      <span
-        className="absolute -left-5 top-2 flex size-4 items-center justify-center rounded border border-stone-300 bg-stone-100 text-stone-500 dark:border-stone-700 dark:bg-stone-800 dark:text-stone-400"
-        title={isInbound ? "Inbound (from them)" : "Outbound (from you)"}
-      >
-        {isInbound ? (
-          <ArrowDownLeft className="size-2.5" />
-        ) : (
-          <ArrowUpRight className="size-2.5" />
-        )}
-      </span>
+  const time = (
+    <time
+      dateTime={item.occurredAt}
+      title={new Date(item.occurredAt).toLocaleString()}
+      className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground"
+    >
+      {formatDate(item.occurredAt)}
+    </time>
+  )
 
-      <div className="rounded border border-stone-200/80 bg-white/70 px-2.5 py-2 shadow-none transition-colors hover:bg-white dark:border-stone-800 dark:bg-stone-900/60">
-        <div className="flex items-center justify-between gap-2 text-xs">
-          <span className="flex min-w-0 items-center gap-1.5" title={label}>
-            <ActionIcon className={`size-3 shrink-0 ${actionTextColor(item.actionType)}`} aria-hidden="true" />
-            <span className="truncate text-stone-600 dark:text-stone-300">
-              <strong className="font-semibold text-stone-900 dark:text-stone-100">{actor}</strong>
-              {beforeVerb}
-              {verbStart >= 0 && (
-                <strong className={`font-semibold ${actionTextColor(item.actionType)}`}>{verb}</strong>
-              )}
-              {afterVerb}
-            </span>
+  // Conversation layout: their actions sit on the left with the time on the
+  // right; yours sit on the right with the time on the left.
+  return (
+    <div className={`flex pb-2 last:pb-1 ${isInbound ? "justify-start" : "justify-end"}`}>
+      <div
+        className={`flex w-[88%] items-center gap-2 rounded border px-2.5 py-2 text-xs transition-colors ${
+          isInbound
+            ? "border-stone-200/80 bg-white/70 hover:bg-white dark:border-stone-800 dark:bg-stone-900/60"
+            : "border-[#f15a3a]/25 bg-[#f15a3a]/[0.04] hover:bg-[#f15a3a]/[0.07] dark:border-[#f15a3a]/30 dark:bg-[#f15a3a]/10"
+        }`}
+        aria-label={`${label}, ${formatDate(item.occurredAt)}`}
+      >
+        {!isInbound && time}
+        <span
+          className={`flex min-w-0 flex-1 items-center gap-1.5 ${isInbound ? "" : "justify-end"}`}
+          title={label}
+        >
+          <ActionIcon className={`size-3 shrink-0 ${actionTextColor(item.actionType)}`} aria-hidden="true" />
+          <span className="truncate text-stone-600 dark:text-stone-300">
+            <strong className="font-semibold text-stone-900 dark:text-stone-100">{actor}</strong>
+            {beforeVerb}
+            {verbStart >= 0 && (
+              <strong className={`font-semibold ${actionTextColor(item.actionType)}`}>{verb}</strong>
+            )}
+            {afterVerb}
           </span>
-          <span className="text-[10.5px] text-muted-foreground shrink-0">
-            {formatDate(item.occurredAt)}
-          </span>
-        </div>
+        </span>
+        {isInbound && time}
       </div>
     </div>
   )
