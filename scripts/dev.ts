@@ -151,8 +151,10 @@ try {
 
     console.log("Starting API, worker, and web app…")
     apps = [
-      spawn([process.execPath, "--watch", "src/index.ts"], `${root}/apps/api`),
-      spawn([process.execPath, "--watch", "src/index.ts"], `${root}/apps/worker`),
+      // Run from the repo root: bun --watch ignores files outside its cwd, so
+      // edits in packages/core would not restart the API or worker.
+      spawn([process.execPath, "--watch", "apps/api/src/index.ts"], root),
+      spawn([process.execPath, "--watch", "apps/worker/src/index.ts"], root),
       spawn(
         [process.execPath, "x", "astro", "dev", "--ignore-lock"],
         `${root}/apps/web`
