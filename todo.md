@@ -3,6 +3,24 @@
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
 Update this file as work completes. Last updated: 2026-10-02.
 
+## 2026-10-02 Note tags and restack previews
+
+- [x] Note tags: a Circles-only tag catalog (migration `030`) with create,
+      rename, recolor and delete in a Manage tags dialog. Tags can be set
+      from the composer, queue cards and a Table column, on any Note
+      (including published ones), and a Tags filter narrows all three views.
+- [x] Outbound restacks/Likes of posts show a Substack-style preview card
+      (cover image, title, subtitle, author and publication) in the contact
+      timeline; Note targets show a linked snippet. Extension captures no
+      longer store the feed page as the target URL; `getPost` supplies the
+      real URL and cover. Migration `031` replays retained profile-feed
+      evidence to fill previews for past actions.
+- [x] Typecheck and the full test suite pass (103 tests). Build not run.
+- [ ] Deploy migrations `030`/`031`. Until then a local API pointed at the
+      production DB fails Note list requests (`scheduled_note_tags` missing).
+- [ ] Older extension-captured restacks outside retained profile-feed
+      evidence keep no preview image.
+
 ## 2026-10-02 Note scheduling
 
 - [x] `/notes` page (Queue, Calendar and Table views) to write, schedule,

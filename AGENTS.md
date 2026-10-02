@@ -78,7 +78,11 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`029_scheduled_notes.sql`, which adds the `scheduled_notes` mirror of the
+`031_replay_post_previews.sql`, which re-queues the evidence replay so outbound
+post Likes/restacks gain `metadata.targetImage`/`targetPublication` for timeline
+preview cards. Migration `030_note_tags.sql` adds the Circles-only `note_tags`
+catalog and `scheduled_note_tags` edges. Migration `029_scheduled_notes.sql`
+adds the `scheduled_notes` mirror of the
 account's Substack Note drafts and `substack_connections.drafts_reconciled_at`.
 Migration `028_retry_evidence_replay.sql` re-queues the evidence replay after
 ingestion stopped restoring soft-removed duplicate Likes/restacks beside their
@@ -223,7 +227,10 @@ draft ID, which matches `owned_content.external_id`. "Post now" schedules 60
 seconds ahead so the user can abort; mutations within 3 seconds of
 `trigger_at` are refused. Validate `trigger_at` (at most 92 days ahead) before
 calling Substack, because a rejected time still leaves a stray draft. Always
-re-send the attachment IDs to keep on draft updates. Design notes:
+re-send the attachment IDs to keep on draft updates. Note tags
+(`/api/v1/notes/tags`, `PUT /notes/:id/tags`) are Circles-only and separate from
+contact tags; tagging a published Note listed from `owned_content`
+(`note:<id>`) creates a published mirror row to hold them. Design notes:
 `plans/note-scheduling.md`.
 
 ## Extension workflow

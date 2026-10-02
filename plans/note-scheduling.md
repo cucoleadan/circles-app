@@ -33,6 +33,23 @@ A `/notes` page (linked from the contacts navbar) where you can:
   popovers, plus a rail of unscheduled drafts) and **Table** (sortable,
   filterable data table with status and column toggles).
 
+## Tags (added 2026-10-02)
+
+- Tags are Circles-only labels (migration `030`: `note_tags`,
+  `scheduled_note_tags`), separate from contact tags. Substack never sees
+  them.
+- **Manage tags** (from the Tags filter or any tag picker) creates, renames,
+  recolors and deletes them. Deleting a tag only removes it from Notes.
+- The composer's tag button sets tags. A new Note sends them with the create
+  request; an open Note saves them immediately. Queue cards and the Table's
+  Tags column have the same picker, and work on published Notes too.
+- The **Tags** filter shows Notes carrying any selected tag in all three
+  views.
+- Routes: `GET/POST /notes/tags`, `PATCH/DELETE /notes/tags/:tagId`,
+  `PUT /notes/:id/tags` (replaces the set). A published Note that only exists
+  in `owned_content` (`note:<id>`) gets a published mirror row to hold its
+  tags.
+
 ## Decisions (confirmed 2026-10-01)
 
 1. Drafts without a time: yes. They're stored as Substack drafts

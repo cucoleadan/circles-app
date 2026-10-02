@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import {
+  Component,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react"
 import {
   AlertTriangle,
   ArrowLeft,
@@ -114,8 +122,61 @@ function useNow(active: boolean) {
   return now
 }
 
+/** Fills fields an older API may omit, so a response never breaks rendering. */
+function normalizeNotes(notes: ScheduledNote[] | undefined): ScheduledNote[] {
+  return (notes ?? []).map((note) => ({
+    ...note,
+    tags: note.tags ?? [],
+    mentions: note.mentions ?? [],
+    attachments: note.attachments ?? [],
+  }))
+}
+
+/** Shows a crash instead of a blank page. */
+class NotesErrorBoundary extends Component<
+  { children: ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("Notes page crashed:", error)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#f7f5f1] p-6 dark:bg-stone-950">
+        <div className="max-w-md space-y-3 rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm dark:border-stone-800 dark:bg-stone-900">
+          <p className="font-semibold">The Notes page hit an error.</p>
+          <pre className="overflow-x-auto rounded-lg bg-stone-100 p-2 text-xs whitespace-pre-wrap dark:bg-stone-800">
+            {this.state.error.message}
+          </pre>
+          <Button size="sm" onClick={() => window.location.reload()}>
+            Reload
+          </Button>
+        </div>
+      </main>
+    )
+  }
+}
+
 export function NotesScheduler({ initial }: { initial: NotesResponse }) {
-  const [notes, setNotes] = useState<ScheduledNote[]>(initial.notes)
+  return (
+    <NotesErrorBoundary>
+      <NotesSchedulerPage initial={initial} />
+    </NotesErrorBoundary>
+  )
+}
+
+function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
+  const [notes, setNotes] = useState<ScheduledNote[]>(() =>
+    normalizeNotes(initial.notes)
+  )
   const [connection, setConnection] = useState(initial.connection)
   const [view, setView] = useState<View>(readView)
   const [month, setMonth] = useState(
@@ -150,9 +211,10 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
 
   const applyResponse = useCallback((body: NotesResponse) => {
     setConnection(body.connection)
-    setNotes(body.notes)
+    const incoming = normalizeNotes(body.notes)
+    setNotes(incoming)
     // Announce "Post now" Notes that just went live.
-    for (const note of body.notes) {
+    for (const note of incoming) {
       if (note.status === "published" && postingIds.current.has(note.id)) {
         postingIds.current.delete(note.id)
         toast.success("Your Note is live.", {
@@ -165,7 +227,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
         })
       }
     }
-    for (const note of body.notes)
+    for (const note of incoming)
       if (note.status === "scheduled" && note.postNow)
         postingIds.current.add(note.id)
   }, [])
