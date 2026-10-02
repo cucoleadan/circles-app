@@ -3,10 +3,8 @@ export type NoteReplyRole = "everyone" | "free_subscriber" | "paid_subscriber"
 export type NoteMode = "post_now" | "schedule" | "draft"
 
 export interface NoteMention {
-  id: number | string
-  handle?: string
+  id: number
   label: string
-  url?: string | null
 }
 
 export interface NoteAttachment {
@@ -31,7 +29,8 @@ export interface ScheduledNote {
   status: NoteStatus
   origin: "circles" | "substack"
   bodyText: string
-  markdown: string | null
+  /** Stored Substack Note document; loaded into the editor when `editable`. */
+  bodyJson: unknown
   mentions: NoteMention[]
   editable: boolean
   attachments: NoteAttachment[]
@@ -48,6 +47,7 @@ export interface NotesConnection {
   id: string
   status: string
   profileHandle: string | null
+  profileName: string | null
   draftsReconciledAt: string | null
 }
 

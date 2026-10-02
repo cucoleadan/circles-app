@@ -2,39 +2,55 @@ import { describe, expect, test } from "bun:test"
 
 import {
   attachmentProblem,
-  buildNoteBody,
-  editableNoteBody,
+  isEditableNoteBody,
+  noteBodyMentions,
+  noteBodyText,
   planVanishedNotes,
+  prepareNoteBody,
   triggerAtProblem,
 } from "../src/notes.js"
 
-const jane = { id: 11, handle: "janedoe", label: "Jane Doe" }
+const paragraph = (...content: unknown[]) => ({ type: "paragraph", content })
+const text = (value: string, marks?: unknown[]) => ({ type: "text", text: value, ...(marks ? { marks } : {}) })
+const jane = { type: "substack_mention", attrs: { id: 11, label: "Jane Doe", mentionType: "user", url: null } }
+
+/** The shape a Tiptap editor (StarterKit + mention) produces. */
+const editorDoc = {
+  type: "doc",
+  content: [
+    paragraph(text("Hi "), jane, text(", "), text("bold", [{ type: "bold" }])),
+    {
+      type: "bulletList",
+      content: [
+        { type: "listItem", content: [paragraph(text("one"))] },
+        { type: "listItem", content: [paragraph(text("two"))] },
+      ],
+    },
+    { type: "blockquote", content: [paragraph(text("quoted"))] },
+    paragraph(text("a"), { type: "hardBreak" }, text("b")),
+  ],
+}
 
 describe("note body", () => {
-  test("drops mentions edited out of the text and dedupes repeats", () => {
-    const doc = buildNoteBody("Hello @janedoe", [jane, jane, { id: 12, handle: "gone", label: "Gone" }])
-    const mentions = JSON.stringify(doc).match(/substack_mention/g) ?? []
-    expect(mentions).toHaveLength(1)
+  test("normalizes editor JSON into Substack's stored form", () => {
+    const doc = prepareNoteBody(editorDoc)
+    expect(doc.attrs).toEqual({ schemaVersion: "v1", title: null })
+    // Hard breaks become paragraph breaks, as Substack stores them.
+    expect(noteBodyText(doc)).toBe("Hi @Jane Doe, bold\n- one\n- two\n> quoted\na\nb")
+    expect(noteBodyMentions(doc)).toEqual([{ id: 11, label: "Jane Doe" }])
   })
 
-  test("round-trips formatted Markdown with mentions", () => {
-    const doc = buildNoteBody("Hi @janedoe, **bold** https://example.com\n- one\n- two", [jane])
-    const editable = editableNoteBody(doc)
-    // Mentions come back as @Label tokens; normalization may move a lone
-    // space into a formatted word, which Substack would otherwise delete.
-    expect(editable?.markdown).toStartWith("Hi @Jane Doe, **bold")
-    expect(editable?.mentions).toEqual([{ id: 11, label: "Jane Doe", url: null }])
-    expect(buildNoteBody(editable!.markdown, editable!.mentions)).toEqual(doc)
+  test("rejects unsupported formatting, empty Notes, and over-long text", () => {
+    expect(() => prepareNoteBody({ type: "doc", content: [{ type: "heading", content: [text("H")] }] })).toThrow()
+    expect(() => prepareNoteBody({ type: "doc", content: [{ type: "paragraph" }] })).toThrow(/Write something/)
+    expect(prepareNoteBody({ type: "doc", content: [{ type: "paragraph" }] }, { hasAttachments: true }).content).toEqual([])
+    expect(() => prepareNoteBody({ type: "doc", content: [paragraph(text("x".repeat(5001)))] })).toThrow(/5,000/)
   })
 
-  test("reports documents that cannot be edited as Markdown", () => {
-    expect(editableNoteBody(null)).toBeNull()
-    expect(editableNoteBody({ type: "doc", content: [{ type: "heading", content: [] }] })).toBeNull()
-  })
-
-  test("rejects empty and over-long text", () => {
-    expect(() => buildNoteBody("")).toThrow()
-    expect(() => buildNoteBody("x".repeat(5001))).toThrow()
+  test("reports documents the editor cannot load", () => {
+    expect(isEditableNoteBody(editorDoc)).toBe(true)
+    expect(isEditableNoteBody(null)).toBe(false)
+    expect(isEditableNoteBody({ type: "doc", content: [{ type: "heading", content: [] }] })).toBe(false)
   })
 })
 

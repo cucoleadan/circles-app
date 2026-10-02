@@ -3,14 +3,14 @@ import type { PoolClient } from "pg"
 import {
   createSubstackClient,
   draftStatus,
-  editableNoteBody,
+  isEditableNoteBody,
+  noteBodyMentions,
   openSessionToken,
   planVanishedNotes,
   SubstackApiError,
   SubstackConfigurationError,
   type DraftNote,
   type NoteAttachment,
-  type NotePersonTag,
   type ScheduledNoteStatus,
   type SubstackClient,
 } from "@workspace/core"
@@ -29,6 +29,7 @@ export interface NoteConnection {
   status: string
   publicationUrl: string | null
   profileHandle: string | null
+  profileName: string | null
   draftsReconciledAt: string | null
   key_id: string | null
   iv: string | null
@@ -58,9 +59,10 @@ export interface ScheduledNoteView {
   status: ScheduledNoteStatus
   origin: "circles" | "substack"
   bodyText: string
-  /** Note Markdown for the composer; null when the Note cannot be edited as text. */
-  markdown: string | null
-  mentions: NotePersonTag[]
+  /** The stored Note document, loaded into the editor when `editable`. */
+  bodyJson: unknown
+  mentions: Array<{ id: number; label: string }>
+  /** Open, and loadable into the editor without losing content. */
   editable: boolean
   attachments: NoteAttachment[]
   replyMinimumRole: string
@@ -95,16 +97,15 @@ function iso(value: unknown): string | null {
 
 export function toNoteView(row: ScheduledNoteRow, handle: string | null): ScheduledNoteView {
   const open = row.status === "draft" || row.status === "scheduled"
-  const editable = row.bodyJson ? editableNoteBody(row.bodyJson) : null
   return {
     id: row.id,
     substackDraftId: row.substackDraftId,
     status: row.status,
     origin: row.origin,
     bodyText: row.bodyText,
-    markdown: editable?.markdown ?? null,
-    mentions: editable?.mentions ?? [],
-    editable: open && Boolean(editable),
+    bodyJson: row.bodyJson ?? null,
+    mentions: noteBodyMentions(row.bodyJson),
+    editable: open && isEditableNoteBody(row.bodyJson),
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
     replyMinimumRole: row.replyMinimumRole ?? "everyone",
     triggerAt: iso(row.triggerAt),
@@ -120,7 +121,7 @@ export function toNoteView(row: ScheduledNoteRow, handle: string | null): Schedu
 export async function currentConnection(client: PoolClient, appUser: string): Promise<NoteConnection | null> {
   const res = await client.query(
     `select id, status, publication_url as "publicationUrl", profile_handle as "profileHandle",
-            drafts_reconciled_at as "draftsReconciledAt", key_id, iv, ciphertext
+            profile_name as "profileName", drafts_reconciled_at as "draftsReconciledAt", key_id, iv, ciphertext
      from substack_connections
      where user_id = $1 and status <> 'revoked'
      order by generation desc limit 1`,
@@ -389,7 +390,7 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
         status: "published",
         origin: "substack",
         bodyText: row.body ?? "",
-        markdown: null,
+        bodyJson: null,
         mentions: [],
         editable: false,
         attachments: Array.isArray(row.attachments) ? row.attachments : [],
@@ -407,6 +408,7 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
         id: conn.id,
         status: conn.status,
         profileHandle: conn.profileHandle,
+        profileName: conn.profileName,
         draftsReconciledAt: iso(conn.draftsReconciledAt),
       },
       notes,

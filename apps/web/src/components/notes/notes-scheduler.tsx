@@ -6,7 +6,6 @@ import {
   CircleDot,
   LayoutList,
   LoaderCircle,
-  PenLine,
   RefreshCw,
   Sheet as SheetIcon,
   Zap,
@@ -24,8 +23,7 @@ import {
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
-import { Card, CardContent, CardHeader, CardTitle } from "@workspace/ui/components/card"
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@workspace/ui/components/sheet"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@workspace/ui/components/dialog"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Toaster } from "@workspace/ui/components/sonner"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
@@ -37,11 +35,12 @@ import {
   noteTitle,
   notesApi,
   POST_NOW_ABORT_CUTOFF_MS,
-  type NoteMention,
   type NoteMode,
   type NotesResponse,
   type ScheduledNote,
 } from "../../lib/notes"
+import type { JSONContent } from "@tiptap/core"
+
 import { NoteComposer } from "./note-composer"
 import type { NoteHandlers } from "./note-item"
 import { NotesCalendar } from "./notes-calendar"
@@ -88,7 +87,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<{
     key: number
-    seed: { markdown: string; mentions: NoteMention[] } | null
+    seed: { bodyJson: JSONContent } | null
     date: Date | null
   }>({ key: 0, seed: null, date: null })
   const composerRef = useRef<HTMLDivElement>(null)
@@ -214,7 +213,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     }
   }
 
-  function focusComposer(seed: { markdown: string; mentions: NoteMention[] } | null, date: Date | null) {
+  function focusComposer(seed: { bodyJson: JSONContent } | null, date: Date | null) {
     setComposerSeed((prev) => ({ key: prev.key + 1, seed, date }))
     requestAnimationFrame(() => composerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))
   }
@@ -225,7 +224,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       onPostNow: (note) => void patch(note, { mode: "post_now" }, "Posting in 1 minute. You can still abort."),
       onUnschedule: (note) => void patch(note, { mode: "draft" }, "Moved to drafts."),
       onDuplicate: (note) => {
-        focusComposer({ markdown: note.markdown ?? note.bodyText, mentions: note.mentions }, null)
+        focusComposer({ bodyJson: note.bodyJson as JSONContent }, null)
         toast("Copied into the composer.")
       },
       onDelete: (note) => setDeleting(note),
@@ -241,6 +240,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     window.history.replaceState(null, "", url)
   }
 
+  const drafts = notes
+    .filter((note) => note.status === "draft")
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const counts = {
     scheduled: notes.filter((note) => note.status === "scheduled").length,
     drafts: notes.filter((note) => note.status === "draft").length,
@@ -329,23 +331,20 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       )}
 
       <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-3 py-4 sm:px-6 sm:py-8 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:px-8">
-        <div ref={composerRef} className="scroll-mt-20">
-          <Card className="rounded-2xl border-stone-200/80 shadow-2xs lg:sticky lg:top-24 dark:border-stone-800">
-            <CardHeader className="pb-0">
-              <CardTitle className="flex items-center gap-2 text-sm">
-                <PenLine className="size-4 text-[#f15a3a]" /> New Note
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <NoteComposer
-                key={composerSeed.key}
-                seed={composerSeed.seed}
-                initialDate={composerSeed.date}
-                connectionReady={connectionReady}
-                onSaved={onSaved}
-              />
-            </CardContent>
-          </Card>
+        <div ref={composerRef} className="scroll-mt-20 self-start lg:sticky lg:top-24">
+          <div>
+            <NoteComposer
+              framed
+              key={composerSeed.key}
+              seed={composerSeed.seed}
+              initialDate={composerSeed.date}
+              connectionReady={connectionReady}
+              profileName={connection?.profileName ?? null}
+              drafts={drafts}
+              onPickDraft={handlers.onEdit}
+              onSaved={onSaved}
+            />
+          </div>
         </div>
 
         <section className="min-w-0 space-y-4">
@@ -396,25 +395,22 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
         </section>
       </div>
 
-      <Sheet open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <SheetContent className="w-full overflow-y-auto p-5 sm:max-w-lg">
-          <SheetHeader className="p-0 pb-3">
-            <SheetTitle>{editing?.editable ? "Edit Note" : "Reschedule Note"}</SheetTitle>
-            <SheetDescription>
-              Changes are saved to Substack{editing?.origin === "substack" ? ", where this Note was created" : ""}.
-            </SheetDescription>
-          </SheetHeader>
+      <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl p-4 sm:max-w-xl" showCloseButton={false}>
+          <DialogTitle className="sr-only">{editing?.editable ? "Edit Note" : "Reschedule Note"}</DialogTitle>
+          <DialogDescription className="sr-only">Changes are saved to Substack.</DialogDescription>
           {editing && (
             <NoteComposer
               key={editing.id}
               note={editing}
               connectionReady={connectionReady}
+              profileName={connection?.profileName ?? null}
               onSaved={onSaved}
               onCancel={() => setEditing(null)}
             />
           )}
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
         <AlertDialogContent>

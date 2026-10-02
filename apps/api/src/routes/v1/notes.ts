@@ -3,12 +3,13 @@ import { bodyLimit } from "hono/body-limit"
 import { z } from "zod"
 import {
   attachmentProblem,
-  buildNoteBody,
+  noteBodyText,
   NOTE_REPLY_ROLES,
   NOTE_SURFACE,
   NOTE_TAB_ID,
   POST_NOW_ABORT_CUTOFF_MS,
   POST_NOW_DELAY_MS,
+  prepareNoteBody,
   triggerAtProblem,
   type DraftNote,
   type NoteReplyMinimumRole,
@@ -36,15 +37,9 @@ import type { V1Env } from "./types.js"
 export const notesRoutes = new Hono<V1Env>()
 
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024
+/** Generous for a 5,000-character Note document; rejects runaway payloads. */
+const MAX_NOTE_REQUEST_BYTES = 512 * 1024
 const DAY_MS = 24 * 60 * 60 * 1000
-
-const mention = z.object({
-  id: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
-  handle: z.string().trim().min(1).max(120).optional(),
-  label: z.string().trim().min(1).max(200),
-  url: z.string().max(500).nullable().optional(),
-  mentionType: z.enum(["user", "pub"]).optional(),
-})
 
 const httpsUrl = z.string().trim().max(2000).url().refine((value) => /^https?:\/\//i.test(value), "Use an http(s) link")
 
@@ -66,8 +61,8 @@ const attachment = z.discriminatedUnion("type", [
 ])
 
 const content = {
-  markdown: z.string().max(20_000),
-  mentions: z.array(mention).max(50).default([]),
+  // The editor's ProseMirror document; normalized and validated by prepareNoteBody.
+  bodyJson: z.record(z.string(), z.unknown()),
   attachments: z.array(attachment).max(6).default([]),
   replyMinimumRole: z.enum(NOTE_REPLY_ROLES).default("everyone"),
   mode: z.enum(["draft", "schedule", "post_now"]),
@@ -76,8 +71,7 @@ const content = {
 
 const createInput = z.object({ clientRequestId: z.string().trim().min(8).max(100), ...content })
 const updateInput = z.object({
-  markdown: content.markdown.optional(),
-  mentions: content.mentions,
+  bodyJson: content.bodyJson.optional(),
   attachments: z.array(attachment).max(6).optional(),
   replyMinimumRole: z.enum(NOTE_REPLY_ROLES).optional(),
   mode: content.mode,
@@ -91,9 +85,9 @@ function fail(c: Context<V1Env>, error: unknown) {
   throw error
 }
 
-function buildBody(markdown: string, mentions: z.infer<typeof mention>[]) {
+function buildBody(bodyJson: unknown, hasAttachments: boolean) {
   try {
-    return buildNoteBody(markdown, mentions)
+    return prepareNoteBody(bodyJson, { hasAttachments })
   } catch (error) {
     throw new NoteRequestError((error as Error).message || "This Note cannot be saved.", 400)
   }
@@ -189,13 +183,18 @@ notesRoutes.post("/notes/refresh", async (c) => {
   }
 })
 
-notesRoutes.post("/notes", async (c) => {
+const noteBodyLimit = bodyLimit({
+  maxSize: MAX_NOTE_REQUEST_BYTES,
+  onError: (c) => c.json({ error: "This Note is too large." }, 413),
+})
+
+notesRoutes.post("/notes", noteBodyLimit, async (c) => {
   const appUser = c.get("appUser")
   const parsed = createInput.safeParse(await c.req.json().catch(() => null))
   if (!parsed.success) return c.json({ error: "Invalid Note" }, 400)
   const input = parsed.data
   try {
-    const bodyJson = buildBody(input.markdown, input.mentions)
+    const bodyJson = buildBody(input.bodyJson, input.attachments.length > 0)
     const triggerAt = resolveTrigger(input.mode, input.triggerAt)
     checkAttachments(input.attachments.filter((item) => item.type !== "existing"))
     const conn = await requireActiveConnection(appUser)
@@ -206,7 +205,7 @@ notesRoutes.post("/notes", async (c) => {
         appUser,
         connectionId: conn.id,
         clientRequestId: input.clientRequestId,
-        bodyText: input.markdown,
+        bodyText: noteBodyText(bodyJson),
         bodyJson,
         replyMinimumRole: input.replyMinimumRole,
         triggerAt,
@@ -240,7 +239,7 @@ notesRoutes.post("/notes", async (c) => {
 
     const row = await withTenant({ appUserId: appUser }, (client) =>
       applyDraftToRow(client, pending.id, conn.id, draft, {
-        bodyText: input.markdown,
+        bodyText: noteBodyText(bodyJson),
         bodyJson,
         postNow: input.mode === "post_now",
       }),
@@ -251,15 +250,13 @@ notesRoutes.post("/notes", async (c) => {
   }
 })
 
-notesRoutes.patch("/notes/:id", async (c) => {
+notesRoutes.patch("/notes/:id", noteBodyLimit, async (c) => {
   const appUser = c.get("appUser")
   const parsed = updateInput.safeParse(await c.req.json().catch(() => null))
   if (!parsed.success) return c.json({ error: "Invalid Note" }, 400)
   const input = parsed.data
   try {
     const { row, conn } = await openNote(appUser, c.req.param("id"))
-    const bodyJson = input.markdown === undefined ? row.bodyJson : buildBody(input.markdown, input.mentions)
-    if (!bodyJson) throw new NoteRequestError("This Note has no content to save.", 400)
     const triggerAt = resolveTrigger(input.mode, input.triggerAt)
 
     const current = new Set(keptAttachmentIds(row))
@@ -267,6 +264,9 @@ notesRoutes.patch("/notes/:id", async (c) => {
     const kept = requested.flatMap((item) => (item.type === "existing" && current.has(item.id) ? [item.id] : []))
     const added = requested.filter((item) => item.type !== "existing")
     checkAttachments([...kept.map(() => ({ type: "kept" })), ...added])
+
+    const bodyJson = input.bodyJson === undefined ? row.bodyJson : buildBody(input.bodyJson, kept.length + added.length > 0)
+    if (!bodyJson) throw new NoteRequestError("This Note has no content to save.", 400)
 
     let draft: DraftNote
     try {
@@ -283,7 +283,7 @@ notesRoutes.patch("/notes/:id", async (c) => {
 
     const updated = await withTenant({ appUserId: appUser }, (client) =>
       applyDraftToRow(client, row.id, conn.id, draft, {
-        bodyText: input.markdown ?? row.bodyText,
+        bodyText: input.bodyJson === undefined ? row.bodyText : noteBodyText(bodyJson),
         bodyJson,
         postNow: input.mode === "post_now",
       }),

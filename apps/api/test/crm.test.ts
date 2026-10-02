@@ -1618,7 +1618,6 @@ class FakeSubstack {
     const body = request.method === "GET" || request.method === "DELETE" ? null : await request.json().catch(() => null)
     const draftFrom = (id: number, data: any) => ({
       id,
-      body: "text",
       body_json: data.bodyJson,
       trigger_at: data.trigger_at ?? null,
       reply_minimum_role: data.replyMinimumRole ?? null,
@@ -1669,6 +1668,7 @@ describe("note scheduling", () => {
       }),
     )
 
+  const doc = (value: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: value }] }] })
   const inOneDay = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
 
   beforeAll(async () => {
@@ -1707,8 +1707,17 @@ describe("note scheduling", () => {
   test("schedules a Note once per client request ID", async () => {
     const request = {
       clientRequestId: "req-schedule-1",
-      markdown: "Hello @janedoe **friend**",
-      mentions: [{ id: 11, handle: "janedoe", label: "Jane Doe" }],
+      bodyJson: {
+        type: "doc",
+        content: [{
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Hello " },
+            { type: "substack_mention", attrs: { id: 11, label: "Jane Doe", mentionType: "user", url: null } },
+            { type: "text", text: " friend", marks: [{ type: "bold" }] },
+          ],
+        }],
+      },
       attachments: [{ type: "link", url: "https://example.com/post" }],
       mode: "schedule",
       triggerAt: inOneDay(),
@@ -1717,7 +1726,8 @@ describe("note scheduling", () => {
     expect(first.status).toBe(201)
     const { note } = (await first.json()) as any
     expect(note).toMatchObject({ status: "scheduled", origin: "circles", editable: true, postNow: false })
-    expect(note.markdown).toContain("@Jane Doe")
+    expect(note.bodyText).toBe("Hello @Jane Doe friend")
+    expect(note.mentions).toEqual([{ id: 11, label: "Jane Doe" }])
     expect(note.attachments).toHaveLength(1)
 
     const repeat = await call("POST", "/notes", request)
@@ -1729,7 +1739,7 @@ describe("note scheduling", () => {
   test("saves drafts, schedules them, and moves them back to drafts", async () => {
     const created = (await (await call("POST", "/notes", {
       clientRequestId: "req-draft-1",
-      markdown: "Draft first",
+      bodyJson: doc("Draft first"),
       mode: "draft",
     })).json()) as any
     expect(created.note).toMatchObject({ status: "draft", triggerAt: null })
@@ -1747,7 +1757,7 @@ describe("note scheduling", () => {
     const before = Date.now()
     const { note } = (await (await call("POST", "/notes", {
       clientRequestId: "req-now-1",
-      markdown: "Posting now",
+      bodyJson: doc("Posting now"),
       mode: "post_now",
     })).json()) as any
     expect(note).toMatchObject({ status: "scheduled", postNow: true })
@@ -1762,7 +1772,7 @@ describe("note scheduling", () => {
     // Too close to trigger_at, aborting could race Substack's publish.
     const again = (await (await call("POST", "/notes", {
       clientRequestId: "req-now-2",
-      markdown: "Posting again",
+      bodyJson: doc("Posting again"),
       mode: "post_now",
     })).json()) as any
     await migrate.query("update scheduled_notes set trigger_at = now() + interval '2 seconds' where id = $1", [again.note.id])
@@ -1772,14 +1782,14 @@ describe("note scheduling", () => {
   test("rejects invalid times and attachments without calling Substack", async () => {
     const tooFar = await call("POST", "/notes", {
       clientRequestId: "req-bad-1",
-      markdown: "Too far",
+      bodyJson: doc("Too far"),
       mode: "schedule",
       triggerAt: new Date(Date.now() + 100 * 24 * 60 * 60 * 1000).toISOString(),
     })
     expect(tooFar.status).toBe(400)
     const twoLinks = await call("POST", "/notes", {
       clientRequestId: "req-bad-2",
-      markdown: "Two links",
+      bodyJson: doc("Two links"),
       mode: "draft",
       attachments: [{ type: "link", url: "https://a.example" }, { type: "link", url: "https://b.example" }],
     })
@@ -1789,7 +1799,7 @@ describe("note scheduling", () => {
 
   test("an upstream failure removes the pending row and reports Substack's message", async () => {
     substack.failNext = { status: 400, body: { error: "Please type a shorter comment" } }
-    const res = await call("POST", "/notes", { clientRequestId: "req-fail-1", markdown: "Hello", mode: "draft" })
+    const res = await call("POST", "/notes", { clientRequestId: "req-fail-1", bodyJson: doc("Hello"), mode: "draft" })
     expect(res.status).toBe(400)
     expect(((await res.json()) as any).error).toBe("Please type a shorter comment")
     const rows = await migrate.query("select count(*)::int as count from scheduled_notes")
@@ -1798,7 +1808,7 @@ describe("note scheduling", () => {
 
   test("an upstream 401 marks the connection expired", async () => {
     substack.failNext = { status: 401, body: { error: "Unauthorized" } }
-    const res = await call("POST", "/notes", { clientRequestId: "req-expired-1", markdown: "Hello", mode: "draft" })
+    const res = await call("POST", "/notes", { clientRequestId: "req-expired-1", bodyJson: doc("Hello"), mode: "draft" })
     expect(res.status).toBe(401)
     const conn = await migrate.query("select status from substack_connections where id = 'conn-notes-a'")
     expect(conn.rows[0].status).toBe("expired")
@@ -1807,7 +1817,7 @@ describe("note scheduling", () => {
   test("deleting a scheduled Note removes it upstream", async () => {
     const { note } = (await (await call("POST", "/notes", {
       clientRequestId: "req-delete-1",
-      markdown: "Delete me",
+      bodyJson: doc("Delete me"),
       mode: "schedule",
       triggerAt: inOneDay(),
     })).json()) as any
@@ -1820,13 +1830,13 @@ describe("note scheduling", () => {
   test("refresh imports Substack drafts and classifies vanished ones", async () => {
     const past = (await (await call("POST", "/notes", {
       clientRequestId: "req-publish-1",
-      markdown: "Will publish",
+      bodyJson: doc("Will publish"),
       mode: "schedule",
       triggerAt: inOneDay(),
     })).json()) as any
     const removed = (await (await call("POST", "/notes", {
       clientRequestId: "req-removed-1",
-      markdown: "Removed in Substack",
+      bodyJson: doc("Removed in Substack"),
       mode: "schedule",
       triggerAt: inOneDay(),
     })).json()) as any
@@ -1863,7 +1873,7 @@ describe("note scheduling", () => {
   test("tenants cannot see or change each other's Notes", async () => {
     const { note } = (await (await call("POST", "/notes", {
       clientRequestId: "req-tenant-1",
-      markdown: "Private",
+      bodyJson: doc("Private"),
       mode: "draft",
     })).json()) as any
     const listB = (await (await call("GET", "/notes", undefined, cookieB)).json()) as any

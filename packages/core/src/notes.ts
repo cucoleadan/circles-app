@@ -1,19 +1,19 @@
 import {
-  markdownToNoteBodyJson,
-  noteBodyJsonToMarkdown,
+  normalizeNoteBodyJson,
+  SubstackConfigurationError,
   type DraftNote,
   type NoteAttachment,
-  type NotePersonTag,
   type NoteReplyMinimumRole,
   type NoteRichDocument,
 } from "unofficial-substack-sdk"
 
-export type { DraftNote, NoteAttachment, NotePersonTag, NoteReplyMinimumRole }
+export type { DraftNote, NoteAttachment, NoteReplyMinimumRole }
 
 /** Composer context Substack records for Notes created from the CRM. */
 export const NOTE_TAB_ID = "for-you"
 export const NOTE_SURFACE = "feed"
 export const NOTE_MAX_ATTACHMENTS = 6
+export const NOTE_TEXT_LIMIT = 5000
 export const NOTE_REPLY_ROLES = ["everyone", "free_subscriber", "paid_subscriber"] as const
 /** Substack rejects later times but still creates a stray unscheduled draft. */
 export const NOTE_MAX_SCHEDULE_MS = 92 * 24 * 60 * 60 * 1000
@@ -28,35 +28,82 @@ const MIN_LEAD_MS = 5_000
 
 export type ScheduledNoteStatus = "pending" | "draft" | "scheduled" | "published" | "deleted"
 
-export function mentionToken(tag: NotePersonTag): string {
-  return `@${(tag.handle ?? tag.label).replace(/^@/, "")}`
+type DocNode = { type?: unknown; text?: unknown; attrs?: Record<string, unknown>; content?: unknown }
+
+function children(node: DocNode): DocNode[] {
+  return Array.isArray(node.content) ? (node.content as DocNode[]) : []
 }
 
 /**
- * Builds a Note document from the composer's Markdown. Mentions whose token
- * was edited out of the text are dropped instead of failing the request, and
- * repeated tags collapse to one. Throws SubstackConfigurationError for input
- * Substack cannot store (empty, too long, unsupported syntax).
+ * Plain text of a Note document: one line per paragraph, list items prefixed,
+ * and mentions written as `@Label`. Used for previews, search, and the
+ * 5,000-character limit, which applies to visible text.
  */
-export function buildNoteBody(markdown: string, mentions: readonly NotePersonTag[] = []): NoteRichDocument {
-  const seen = new Set<string>()
-  const present = mentions.filter((tag) => {
-    const token = mentionToken(tag)
-    if (seen.has(token) || !markdown.includes(token)) return false
-    seen.add(token)
+export function noteBodyText(bodyJson: unknown): string {
+  const lines: string[] = []
+  const inline = (node: DocNode): string =>
+    node.type === "text"
+      ? String(node.text ?? "")
+      : node.type === "substack_mention"
+        ? `@${String(node.attrs?.label ?? "")}`
+        : children(node).map(inline).join("")
+  const block = (node: DocNode, prefix = "") => {
+    if (node.type === "bulletList" || node.type === "orderedList") {
+      children(node).forEach((item, index) => {
+        const marker = node.type === "orderedList" ? `${Number(node.attrs?.start ?? 1) + index}. ` : "- "
+        children(item).forEach((child, childIndex) => block(child, childIndex === 0 ? prefix + marker : prefix + "  "))
+      })
+    } else if (node.type === "blockquote") {
+      children(node).forEach((child) => block(child, prefix + "> "))
+    } else if (node.type === "paragraph" || node.type === "codeBlock") {
+      lines.push(prefix + inline(node))
+    } else {
+      children(node).forEach((child) => block(child, prefix))
+    }
+  }
+  if (bodyJson && typeof bodyJson === "object") block(bodyJson as DocNode)
+  return lines.join("\n")
+}
+
+/** People and publications mentioned in a Note document, in order. */
+export function noteBodyMentions(bodyJson: unknown): Array<{ id: number; label: string }> {
+  const found = new Map<number, string>()
+  const walk = (node: DocNode) => {
+    if (node.type === "substack_mention" && typeof node.attrs?.id === "number") {
+      found.set(node.attrs.id, String(node.attrs.label ?? ""))
+    }
+    children(node).forEach(walk)
+  }
+  if (bodyJson && typeof bodyJson === "object") walk(bodyJson as DocNode)
+  return [...found].map(([id, label]) => ({ id, label }))
+}
+
+/**
+ * Normalizes an editor document into the form Substack stores unchanged.
+ * Throws SubstackConfigurationError for formatting Substack Notes do not
+ * support, an empty Note without attachments, or text over the limit.
+ */
+export function prepareNoteBody(bodyJson: unknown, options: { hasAttachments?: boolean } = {}): NoteRichDocument {
+  const doc = normalizeNoteBodyJson(bodyJson)
+  const text = noteBodyText(doc)
+  if (!text.trim() && !options.hasAttachments) {
+    throw new SubstackConfigurationError("Write something or add an attachment first.")
+  }
+  if (text.length > NOTE_TEXT_LIMIT) {
+    throw new SubstackConfigurationError(`Notes can be at most ${NOTE_TEXT_LIMIT.toLocaleString("en-US")} characters.`)
+  }
+  return doc
+}
+
+/** Whether a stored Note document can be loaded into the editor without losing content. */
+export function isEditableNoteBody(bodyJson: unknown): boolean {
+  if (!bodyJson) return false
+  try {
+    normalizeNoteBodyJson(bodyJson)
     return true
-  })
-  return markdownToNoteBodyJson(markdown, present)
-}
-
-/**
- * Returns the composer's Markdown and mentions for a stored Note document, or
- * null when it cannot be edited as Note Markdown without losing content.
- */
-export function editableNoteBody(bodyJson: unknown): { markdown: string; mentions: NotePersonTag[] } | null {
-  if (!bodyJson) return null
-  const editable = noteBodyJsonToMarkdown(bodyJson)
-  return editable ? { markdown: editable.markdown, mentions: editable.personTags } : null
+  } catch {
+    return false
+  }
 }
 
 /** Returns a user-facing problem with a schedule time, or null when valid. */

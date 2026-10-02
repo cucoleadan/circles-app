@@ -8,9 +8,17 @@ answered its open questions, and this file now describes what was built.
 
 A `/notes` page (linked from the contacts navbar) where you can:
 
-- write a Note in Note Markdown (bold, italic, strike, code, lists, quotes,
-  bare links), @-mention contacts from the CRM, and attach up to 6 items:
-  images, plus at most one link;
+- write a Note in a Substack-style composer:
+  - a Tiptap WYSIWYG editor. Select text for bold, italic, strike, code,
+    link, lists and quote; pasting Markdown converts to formatting;
+  - @-mention contacts from the CRM;
+  - attach up to 6 items: images, plus at most one link.
+
+  The editor's ProseMirror JSON is sent as `bodyJson` and normalized with
+  the SDK's `normalizeNoteBodyJson`, because Substack's composer is also
+  Tiptap, so the node names match. Scheduling sits inline under the editor
+  (day, time and quick slots, defaulting to tomorrow 9:00), with
+  **Schedule** and **Post** buttons side by side;
 - **Post now**: Circles schedules the Note 60 seconds ahead, shows a
   countdown banner, and lets you **Abort** until 3 seconds before it fires.
   Aborting keeps the Note as an unscheduled draft;

@@ -64,7 +64,7 @@ export function NoteActionsMenu({ note, handlers }: { note: ScheduledNote; handl
             <FileText /> Move to drafts
           </DropdownMenuItem>
         )}
-        {note.markdown !== null && (
+        {note.bodyJson != null && (
           <DropdownMenuItem onSelect={() => handlers.onDuplicate(note)}>
             <CopyPlus /> Duplicate
           </DropdownMenuItem>

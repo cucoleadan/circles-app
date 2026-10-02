@@ -1,70 +1,82 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useRef, useState } from "react"
+import type { JSONContent } from "@tiptap/core"
+import type { Editor } from "@tiptap/react"
 import {
   AtSign,
   CalendarClock,
   CalendarDays,
+  ChevronDown,
+  Clock3,
   FileText,
   ImagePlus,
   Link2,
   LoaderCircle,
-  Send,
+  MoreHorizontal,
   X,
-  Zap,
 } from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
+import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar"
 import { Button } from "@workspace/ui/components/button"
 import { Calendar } from "@workspace/ui/components/calendar"
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@workspace/ui/components/command"
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
-import { Label } from "@workspace/ui/components/label"
 import {
   Popover,
-  PopoverAnchor,
   PopoverContent,
   PopoverTrigger,
 } from "@workspace/ui/components/popover"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@workspace/ui/components/select"
-import { Textarea } from "@workspace/ui/components/textarea"
-import { ToggleGroup, ToggleGroupItem } from "@workspace/ui/components/toggle-group"
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
 
-import type { Person } from "../../lib/types"
 import {
+  dayKey,
   errorMessage,
   formatWhen,
   jsonInit,
   MAX_SCHEDULE_DAYS,
   NOTE_MAX_ATTACHMENTS,
   NOTE_TEXT_LIMIT,
+  noteTitle,
   notesApi,
   replyRoleLabels,
   timeZoneLabel,
   type NoteAttachment,
-  type NoteMention,
   type NoteMode,
   type NoteReplyRole,
   type ScheduledNote,
   type UploadedImage,
 } from "../../lib/notes"
+import { NoteEditor, toSubstackDoc } from "./note-editor"
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const CARD_CLASS =
+  "rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900"
 const ACCEPTED_IMAGES = "image/png,image/jpeg,image/gif,image/webp"
 
 function atTime(day: Date, time: string): Date {
   const [hours = 9, minutes = 0] = time.split(":").map(Number)
-  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), hours, minutes)
+  return new Date(
+    day.getFullYear(),
+    day.getMonth(),
+    day.getDate(),
+    hours,
+    minutes
+  )
 }
 
 function timeOf(date: Date): string {
@@ -78,35 +90,65 @@ function startOfDay(date: Date): Date {
 function quickSlots(now = new Date()) {
   const inHour = new Date(now.getTime() + 60 * 60 * 1000)
   inHour.setMinutes(Math.ceil(inHour.getMinutes() / 15) * 15, 0, 0)
-  const tomorrow = atTime(new Date(now.getTime() + DAY_MS), "09:00")
-  const monday = new Date(now)
-  monday.setDate(now.getDate() + (((8 - now.getDay()) % 7) || 7))
   return [
     { label: "In 1 hour", at: inHour },
-    { label: "Tomorrow 9:00", at: tomorrow },
-    { label: "Monday 9:00", at: atTime(monday, "09:00") },
+    {
+      label: "Tomorrow 9:00",
+      at: atTime(new Date(now.getTime() + DAY_MS), "09:00"),
+    },
   ]
 }
 
-function initialMode(note: ScheduledNote | null): NoteMode {
-  if (note) return note.status === "scheduled" ? "schedule" : "draft"
-  return "schedule"
-}
-
-/** Matches an `@query` immediately before the caret. */
-function mentionQueryAt(text: string, caret: number): { query: string; start: number } | null {
-  const match = text.slice(0, caret).match(/(?:^|\s)@([\p{L}\p{N}._-]{0,40})$/u)
-  if (!match) return null
-  const query = match[1] ?? ""
-  return { query, start: caret - query.length - 1 }
-}
-
-function mentionToken(mention: NoteMention): string {
-  return `@${(mention.handle ?? mention.label).replace(/^@/, "")}`
+/** The existing time for a scheduled Note, a picked calendar day, or tomorrow 9:00. */
+function defaultSchedule(note: ScheduledNote | null, day: Date | null): Date {
+  if (note?.status === "scheduled" && note.triggerAt)
+    return new Date(note.triggerAt)
+  if (day) return atTime(day, "09:00")
+  return atTime(new Date(Date.now() + DAY_MS), "09:00")
 }
 
 function initials(name: string): string {
-  return name.split(/\s+/).map((part) => part[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()
+  return (
+    name
+      .split(/\s+/)
+      .map((part) => part[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase() || "Me"
+  )
+}
+
+const iconButtonClass =
+  "flex size-8 items-center justify-center rounded-lg text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 disabled:pointer-events-none disabled:opacity-40 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-white"
+
+function IconButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string
+  onClick?: () => void
+  disabled?: boolean
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          aria-label={label}
+          onClick={onClick}
+          disabled={disabled}
+          className={iconButtonClass}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">{label}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 export function NoteComposer({
@@ -114,138 +156,90 @@ export function NoteComposer({
   seed = null,
   initialDate = null,
   connectionReady,
+  profileName,
+  drafts = [],
+  onPickDraft,
   onSaved,
   onCancel,
+  framed = false,
 }: {
   note?: ScheduledNote | null
   /** Prefilled content for a new Note, such as a duplicate. */
-  seed?: { markdown: string; mentions: NoteMention[] } | null
+  seed?: { bodyJson: JSONContent } | null
   initialDate?: Date | null
   connectionReady: boolean
+  profileName: string | null
+  drafts?: ScheduledNote[]
+  onPickDraft?: (note: ScheduledNote) => void
   onSaved: (note: ScheduledNote, mode: NoteMode) => void
   onCancel?: () => void
+  /** Render the composer and schedule as separate cards (the page) rather than one panel (the dialog). */
+  framed?: boolean
 }) {
   const isEdit = Boolean(note)
   const canEditText = !note || note.editable
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editorRef = useRef<Editor | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
   const requestId = useRef(crypto.randomUUID())
 
-  const [markdown, setMarkdown] = useState(note ? note.markdown ?? note.bodyText : seed?.markdown ?? "")
-  const [mentions, setMentions] = useState<NoteMention[]>(note?.mentions ?? seed?.mentions ?? [])
+  const [textLength, setTextLength] = useState(0)
+  const [isEmpty, setIsEmpty] = useState(!note && !seed)
   const [kept, setKept] = useState<NoteAttachment[]>(note?.attachments ?? [])
   const [images, setImages] = useState<UploadedImage[]>([])
   const [link, setLink] = useState("")
-  const [replyRole, setReplyRole] = useState<NoteReplyRole>(note?.replyMinimumRole ?? "everyone")
-  const [mode, setMode] = useState<NoteMode>(initialMode(note))
-  const scheduled = note?.triggerAt ? new Date(note.triggerAt) : initialDate
-  const [day, setDay] = useState<Date | undefined>(scheduled ? startOfDay(scheduled) : undefined)
-  const [time, setTime] = useState(scheduled && note?.triggerAt ? timeOf(scheduled) : "09:00")
+  const [linkDraft, setLinkDraft] = useState("")
+  const [linkOpen, setLinkOpen] = useState(false)
+  const [replyRole, setReplyRole] = useState<NoteReplyRole>(
+    note?.replyMinimumRole ?? "everyone"
+  )
+  const initialSchedule = defaultSchedule(note, initialDate)
+  const [pickDay, setPickDay] = useState<Date>(startOfDay(initialSchedule))
+  const [pickTime, setPickTime] = useState(timeOf(initialSchedule))
   const [dayOpen, setDayOpen] = useState(false)
   const [uploading, setUploading] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Mention picker state.
-  const [mention, setMention] = useState<{ query: string; start: number } | null>(null)
-  const [results, setResults] = useState<Person[]>([])
-  const [highlight, setHighlight] = useState("")
-  const [searching, setSearching] = useState(false)
-
-  useEffect(() => {
-    if (!mention || mention.query.length < 1) {
-      setResults([])
-      return
-    }
-    const controller = new AbortController()
-    const timer = setTimeout(async () => {
-      setSearching(true)
-      try {
-        const res = await fetch(`/api/v1/people?search=${encodeURIComponent(mention.query)}&limit=25`, {
-          signal: controller.signal,
-        })
-        const body = await res.json()
-        const people = ((body.people ?? []) as Person[]).filter((p) => p.substackProfileId && p.handle).slice(0, 8)
-        setResults(people)
-        setHighlight(people[0]?.id ?? "")
-      } catch {
-        // Ignore aborted or failed lookups; the list just stays empty.
-      } finally {
-        setSearching(false)
-      }
-    }, 180)
-    return () => {
-      clearTimeout(timer)
-      controller.abort()
-    }
-  }, [mention?.query])
-
-  const activeMentions = useMemo(
-    () => mentions.filter((item) => markdown.includes(mentionToken(item))),
-    [mentions, markdown],
-  )
   const linkTrimmed = link.trim()
-  const attachmentCount = kept.length + images.length + (linkTrimmed ? 1 : 0)
   const hasKeptLink = kept.some((item) => item.type === "link")
-  const scheduleAt = day ? atTime(day, time) : null
+  const attachmentCount = kept.length + images.length + (linkTrimmed ? 1 : 0)
+  const hasContent = !isEmpty || attachmentCount > 0 || (isEdit && !canEditText)
+  const overLimit = textLength > NOTE_TEXT_LIMIT
+  const scheduleAt = atTime(pickDay, pickTime)
+  const imagePreviews = [
+    ...kept
+      .filter((item) => item.imageUrl)
+      .map((item) => ({
+        key: item.id,
+        url: item.imageUrl!,
+        remove: () =>
+          setKept((prev) => prev.filter((other) => other.id !== item.id)),
+      })),
+    ...images.map((image) => ({
+      key: `new-${image.id}`,
+      url: image.url,
+      remove: () =>
+        setImages((prev) => prev.filter((other) => other.id !== image.id)),
+    })),
+  ]
+  const linkPreviews = [
+    ...kept
+      .filter((item) => item.type === "link")
+      .map((item) => ({
+        key: item.id,
+        url: item.linkMetadata?.url || item.linkMetadata?.title || "Link",
+        remove: () =>
+          setKept((prev) => prev.filter((other) => other.id !== item.id)),
+      })),
+    ...(linkTrimmed
+      ? [{ key: "new-link", url: linkTrimmed, remove: () => setLink("") }]
+      : []),
+  ]
 
-  function updateMentionQuery(text: string, caret: number) {
-    setMention(mentionQueryAt(text, caret))
-  }
-
-  function pickPerson(person: Person) {
-    const handle = person.handle
-    if (!mention || !handle || !person.substackProfileId) return
-    const textarea = textareaRef.current
-    const caret = textarea?.selectionStart ?? markdown.length
-    const token = `@${handle} `
-    const next = markdown.slice(0, mention.start) + token + markdown.slice(caret)
-    setMarkdown(next)
-    setMentions((prev) => [
-      ...prev.filter((item) => mentionToken(item) !== `@${handle}`),
-      { id: Number(person.substackProfileId), handle, label: person.name, url: person.profileUrl ?? null },
-    ])
-    setMention(null)
-    requestAnimationFrame(() => {
-      const position = mention.start + token.length
-      textarea?.focus()
-      textarea?.setSelectionRange(position, position)
-    })
-  }
-
-  function startMention() {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    const caret = textarea.selectionStart ?? markdown.length
-    const before = markdown.slice(0, caret)
-    const insert = before && !/\s$/.test(before) ? " @" : "@"
-    const next = before + insert + markdown.slice(caret)
-    setMarkdown(next)
-    const position = caret + insert.length
-    setMention({ query: "", start: position - 1 })
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(position, position)
-    })
-  }
-
-  function onTextKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (!mention || results.length === 0) {
-      if (event.key === "Escape") setMention(null)
-      return
-    }
-    const index = Math.max(0, results.findIndex((person) => person.id === highlight))
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault()
-      const step = event.key === "ArrowDown" ? 1 : -1
-      setHighlight(results[(index + step + results.length) % results.length]!.id)
-    } else if (event.key === "Enter" || event.key === "Tab") {
-      event.preventDefault()
-      pickPerson(results[index]!)
-    } else if (event.key === "Escape") {
-      event.preventDefault()
-      setMention(null)
-    }
+  function syncEditorState(editor: Editor) {
+    editorRef.current = editor
+    setTextLength(editor.storage.characterCount.characters())
+    setIsEmpty(editor.isEmpty)
   }
 
   async function uploadFiles(files: FileList | null) {
@@ -253,7 +247,8 @@ export function NoteComposer({
     setError(null)
     const room = NOTE_MAX_ATTACHMENTS - attachmentCount
     const picked = Array.from(files).slice(0, Math.max(0, room))
-    if (picked.length < files.length) setError(`A Note can have at most ${NOTE_MAX_ATTACHMENTS} attachments.`)
+    if (picked.length < files.length)
+      setError(`A Note can have at most ${NOTE_MAX_ATTACHMENTS} attachments.`)
     for (const file of picked) {
       if (file.size > 15 * 1024 * 1024) {
         setError(`${file.name} is larger than 15 MB.`)
@@ -263,7 +258,10 @@ export function NoteComposer({
       try {
         const form = new FormData()
         form.append("file", file)
-        const { image } = await notesApi<{ image: UploadedImage }>("/notes/images", { method: "POST", body: form })
+        const { image } = await notesApi<{ image: UploadedImage }>(
+          "/notes/images",
+          { method: "POST", body: form }
+        )
         setImages((prev) => [...prev, image])
       } catch (err) {
         setError(errorMessage(err, "Could not upload the image."))
@@ -274,25 +272,50 @@ export function NoteComposer({
     if (fileRef.current) fileRef.current.value = ""
   }
 
-  function validate(): string | null {
+  function insertMention() {
+    const editor = editorRef.current
+    if (!editor) return
+    const { from } = editor.state.selection
+    const before = editor.state.doc.textBetween(Math.max(0, from - 1), from)
+    editor
+      .chain()
+      .focus()
+      .insertContent(before && !/\s/.test(before) ? " @" : "@")
+      .run()
+  }
+
+  function clearComposer() {
+    editorRef.current?.commands.clearContent(true)
+    setImages([])
+    setLink("")
+    const next = defaultSchedule(null, null)
+    setPickDay(startOfDay(next))
+    setPickTime(timeOf(next))
+    setError(null)
+  }
+
+  function validate(mode: NoteMode): string | null {
     if (!connectionReady) return "Connect your Substack account first."
-    if (canEditText && !markdown.trim()) return "Write something first."
-    if (markdown.length > NOTE_TEXT_LIMIT) return `Notes can be at most ${NOTE_TEXT_LIMIT.toLocaleString()} characters.`
-    if (linkTrimmed && !/^https?:\/\/\S+$/i.test(linkTrimmed)) return "Links must start with http:// or https://."
-    if (linkTrimmed && hasKeptLink) return "A Note can have only one link attachment."
-    if (attachmentCount > NOTE_MAX_ATTACHMENTS) return `A Note can have at most ${NOTE_MAX_ATTACHMENTS} attachments.`
+    if (!hasContent) return "Write something or add an attachment first."
+    if (overLimit)
+      return `Notes can be at most ${NOTE_TEXT_LIMIT.toLocaleString()} characters.`
+    if (attachmentCount > NOTE_MAX_ATTACHMENTS)
+      return `A Note can have at most ${NOTE_MAX_ATTACHMENTS} attachments.`
     if (mode === "schedule") {
-      if (!scheduleAt) return "Pick a day to publish."
-      if (scheduleAt.getTime() < Date.now() + 60_000) return "Pick a time at least a minute from now."
-      if (scheduleAt.getTime() > Date.now() + MAX_SCHEDULE_DAYS * DAY_MS - 60 * 60 * 1000) {
+      if (scheduleAt.getTime() < Date.now() + 60_000)
+        return "Pick a time at least a minute from now."
+      if (
+        scheduleAt.getTime() >
+        Date.now() + MAX_SCHEDULE_DAYS * DAY_MS - 60 * 60 * 1000
+      ) {
         return `Substack schedules Notes up to ${MAX_SCHEDULE_DAYS} days ahead.`
       }
     }
     return null
   }
 
-  async function submit() {
-    const problem = validate()
+  async function submit(mode: NoteMode) {
+    const problem = validate(mode)
     setError(problem)
     if (problem) return
     setSubmitting(true)
@@ -301,30 +324,33 @@ export function NoteComposer({
       ...images.map((image) => ({ type: "image" as const, image })),
       ...(linkTrimmed ? [{ type: "link" as const, url: linkTrimmed }] : []),
     ]
+    const editor = editorRef.current
     const content = {
-      ...(canEditText ? { markdown, mentions: activeMentions } : {}),
+      ...(canEditText && editor
+        ? { bodyJson: toSubstackDoc(editor.getJSON()) }
+        : {}),
       replyMinimumRole: replyRole,
       mode,
-      triggerAt: mode === "schedule" ? scheduleAt!.toISOString() : null,
+      triggerAt: mode === "schedule" ? scheduleAt.toISOString() : null,
     }
     try {
       const { note: saved } = isEdit
-        ? await notesApi<{ note: ScheduledNote }>(`/notes/${note!.id}`, jsonInit("PATCH", { ...content, attachments }))
+        ? await notesApi<{ note: ScheduledNote }>(
+            `/notes/${note!.id}`,
+            jsonInit("PATCH", { ...content, attachments })
+          )
         : await notesApi<{ note: ScheduledNote }>(
             "/notes",
             jsonInit("POST", {
               clientRequestId: requestId.current,
               ...content,
-              attachments: attachments.filter((item) => item.type !== "existing"),
-            }),
+              attachments: attachments.filter(
+                (item) => item.type !== "existing"
+              ),
+            })
           )
       requestId.current = crypto.randomUUID()
-      if (!isEdit) {
-        setMarkdown("")
-        setMentions([])
-        setImages([])
-        setLink("")
-      }
+      if (!isEdit) clearComposer()
       onSaved(saved, mode)
     } catch (err) {
       setError(errorMessage(err, "Could not save the Note."))
@@ -333,331 +359,448 @@ export function NoteComposer({
     }
   }
 
-  const submitLabel =
-    mode === "post_now"
-      ? "Post in 1 minute"
-      : mode === "draft"
-        ? isEdit && note?.status === "scheduled"
-          ? "Move to drafts"
-          : "Save draft"
-        : scheduleAt
-          ? `Schedule for ${formatWhen(scheduleAt)}`
-          : "Schedule"
+  // Ctrl/Cmd+Enter keeps a scheduled Note scheduled; otherwise it posts.
+  const shortcutMode: NoteMode =
+    note?.status === "scheduled" ? "schedule" : "post_now"
   const today = startOfDay(new Date())
   const lastDay = new Date(Date.now() + (MAX_SCHEDULE_DAYS - 1) * DAY_MS)
+  const displayName = profileName || "You"
 
   return (
-    <div className="space-y-4">
-      {/* Body */}
-      <div className="space-y-1.5">
-        <Popover open={Boolean(mention && mention.query.length > 0)} onOpenChange={(open) => !open && setMention(null)}>
-          <PopoverAnchor asChild>
-            <div className="relative">
-              <Textarea
-                ref={textareaRef}
-                value={markdown}
-                disabled={!canEditText}
-                onChange={(event) => {
-                  setMarkdown(event.target.value)
-                  updateMentionQuery(event.target.value, event.target.selectionStart)
-                }}
-                onKeyDown={onTextKeyDown}
-                onClick={(event) => updateMentionQuery(markdown, event.currentTarget.selectionStart)}
-                placeholder="What's on your mind? Type @ to mention someone from your circle."
-                className="min-h-40 resize-y bg-white text-sm leading-relaxed dark:bg-stone-950"
-                aria-label="Note text"
-              />
-            </div>
-          </PopoverAnchor>
-          <PopoverContent
-            align="start"
-            className="w-72 p-0"
-            onOpenAutoFocus={(event) => event.preventDefault()}
-            onCloseAutoFocus={(event) => event.preventDefault()}
-          >
-            <Command value={highlight} onValueChange={setHighlight} shouldFilter={false}>
-              <CommandList>
-                <CommandEmpty>{searching ? "Searching…" : "No contacts with a Substack profile match."}</CommandEmpty>
-                <CommandGroup heading="Mention a contact">
-                  {results.map((person) => (
-                    <CommandItem
-                      key={person.id}
-                      value={person.id}
-                      onSelect={() => pickPerson(person)}
-                      onMouseDown={(event) => event.preventDefault()}
-                    >
-                      <Avatar className="size-6">
-                        {person.avatarUrl && <AvatarImage src={person.avatarUrl} alt="" />}
-                        <AvatarFallback className="text-[10px]">{initials(person.name)}</AvatarFallback>
-                      </Avatar>
-                      <span className="truncate font-medium">{person.name}</span>
-                      <span className="ml-auto truncate text-xs text-muted-foreground">@{person.handle}</span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              </CommandList>
-            </Command>
-          </PopoverContent>
-        </Popover>
-
-        {!canEditText ? (
-          <p className="text-[11px] text-muted-foreground">
-            This Note uses formatting Circles can't edit, so only its time and audience can change here. Edit the text in Substack.
-          </p>
-        ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted-foreground">
-            <span>
-              **bold**, *italic*, lists, quotes and links work.
-            </span>
-            <span className={markdown.length > NOTE_TEXT_LIMIT ? "font-semibold text-destructive" : ""}>
-              {markdown.length.toLocaleString()} / {NOTE_TEXT_LIMIT.toLocaleString()}
+    <div className="space-y-3">
+      <div className={framed ? CARD_CLASS : ""}>
+        {/* Author and drafts */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <Avatar className="size-9">
+              <AvatarFallback className="bg-[#f15a3a] text-xs font-bold text-white">
+                {initials(displayName)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="truncate text-sm font-semibold text-stone-900 dark:text-stone-100">
+              {displayName}
             </span>
           </div>
-        )}
+          {!isEdit && onPickDraft && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 rounded-full px-2.5 text-xs font-semibold"
+                >
+                  Drafts
+                  {drafts.length > 0 && (
+                    <span className="font-normal text-muted-foreground">
+                      {drafts.length}
+                    </span>
+                  )}
+                  <ChevronDown className="size-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-72">
+                <DropdownMenuLabel className="text-xs">
+                  Unscheduled drafts
+                </DropdownMenuLabel>
+                {drafts.length === 0 ? (
+                  <p className="px-2 pb-2 text-xs text-muted-foreground">
+                    No drafts yet. Save one from the ⋯ menu.
+                  </p>
+                ) : (
+                  drafts.slice(0, 12).map((draft) => (
+                    <DropdownMenuItem
+                      key={draft.id}
+                      onSelect={() => onPickDraft(draft)}
+                      className="flex flex-col items-start gap-0.5"
+                    >
+                      <span className="w-full truncate text-xs font-medium">
+                        {noteTitle(draft)}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        Edited {formatWhen(new Date(draft.updatedAt))}
+                      </span>
+                    </DropdownMenuItem>
+                  ))
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
 
-        {activeMentions.length > 0 && (
-          <div className="flex flex-wrap gap-1.5">
-            {activeMentions.map((item) => (
-              <span
-                key={mentionToken(item)}
-                className="inline-flex items-center gap-1 rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-[11px] font-medium text-[#c2410c] dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-300"
-              >
-                <AtSign className="size-3" />
-                {item.label}
-                {canEditText && (
+        {/* Body */}
+        <div className="mt-3 sm:pl-[46px]">
+          {canEditText ? (
+            <NoteEditor
+              initialContent={
+                (note?.bodyJson as JSONContent | null) ?? seed?.bodyJson ?? null
+              }
+              autofocus={isEdit}
+              onReady={syncEditorState}
+              onUpdate={syncEditorState}
+              onSubmitShortcut={() => void submit(shortcutMode)}
+            />
+          ) : (
+            <div className="space-y-2">
+              <p className="text-[15px] leading-relaxed whitespace-pre-line text-stone-700 dark:text-stone-300">
+                {note?.bodyText}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                This Note uses formatting the editor can't load, so only its
+                time and audience can change here.
+              </p>
+            </div>
+          )}
+
+          {(imagePreviews.length > 0 ||
+            linkPreviews.length > 0 ||
+            uploading > 0) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {imagePreviews.map((item) => (
+                <div
+                  key={item.key}
+                  className="relative size-24 overflow-hidden rounded-xl border border-stone-200 dark:border-stone-800"
+                >
+                  <img
+                    src={item.url}
+                    alt=""
+                    className="size-full object-cover"
+                  />
                   <button
                     type="button"
-                    className="rounded-full p-0.5 hover:bg-orange-100 dark:hover:bg-orange-900/50"
-                    onClick={() => setMentions((prev) => prev.filter((m) => mentionToken(m) !== mentionToken(item)))}
-                    aria-label={`Post ${item.label} as plain text instead of a mention`}
-                    title="Keep as plain text"
+                    aria-label="Remove image"
+                    onClick={item.remove}
+                    className="absolute top-1 right-1 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
                   >
                     <X className="size-3" />
                   </button>
-                )}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Attachments */}
-      <div className="space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          {canEditText && (
-            <Button type="button" variant="outline" size="sm" onClick={startMention} className="rounded-full">
-              <AtSign /> Mention
-            </Button>
-          )}
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="rounded-full"
-            disabled={attachmentCount >= NOTE_MAX_ATTACHMENTS || uploading > 0 || !connectionReady}
-            onClick={() => fileRef.current?.click()}
-          >
-            {uploading > 0 ? <LoaderCircle className="animate-spin" /> : <ImagePlus />} Image
-          </Button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept={ACCEPTED_IMAGES}
-            multiple
-            className="hidden"
-            onChange={(event) => void uploadFiles(event.target.files)}
-          />
-          {!hasKeptLink && (
-            <div className="relative min-w-48 flex-1">
-              <Link2 className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={link}
-                onChange={(event) => setLink(event.target.value)}
-                placeholder="Attach a link (optional)"
-                className="h-7 rounded-full pl-8 text-xs"
-                aria-label="Link attachment"
-              />
+                </div>
+              ))}
+              {uploading > 0 && (
+                <div className="flex size-24 items-center justify-center rounded-xl border border-dashed border-stone-300 dark:border-stone-700">
+                  <LoaderCircle className="size-4 animate-spin text-stone-400" />
+                </div>
+              )}
+              {linkPreviews.map((item) => (
+                <div
+                  key={item.key}
+                  className="flex h-10 max-w-full items-center gap-2 rounded-xl border border-stone-200 bg-stone-50 pr-1 pl-3 text-xs dark:border-stone-800 dark:bg-stone-900"
+                >
+                  <Link2 className="size-3.5 shrink-0 text-stone-400" />
+                  <span className="truncate">{item.url}</span>
+                  <button
+                    type="button"
+                    aria-label="Remove link"
+                    onClick={item.remove}
+                    className="rounded-full p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
+                  >
+                    <X className="size-3" />
+                  </button>
+                </div>
+              ))}
             </div>
+          )}
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-3 text-xs font-medium text-destructive"
+            >
+              {error}
+            </p>
           )}
         </div>
 
-        {(kept.length > 0 || images.length > 0) && (
-          <div className="flex flex-wrap gap-2">
-            {kept.map((item) => (
-              <AttachmentChip
-                key={item.id}
-                imageUrl={item.imageUrl}
-                label={item.type === "link" ? item.linkMetadata?.title || item.linkMetadata?.url || "Link" : item.type}
-                onRemove={() => setKept((prev) => prev.filter((other) => other.id !== item.id))}
-              />
-            ))}
-            {images.map((image) => (
-              <AttachmentChip
-                key={image.id}
-                imageUrl={image.url}
-                label="Image"
-                onRemove={() => setImages((prev) => prev.filter((other) => other.id !== image.id))}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+        {/* Toolbar */}
+        <div className="mt-4 flex items-center justify-between gap-2 border-t border-stone-100 pt-3 dark:border-stone-800">
+          <div className="flex items-center">
+            <IconButton
+              label="Add image"
+              disabled={
+                attachmentCount >= NOTE_MAX_ATTACHMENTS || !connectionReady
+              }
+              onClick={() => fileRef.current?.click()}
+            >
+              <ImagePlus className="size-[18px]" />
+            </IconButton>
+            <input
+              ref={fileRef}
+              type="file"
+              accept={ACCEPTED_IMAGES}
+              multiple
+              className="hidden"
+              onChange={(event) => void uploadFiles(event.target.files)}
+            />
 
-      {/* When */}
-      <div className="space-y-3 rounded-xl border border-stone-200/80 bg-stone-50/60 p-3 dark:border-stone-800 dark:bg-stone-900/50">
-        <ToggleGroup
-          type="single"
-          variant="outline"
-          size="sm"
-          spacing={0}
-          value={mode}
-          onValueChange={(value) => value && setMode(value as NoteMode)}
-          className="w-full"
-          aria-label="When to publish"
-        >
-          <ToggleGroupItem value="post_now" className="flex-1 text-xs">
-            <Zap /> Post now
-          </ToggleGroupItem>
-          <ToggleGroupItem value="schedule" className="flex-1 text-xs">
-            <CalendarClock /> Schedule
-          </ToggleGroupItem>
-          <ToggleGroupItem value="draft" className="flex-1 text-xs">
-            <FileText /> Draft
-          </ToggleGroupItem>
-        </ToggleGroup>
-
-        {mode === "post_now" && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Posts one minute after you confirm. Until then you can abort and keep it as a draft.
-          </p>
-        )}
-        {mode === "draft" && (
-          <p className="text-[11px] leading-relaxed text-muted-foreground">
-            Saved as an unscheduled draft in Substack, so it also shows up in Substack's own drafts.
-          </p>
-        )}
-        {mode === "schedule" && (
-          <div className="space-y-2">
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="space-y-1">
-                <Label className="text-[11px] text-muted-foreground">Day</Label>
-                <Popover open={dayOpen} onOpenChange={setDayOpen}>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" size="sm" className="w-40 justify-start bg-white font-normal dark:bg-stone-950">
-                      <CalendarDays />
-                      {day ? day.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" }) : "Pick a day"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={day}
-                      defaultMonth={day}
-                      onSelect={(value) => {
-                        setDay(value)
-                        setDayOpen(false)
-                      }}
-                      disabled={[{ before: today }, { after: lastDay }]}
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-              <div className="space-y-1">
-                <Label htmlFor="note-time" className="text-[11px] text-muted-foreground">Time</Label>
-                <Input
-                  id="note-time"
-                  type="time"
-                  step={60}
-                  value={time}
-                  onChange={(event) => setTime(event.target.value)}
-                  className="h-7 w-32 bg-white text-xs dark:bg-stone-950"
-                />
-              </div>
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {quickSlots().map((slot) => (
-                <Button
-                  key={slot.label}
+            <Popover
+              open={linkOpen}
+              onOpenChange={(open) => {
+                setLinkOpen(open)
+                if (open) setLinkDraft(link)
+              }}
+            >
+              <PopoverTrigger asChild>
+                <button
                   type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="rounded-full border border-stone-200 bg-white text-[11px] dark:border-stone-800 dark:bg-stone-950"
-                  onClick={() => {
-                    setDay(startOfDay(slot.at))
-                    setTime(timeOf(slot.at))
+                  aria-label="Attach a link"
+                  title="Attach a link"
+                  disabled={
+                    hasKeptLink || attachmentCount >= NOTE_MAX_ATTACHMENTS
+                  }
+                  className={iconButtonClass}
+                >
+                  <Link2 className="size-[18px]" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 space-y-2 p-3">
+                <p className="text-xs font-semibold">Attach a link</p>
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault()
+                    const value = linkDraft.trim()
+                    if (value && !/^https?:\/\/\S+$/i.test(value)) {
+                      setError("Links must start with http:// or https://.")
+                      return
+                    }
+                    setLink(value)
+                    setLinkOpen(false)
                   }}
                 >
-                  {slot.label}
-                </Button>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground">Times are in {timeZoneLabel()}.</p>
-          </div>
-        )}
+                  <Input
+                    autoFocus
+                    value={linkDraft}
+                    onChange={(event) => setLinkDraft(event.target.value)}
+                    placeholder="https://"
+                    className="h-8 text-xs"
+                  />
+                  <Button type="submit" size="sm" className="h-8">
+                    Add
+                  </Button>
+                </form>
+                <p className="text-[11px] text-muted-foreground">
+                  Substack shows a preview card for the link.
+                </p>
+              </PopoverContent>
+            </Popover>
 
-        <div className="flex items-center justify-between gap-2">
-          <Label className="text-[11px] text-muted-foreground">Who can reply</Label>
-          <Select value={replyRole} onValueChange={(value) => setReplyRole(value as NoteReplyRole)}>
-            <SelectTrigger size="sm" className="h-7 w-44 bg-white text-xs dark:bg-stone-950">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {Object.entries(replyRoleLabels).map(([value, label]) => (
-                <SelectItem key={value} value={value} className="text-xs">
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+            {canEditText && (
+              <IconButton label="Mention someone" onClick={insertMention}>
+                <AtSign className="size-[18px]" />
+              </IconButton>
+            )}
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="More options"
+                  title="More options"
+                  className={iconButtonClass}
+                >
+                  <MoreHorizontal className="size-[18px]" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-52">
+                <DropdownMenuItem
+                  disabled={submitting || !hasContent}
+                  onSelect={() => void submit("draft")}
+                >
+                  <FileText />{" "}
+                  {note?.status === "scheduled"
+                    ? "Move to drafts"
+                    : "Save as draft"}
+                </DropdownMenuItem>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <AtSign /> Who can reply
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent>
+                    <DropdownMenuRadioGroup
+                      value={replyRole}
+                      onValueChange={(value) =>
+                        setReplyRole(value as NoteReplyRole)
+                      }
+                    >
+                      {Object.entries(replyRoleLabels).map(([value, label]) => (
+                        <DropdownMenuRadioItem key={value} value={value}>
+                          {label}
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+                {!isEdit && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onSelect={clearComposer}
+                    >
+                      <X /> Clear
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {textLength > NOTE_TEXT_LIMIT - 500 && (
+              <span
+                className={`text-[11px] tabular-nums ${overLimit ? "font-semibold text-destructive" : "text-muted-foreground"}`}
+              >
+                {(NOTE_TEXT_LIMIT - textLength).toLocaleString()}
+              </span>
+            )}
+            {replyRole !== "everyone" && (
+              <span className="hidden text-[11px] text-muted-foreground sm:inline">
+                {replyRoleLabels[replyRole]} can reply
+              </span>
+            )}
+            {(onCancel || hasContent) && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 rounded-full px-3"
+                disabled={submitting}
+                onClick={() => (onCancel ? onCancel() : clearComposer())}
+              >
+                Cancel
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => void submit("post_now")}
+              disabled={
+                submitting ||
+                uploading > 0 ||
+                !connectionReady ||
+                !hasContent ||
+                overLimit
+              }
+              title="Posts in 1 minute; you can abort until then"
+              className="h-8 rounded-full bg-[#f15a3a] px-4 font-semibold text-white hover:bg-[#d94a2c]"
+            >
+              {submitting && <LoaderCircle className="animate-spin" />}
+              Post
+            </Button>
+          </div>
         </div>
       </div>
 
-      {error && (
-        <p role="alert" className="text-xs font-medium text-destructive">
-          {error}
-        </p>
-      )}
-
-      <div className="flex items-center justify-end gap-2">
-        {onCancel && (
-          <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={submitting}>
-            Cancel
-          </Button>
-        )}
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => void submit()}
-          disabled={submitting || uploading > 0 || !connectionReady}
-          className="rounded-full bg-[#191817] px-4 text-white hover:bg-[#302e2c]"
-        >
-          {submitting ? <LoaderCircle className="animate-spin" /> : mode === "post_now" ? <Zap /> : <Send />}
-          {submitLabel}
-        </Button>
-      </div>
-    </div>
-  )
-}
-
-function AttachmentChip({ imageUrl, label, onRemove }: { imageUrl?: string; label: string; onRemove: () => void }) {
-  return (
-    <div className="group relative flex h-16 max-w-48 items-center gap-2 overflow-hidden rounded-lg border border-stone-200 bg-white pr-7 dark:border-stone-800 dark:bg-stone-950">
-      {imageUrl ? (
-        <img src={imageUrl} alt="" className="h-full w-16 object-cover" />
-      ) : (
-        <span className="flex h-full w-12 items-center justify-center bg-stone-100 dark:bg-stone-900">
-          <Link2 className="size-4 text-stone-400" />
-        </span>
-      )}
-      <span className="truncate pr-1 text-[11px] text-muted-foreground">{label}</span>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute right-1 top-1 rounded-full bg-white/90 p-0.5 text-stone-500 shadow-xs hover:text-stone-900 dark:bg-stone-900/90"
-        aria-label="Remove attachment"
+      {/* Schedule */}
+      <section
+        aria-label="Schedule"
+        className={
+          framed
+            ? `${CARD_CLASS} space-y-3`
+            : "space-y-3 border-t border-stone-100 pt-3 dark:border-stone-800"
+        }
       >
-        <X className="size-3" />
-      </button>
+        <div className="flex items-center justify-between gap-2">
+          <h3 className="flex items-center gap-1.5 text-xs font-semibold text-stone-900 dark:text-stone-100">
+            <CalendarClock className="size-3.5 text-[#f15a3a]" /> Schedule
+          </h3>
+          <span className="truncate text-[11px] text-muted-foreground">
+            {timeZoneLabel()}
+          </span>
+        </div>
+        <div className="grid grid-cols-[minmax(0,1fr)_8.5rem] gap-2">
+          <Popover open={dayOpen} onOpenChange={setDayOpen}>
+            <PopoverTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-full justify-start gap-2 px-3 font-normal"
+                aria-label="Day"
+              >
+                <CalendarDays className="size-4 text-stone-500" />
+                <span className="truncate">
+                  {pickDay.toLocaleDateString(undefined, {
+                    weekday: "long",
+                    day: "numeric",
+                    month: "long",
+                  })}
+                </span>
+                <ChevronDown className="ml-auto size-3.5 text-stone-400" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-auto p-0">
+              <Calendar
+                mode="single"
+                required
+                selected={pickDay}
+                defaultMonth={pickDay}
+                onSelect={(day) => {
+                  if (day) setPickDay(day)
+                  setDayOpen(false)
+                }}
+                disabled={[{ before: today }, { after: lastDay }]}
+              />
+            </PopoverContent>
+          </Popover>
+          <Input
+            type="time"
+            step={60}
+            value={pickTime}
+            onChange={(event) =>
+              event.target.value && setPickTime(event.target.value)
+            }
+            className="h-9 w-full text-sm"
+            aria-label="Time"
+          />
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="flex min-w-0 gap-1.5">
+            {quickSlots().map((slot) => {
+              const active =
+                dayKey(slot.at) === dayKey(pickDay) &&
+                timeOf(slot.at) === pickTime
+              return (
+                <button
+                  key={slot.label}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => {
+                    setPickDay(startOfDay(slot.at))
+                    setPickTime(timeOf(slot.at))
+                  }}
+                  className={`h-8 rounded-full border px-3 text-xs font-medium whitespace-nowrap transition-colors ${
+                    active
+                      ? "border-[#f15a3a]/60 bg-orange-50 text-[#c2410c] dark:bg-orange-950/40 dark:text-orange-300"
+                      : "border-stone-200 text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
+                  }`}
+                >
+                  {slot.label}
+                </button>
+              )
+            })}
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => void submit("schedule")}
+            disabled={
+              submitting ||
+              uploading > 0 ||
+              !connectionReady ||
+              !hasContent ||
+              overLimit
+            }
+            title={`Publishes ${formatWhen(scheduleAt)}`}
+            className="ml-auto h-8 shrink-0 rounded-full bg-[#191817] px-4 font-semibold text-white hover:bg-[#302e2c] dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+          >
+            {submitting ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <Clock3 />
+            )}
+            {note?.status === "scheduled" ? "Save schedule" : "Schedule"}
+          </Button>
+        </div>
+      </section>
     </div>
   )
 }
