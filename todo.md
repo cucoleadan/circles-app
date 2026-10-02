@@ -1,7 +1,20 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-09-30.
+Update this file as work completes. Last updated: 2026-10-02.
+
+## 2026-10-02 Note scheduling
+
+- [x] `/notes` page (Queue, Calendar and Table views) to write, schedule,
+      draft, post now (60 s delay with Abort), edit, reschedule and delete
+      Notes, with CRM @-mentions and image/link attachments. Built on
+      `unofficial-substack-sdk` 0.4.0; Substack publishes scheduled drafts
+      itself. Design and SDK facts: `plans/note-scheduling.md`.
+- [x] Migration `029` mirrors the account's Note drafts (including those made
+      in Substack's app) and adds throttled draft reconciliation.
+- [x] Core and API tests, typecheck, build, and a mocked UI check pass.
+- [ ] Deploy migration `029` and run the live smoke test in the plan
+      (schedule, reschedule, publish, Post now + Abort, delete).
 
 ## 2026-09-30 recent sync progress
 

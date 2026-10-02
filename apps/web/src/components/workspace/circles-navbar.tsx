@@ -3,6 +3,7 @@ import {
   CircleDot,
   HelpCircle,
   LogOut,
+  PenLine,
   Plus,
   RefreshCw,
   Search,
@@ -67,6 +68,18 @@ export function CirclesNavbar({
             <div className="hidden sm:inline-flex">
               <HistoryBackfill />
             </div>
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3"
+              title="Write and schedule Notes"
+            >
+              <a href="/notes">
+                <PenLine className="size-3.5 text-[#f15a3a] sm:mr-1" />
+                <span className="hidden sm:inline">Notes</span>
+              </a>
+            </Button>
             <Button
               variant="outline"
               size="sm"

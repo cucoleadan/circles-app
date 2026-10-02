@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import { readFile } from "node:fs/promises"
 import { Pool } from "pg"
 
@@ -39,6 +39,7 @@ import {
 } from "@workspace/core"
 import { ext } from "../src/routes/ext.js"
 import { v1 } from "../src/routes/v1.js"
+import { sniffImageType } from "../src/routes/v1/notes.js"
 
 let admin: Pool
 let migrate: Pool
@@ -1591,5 +1592,293 @@ describe("interactions", () => {
       circlesOverview(client)
     )
     expect(overview.ignored).toBeGreaterThanOrEqual(1)
+  })
+})
+
+
+// Note scheduling runs inside this file because it owns the shared database
+// and auth pools for the whole test process.
+/** In-memory stand-in for Substack's Note draft endpoints. */
+class FakeSubstack {
+  drafts = new Map<number, Record<string, any>>()
+  requests: string[] = []
+  nextId = 900
+  failNext: { status: number; body: unknown } | null = null
+
+  handle = async (input: Parameters<typeof fetch>[0], init?: RequestInit): Promise<Response> => {
+    const request = input instanceof Request ? input : new Request(String(input), init)
+    const url = new URL(request.url)
+    const path = url.pathname.replace(/^\/api\/v1/, "")
+    this.requests.push(`${request.method} ${path}`)
+    if (this.failNext) {
+      const failure = this.failNext
+      this.failNext = null
+      return Response.json(failure.body, { status: failure.status })
+    }
+    const body = request.method === "GET" || request.method === "DELETE" ? null : await request.json().catch(() => null)
+    const draftFrom = (id: number, data: any) => ({
+      id,
+      body: "text",
+      body_json: data.bodyJson,
+      trigger_at: data.trigger_at ?? null,
+      reply_minimum_role: data.replyMinimumRole ?? null,
+      attachments: (data.attachmentIds ?? []).map((attachmentId: string) => ({ id: attachmentId, type: "image" })),
+      status: "draft",
+    })
+    if (request.method === "POST" && path === "/comment/draft") {
+      const draft = draftFrom(this.nextId++, body)
+      this.drafts.set(draft.id, draft)
+      return Response.json(draft)
+    }
+    const patch = path.match(/^\/feed\/comment\/(\d+)$/)
+    if (request.method === "PATCH" && patch) {
+      const id = Number(patch[1])
+      if (!this.drafts.has(id)) return new Response("", { status: 404 })
+      const draft = draftFrom(id, body)
+      this.drafts.set(id, draft)
+      return Response.json(draft)
+    }
+    const remove = path.match(/^\/comment\/(\d+)$/)
+    if (request.method === "DELETE" && remove) {
+      if (!this.drafts.delete(Number(remove[1]))) return new Response("", { status: 403 })
+      return Response.json({})
+    }
+    if (request.method === "GET" && path === "/feed/drafts") {
+      return Response.json({ drafts: [...this.drafts.values()], hasMore: false, nextCursor: null })
+    }
+    if (request.method === "POST" && path === "/comment/attachment") {
+      return Response.json({ id: `att-${this.nextId++}`, type: body.type })
+    }
+    return new Response("unexpected request in test", { status: 500 })
+  }
+}
+
+
+describe("note scheduling", () => {
+  const originalFetch = globalThis.fetch
+  let substack: FakeSubstack
+  let cookieA = ""
+  let cookieB = ""
+
+  const call = (method: string, path: string, body?: unknown, cookie = cookieA) =>
+    v1.fetch(
+      new Request(`http://localhost:3000${path}`, {
+        method,
+        headers: { cookie, ...(body === undefined ? {} : { "content-type": "application/json" }) },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      }),
+    )
+
+  const inOneDay = () => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+
+  beforeAll(async () => {
+    const { makeSignature } = await import("better-auth/crypto")
+    for (const [authId, token, setCookie] of [
+      [authA, "notes-token-a", (value: string) => (cookieA = value)],
+      [authB, "notes-token-b", (value: string) => (cookieB = value)],
+    ] as const) {
+      const signature = await makeSignature(token, process.env.BETTER_AUTH_SECRET!)
+      setCookie(`better-auth.session_token=${encodeURIComponent(token)}.${signature}`)
+      await migrate.query(
+        `insert into session (id, "userId", token, "expiresAt", "createdAt", "updatedAt")
+         values ($1, $2, $3, now() + interval '1 day', now(), now())
+         on conflict (id) do nothing`,
+        [`sess-notes-${authId}`, authId, token],
+      )
+    }
+  })
+
+  beforeEach(async () => {
+    await migrate.query(
+      `insert into substack_connections
+         (id, user_id, generation, status, envelope_version, key_id, wrapped_key, iv, ciphertext, profile_id, profile_handle)
+       values ('conn-notes-a', $1, 1, 'active', 1, 'plain', 'plain', 'plain', 'session-a', '4242', 'tester'),
+              ('conn-notes-b', $2, 1, 'active', 1, 'plain', 'plain', 'plain', 'session-b', '4343', 'other')`,
+      [userA, userB],
+    )
+    substack = new FakeSubstack()
+    globalThis.fetch = substack.handle as typeof fetch
+  })
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch
+  })
+
+  test("schedules a Note once per client request ID", async () => {
+    const request = {
+      clientRequestId: "req-schedule-1",
+      markdown: "Hello @janedoe **friend**",
+      mentions: [{ id: 11, handle: "janedoe", label: "Jane Doe" }],
+      attachments: [{ type: "link", url: "https://example.com/post" }],
+      mode: "schedule",
+      triggerAt: inOneDay(),
+    }
+    const first = await call("POST", "/notes", request)
+    expect(first.status).toBe(201)
+    const { note } = (await first.json()) as any
+    expect(note).toMatchObject({ status: "scheduled", origin: "circles", editable: true, postNow: false })
+    expect(note.markdown).toContain("@Jane Doe")
+    expect(note.attachments).toHaveLength(1)
+
+    const repeat = await call("POST", "/notes", request)
+    expect(repeat.status).toBe(200)
+    expect(((await repeat.json()) as any).note.id).toBe(note.id)
+    expect(substack.requests.filter((line) => line === "POST /comment/draft")).toHaveLength(1)
+  })
+
+  test("saves drafts, schedules them, and moves them back to drafts", async () => {
+    const created = (await (await call("POST", "/notes", {
+      clientRequestId: "req-draft-1",
+      markdown: "Draft first",
+      mode: "draft",
+    })).json()) as any
+    expect(created.note).toMatchObject({ status: "draft", triggerAt: null })
+
+    const triggerAt = inOneDay()
+    const scheduled = (await (await call("PATCH", `/notes/${created.note.id}`, { mode: "schedule", triggerAt })).json()) as any
+    expect(scheduled.note.status).toBe("scheduled")
+    expect(scheduled.note.triggerAt).toBe(triggerAt)
+
+    const unscheduled = (await (await call("PATCH", `/notes/${created.note.id}`, { mode: "draft" })).json()) as any
+    expect(unscheduled.note).toMatchObject({ status: "draft", triggerAt: null })
+  })
+
+  test("post now schedules a minute ahead and abort keeps it as a draft", async () => {
+    const before = Date.now()
+    const { note } = (await (await call("POST", "/notes", {
+      clientRequestId: "req-now-1",
+      markdown: "Posting now",
+      mode: "post_now",
+    })).json()) as any
+    expect(note).toMatchObject({ status: "scheduled", postNow: true })
+    const delay = new Date(note.triggerAt).getTime() - before
+    expect(delay).toBeGreaterThan(55_000)
+    expect(delay).toBeLessThan(65_000)
+
+    const aborted = await call("POST", `/notes/${note.id}/abort`)
+    expect(aborted.status).toBe(200)
+    expect(((await aborted.json()) as any).note).toMatchObject({ status: "draft", postNow: false, triggerAt: null })
+
+    // Too close to trigger_at, aborting could race Substack's publish.
+    const again = (await (await call("POST", "/notes", {
+      clientRequestId: "req-now-2",
+      markdown: "Posting again",
+      mode: "post_now",
+    })).json()) as any
+    await migrate.query("update scheduled_notes set trigger_at = now() + interval '2 seconds' where id = $1", [again.note.id])
+    expect((await call("POST", `/notes/${again.note.id}/abort`)).status).toBe(409)
+  })
+
+  test("rejects invalid times and attachments without calling Substack", async () => {
+    const tooFar = await call("POST", "/notes", {
+      clientRequestId: "req-bad-1",
+      markdown: "Too far",
+      mode: "schedule",
+      triggerAt: new Date(Date.now() + 100 * 24 * 60 * 60 * 1000).toISOString(),
+    })
+    expect(tooFar.status).toBe(400)
+    const twoLinks = await call("POST", "/notes", {
+      clientRequestId: "req-bad-2",
+      markdown: "Two links",
+      mode: "draft",
+      attachments: [{ type: "link", url: "https://a.example" }, { type: "link", url: "https://b.example" }],
+    })
+    expect(twoLinks.status).toBe(400)
+    expect(substack.requests).toHaveLength(0)
+  })
+
+  test("an upstream failure removes the pending row and reports Substack's message", async () => {
+    substack.failNext = { status: 400, body: { error: "Please type a shorter comment" } }
+    const res = await call("POST", "/notes", { clientRequestId: "req-fail-1", markdown: "Hello", mode: "draft" })
+    expect(res.status).toBe(400)
+    expect(((await res.json()) as any).error).toBe("Please type a shorter comment")
+    const rows = await migrate.query("select count(*)::int as count from scheduled_notes")
+    expect(rows.rows[0].count).toBe(0)
+  })
+
+  test("an upstream 401 marks the connection expired", async () => {
+    substack.failNext = { status: 401, body: { error: "Unauthorized" } }
+    const res = await call("POST", "/notes", { clientRequestId: "req-expired-1", markdown: "Hello", mode: "draft" })
+    expect(res.status).toBe(401)
+    const conn = await migrate.query("select status from substack_connections where id = 'conn-notes-a'")
+    expect(conn.rows[0].status).toBe("expired")
+  })
+
+  test("deleting a scheduled Note removes it upstream", async () => {
+    const { note } = (await (await call("POST", "/notes", {
+      clientRequestId: "req-delete-1",
+      markdown: "Delete me",
+      mode: "schedule",
+      triggerAt: inOneDay(),
+    })).json()) as any
+    expect((await call("DELETE", `/notes/${note.id}`)).status).toBe(204)
+    expect(substack.drafts.size).toBe(0)
+    const list = (await (await call("GET", "/notes")).json()) as any
+    expect(list.notes).toHaveLength(0)
+  })
+
+  test("refresh imports Substack drafts and classifies vanished ones", async () => {
+    const past = (await (await call("POST", "/notes", {
+      clientRequestId: "req-publish-1",
+      markdown: "Will publish",
+      mode: "schedule",
+      triggerAt: inOneDay(),
+    })).json()) as any
+    const removed = (await (await call("POST", "/notes", {
+      clientRequestId: "req-removed-1",
+      markdown: "Removed in Substack",
+      mode: "schedule",
+      triggerAt: inOneDay(),
+    })).json()) as any
+    // Substack published the first (its trigger passed) and the user deleted
+    // the second in Substack's own app; a third draft was made there.
+    await migrate.query("update scheduled_notes set trigger_at = now() - interval '1 minute' where id = $1", [past.note.id])
+    substack.drafts.clear()
+    substack.drafts.set(777, {
+      id: 777,
+      body: "From Substack",
+      body_json: { type: "doc", attrs: { schemaVersion: "v1", title: null }, content: [{ type: "paragraph", content: [{ type: "text", text: "From Substack" }] }] },
+      trigger_at: inOneDay(),
+      attachments: [],
+    })
+
+    const res = await call("POST", "/notes/refresh?force=1")
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as any
+    expect(body.refreshed).toBe(true)
+    const byDraft = new Map(body.notes.map((note: any) => [note.substackDraftId, note]))
+    expect(byDraft.get(past.note.substackDraftId)).toMatchObject({
+      status: "published",
+      noteUrl: `https://substack.com/@tester/note/c-${past.note.substackDraftId}`,
+    })
+    expect(byDraft.has(removed.note.substackDraftId)).toBe(false)
+    expect(byDraft.get("777")).toMatchObject({ status: "scheduled", origin: "substack", editable: true })
+
+    // A second refresh inside the throttle window does not read Substack again.
+    const reads = substack.requests.filter((line) => line === "GET /feed/drafts").length
+    await call("POST", "/notes/refresh")
+    expect(substack.requests.filter((line) => line === "GET /feed/drafts").length).toBe(reads)
+  })
+
+  test("tenants cannot see or change each other's Notes", async () => {
+    const { note } = (await (await call("POST", "/notes", {
+      clientRequestId: "req-tenant-1",
+      markdown: "Private",
+      mode: "draft",
+    })).json()) as any
+    const listB = (await (await call("GET", "/notes", undefined, cookieB)).json()) as any
+    expect(listB.notes).toHaveLength(0)
+    expect((await call("DELETE", `/notes/${note.id}`, undefined, cookieB)).status).toBe(404)
+    const stillThere = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select status from scheduled_notes where id = $1", [note.id]),
+    )
+    expect(stillThere.rows[0].status).toBe("draft")
+  })
+
+  test("identifies supported image formats by their bytes", () => {
+    expect(sniffImageType(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))).toBe("image/png")
+    expect(sniffImageType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg")
+    expect(sniffImageType(new TextEncoder().encode("RIFF1234WEBPVP8 "))).toBe("image/webp")
+    expect(sniffImageType(new TextEncoder().encode("<svg></svg>"))).toBeNull()
   })
 })

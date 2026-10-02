@@ -1,0 +1,31 @@
+---
+import "@workspace/ui/globals.css"
+import { NotesScheduler } from "../components/notes/notes-scheduler"
+import type { NotesResponse } from "../lib/notes"
+
+const apiUrl = process.env.API_INTERNAL_URL ?? "http://localhost:3000"
+const cookie = Astro.request.headers.get("cookie") ?? ""
+
+// Renders the stored mirror immediately; the page then refreshes it from Substack.
+const notesRes = await fetch(`${apiUrl}/api/v1/notes`, { headers: { cookie } })
+if (notesRes.status === 401) {
+  return Astro.redirect("/login")
+}
+const initial: NotesResponse = notesRes.ok
+  ? ((await notesRes.json()) as NotesResponse)
+  : { connection: null, notes: [] }
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="Write and schedule Substack Notes." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Notes · Circles CRM</title>
+  </head>
+  <body class="bg-[#f7f5f1] dark:bg-stone-950 font-sans antialiased">
+    <NotesScheduler initial={initial} client:only="react" />
+  </body>
+</html>

@@ -1,4 +1,4 @@
-import { SubstackClient, SubstackApiError } from "unofficial-substack-sdk"
+import { SubstackClient, SubstackApiError, SubstackConfigurationError } from "unofficial-substack-sdk"
 
 export interface SubstackClientOptions {
   sessionToken: string
@@ -17,4 +17,4 @@ export function createSubstackClient(options: SubstackClientOptions): SubstackCl
   })
 }
 
-export { SubstackClient, SubstackApiError }
+export { SubstackClient, SubstackApiError, SubstackConfigurationError }

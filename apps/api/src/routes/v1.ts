@@ -5,6 +5,7 @@ import { getOrCreateAppUser } from "../db/repositories.js"
 import { connectionRoutes } from "./v1/connection.js"
 import { importsRoutes } from "./v1/imports.js"
 import { listsRoutes } from "./v1/lists.js"
+import { notesRoutes } from "./v1/notes.js"
 import { overviewRoutes } from "./v1/overview.js"
 import { peopleRoutes } from "./v1/people.js"
 import { settingsRoutes } from "./v1/settings.js"
@@ -29,3 +30,4 @@ v1.route("/", overviewRoutes)
 v1.route("/", connectionRoutes)
 v1.route("/", syncRoutes)
 v1.route("/", importsRoutes)
+v1.route("/", notesRoutes)

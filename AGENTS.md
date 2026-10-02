@@ -78,7 +78,9 @@ Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
 Current latest migration at the time of writing is
-`028_retry_evidence_replay.sql`, which re-queues the evidence replay after
+`029_scheduled_notes.sql`, which adds the `scheduled_notes` mirror of the
+account's Substack Note drafts and `substack_connections.drafts_reconciled_at`.
+Migration `028_retry_evidence_replay.sql` re-queues the evidence replay after
 ingestion stopped restoring soft-removed duplicate Likes/restacks beside their
 active row. Migration `027` adds the
 `seed_missing_activity_syncs()` `SECURITY DEFINER` function the worker calls
@@ -208,6 +210,21 @@ The CRM exposes recovered/captured outbound data through the Outbound Touches
 view, “given” totals on contact cards, outbound timestamps, and per-contact
 timelines. A global grouped per-action analytics view is still pending; consult
 `todo.md` before claiming otherwise.
+
+## Note scheduling
+
+The `/notes` page writes and schedules Substack Notes through
+`/api/v1/notes/*` (`apps/api/src/routes/v1/notes.ts`). Substack owns every
+draft and publishes scheduled drafts at `trigger_at` itself; Circles runs no
+publish job. `scheduled_notes` mirrors the account's drafts (including those
+created in Substack's app) and is refreshed from the complete
+`getAllDraftNotes` list, throttled per connection. A published Note keeps its
+draft ID, which matches `owned_content.external_id`. "Post now" schedules 60
+seconds ahead so the user can abort; mutations within 3 seconds of
+`trigger_at` are refused. Validate `trigger_at` (at most 92 days ahead) before
+calling Substack, because a rejected time still leaves a stray draft. Always
+re-send the attachment IDs to keep on draft updates. Design notes:
+`plans/note-scheduling.md`.
 
 ## Extension workflow
 

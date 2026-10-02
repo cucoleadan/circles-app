@@ -15,6 +15,7 @@
   "dependencies": {
     "@astrojs/node": "^11.1.5",
     "@astrojs/react": "^5",
+    "@tanstack/react-table": "^9.2.4",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@workspace/ui": "workspace:*",
