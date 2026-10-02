@@ -78,7 +78,7 @@ export function NoteTagChip({
 }) {
   return (
     <span
-      className="inline-flex h-5 max-w-40 items-center gap-1 rounded-full border px-1.5 text-[10.5px] font-medium text-stone-700 dark:text-stone-200"
+      className="inline-flex min-h-5 max-w-full items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10.5px] font-medium text-stone-700 dark:text-stone-200"
       style={{
         borderColor: `${tag.color}55`,
         backgroundColor: `${tag.color}14`,
@@ -88,7 +88,7 @@ export function NoteTagChip({
         className="size-1.5 shrink-0 rounded-full"
         style={{ backgroundColor: tag.color }}
       />
-      <span className="truncate">{tag.name}</span>
+      <span className="min-w-0 break-words">{tag.name}</span>
       {onRemove && (
         <button
           type="button"
