@@ -70,7 +70,7 @@ export interface ScheduledNoteView {
   mentions: Array<{ id: number; label: string }>
   /** Open, and loadable into the editor without losing content. */
   editable: boolean
-  attachments: NoteAttachment[]
+  attachments: NoteAttachmentView[]
   replyMinimumRole: string
   triggerAt: string | null
   postNow: boolean
@@ -102,6 +102,47 @@ function iso(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : String(value)
 }
 
+export interface NoteAttachmentView {
+  id: string
+  type: string
+  imageUrl?: string
+  linkMetadata?: NoteAttachment["linkMetadata"]
+  /** The post a restack-with-Note quotes. */
+  post?: {
+    url: string | null
+    title: string | null
+    subtitle: string | null
+    coverImage: string | null
+    publicationName: string | null
+  }
+}
+
+const text = (value: unknown) => (typeof value === "string" && value ? value : null)
+
+/** The fields the page renders; a quoted post otherwise ships its whole body. */
+function attachmentViews(value: unknown): NoteAttachmentView[] {
+  if (!Array.isArray(value)) return []
+  return value.map((item: NoteAttachment) => {
+    const post = item.type === "post" ? (item.post as Record<string, unknown> | undefined) : undefined
+    const publication = item.publication as Record<string, unknown> | undefined
+    return {
+      id: String(item.id),
+      type: item.type,
+      imageUrl: item.imageUrl,
+      linkMetadata: item.linkMetadata,
+      ...(post && {
+        post: {
+          url: text(post.canonical_url),
+          title: text(post.title),
+          subtitle: text(post.subtitle),
+          coverImage: text(post.cover_image),
+          publicationName: text(publication?.name),
+        },
+      }),
+    }
+  })
+}
+
 export function toNoteView(row: ScheduledNoteRow, handle: string | null, tags: NoteTag[] = []): ScheduledNoteView {
   const open = row.status === "draft" || row.status === "scheduled"
   return {
@@ -113,7 +154,7 @@ export function toNoteView(row: ScheduledNoteRow, handle: string | null, tags: N
     bodyJson: row.bodyJson ?? null,
     mentions: noteBodyMentions(row.bodyJson),
     editable: open && isEditableNoteBody(row.bodyJson),
-    attachments: Array.isArray(row.attachments) ? row.attachments : [],
+    attachments: attachmentViews(row.attachments),
     replyMinimumRole: row.replyMinimumRole ?? "everyone",
     triggerAt: iso(row.triggerAt),
     postNow: row.postNow,
@@ -411,7 +452,7 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
     )
     const owned = await client.query(
       `select o.external_id, o.body, o.url, o.published_at, o.created_at, o.updated_at,
-              o.raw->'attachments' as attachments
+              coalesce(o.raw->'comment'->'attachments', o.raw->'attachments') as attachments
        from owned_content o
        where o.connection_id = $1 and o.kind = 'note'
          and o.published_at between $2 and $3
@@ -435,7 +476,7 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
         bodyJson: null,
         mentions: [],
         editable: false,
-        attachments: Array.isArray(row.attachments) ? row.attachments : [],
+        attachments: attachmentViews(row.attachments),
         replyMinimumRole: "everyone",
         triggerAt: null,
         postNow: false,

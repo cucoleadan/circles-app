@@ -12,6 +12,14 @@ export interface NoteAttachment {
   type: string
   imageUrl?: string
   linkMetadata?: { url?: string; host?: string; title?: string }
+  /** The post a restack-with-Note quotes. */
+  post?: {
+    url: string | null
+    title: string | null
+    subtitle: string | null
+    coverImage: string | null
+    publicationName: string | null
+  }
 }
 
 export interface UploadedImage {
@@ -121,6 +129,21 @@ export function formatTime(date: Date): string {
     minute: "2-digit",
     hourCycle: "h23",
   })
+}
+
+/** Parses pasted text like "17:00", "5:30 pm", "5pm" or "1700" into "HH:MM", or null. */
+export function parseTimeText(text: string): string | null {
+  const match = text.trim().match(/^(\d{1,2})(?:[:.h]?(\d{2}))?\s*([ap])?\.?\s*m?\.?$/i)
+  if (!match) return null
+  let hours = Number(match[1])
+  const minutes = Number(match[2] ?? 0)
+  const meridiem = match[3]?.toLowerCase()
+  if (meridiem) {
+    if (hours < 1 || hours > 12) return null
+    hours = (hours % 12) + (meridiem === "p" ? 12 : 0)
+  }
+  if (hours > 23 || minutes > 59) return null
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`
 }
 
 export function formatDay(date: Date): string {

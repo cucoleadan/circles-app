@@ -1925,10 +1925,17 @@ describe("note scheduling", () => {
 
   test("tags a published Note that only exists in owned content", async () => {
     await migrate.query(
-      `insert into owned_content (id, user_id, connection_id, kind, external_id, body, published_at)
-       values ('owned-note-1', $1, 'conn-notes-a', 'note', '991', 'Published elsewhere', now() - interval '1 day')`,
-      [userA],
+      `insert into owned_content (id, user_id, connection_id, kind, external_id, body, published_at, raw)
+       values ('owned-note-1', $1, 'conn-notes-a', 'note', '991', 'Published elsewhere', now() - interval '1 day', $2)`,
+      [userA, JSON.stringify({ comment: { id: 991, attachments: [{
+        id: "att-post", type: "post", publication: { name: "The Pub" },
+        post: { canonical_url: "https://pub.example/p/x", title: "T", subtitle: "S", cover_image: "https://img.example/c.png", body_html: "<p>long</p>" },
+      }] } })],
     )
+    const restack = { url: "https://pub.example/p/x", title: "T", subtitle: "S", coverImage: "https://img.example/c.png", publicationName: "The Pub" }
+    const before = ((await (await call("GET", "/notes")).json()) as any).notes.find((item: any) => item.id === "note:991")
+    // Feed items nest the Note under `comment`; the quoted post's body never reaches the page.
+    expect(before.attachments).toEqual([{ id: "att-post", type: "post", post: restack }])
     const tag = ((await (await call("POST", "/notes/tags", { name: "Evergreen" })).json()) as any).tag
     const res = await call("PUT", "/notes/note:991/tags", { tagIds: [tag.id] })
     expect(res.status).toBe(200)
@@ -1941,6 +1948,7 @@ describe("note scheduling", () => {
     const matches = list.filter((item: any) => item.substackDraftId === "991")
     expect(matches).toHaveLength(1)
     expect(matches[0].tags.map((item: any) => item.name)).toEqual(["Evergreen"])
+    expect(matches[0].attachments[0].post).toEqual(restack)
   })
 
   test("identifies supported image formats by their bytes", () => {

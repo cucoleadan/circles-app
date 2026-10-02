@@ -110,7 +110,8 @@ async function taggableNote(client: PoolClient, appUser: string, id: string): Pr
        (id, user_id, connection_id, substack_draft_id, status, origin, body_text,
         attachments, published_at, last_seen_upstream_at)
      select $1, $2, o.connection_id, o.external_id, 'published', 'substack', coalesce(o.body, ''),
-            case when jsonb_typeof(o.raw->'attachments') = 'array' then o.raw->'attachments' else '[]'::jsonb end,
+            case when jsonb_typeof(coalesce(o.raw->'comment'->'attachments', o.raw->'attachments')) = 'array'
+                 then coalesce(o.raw->'comment'->'attachments', o.raw->'attachments') else '[]'::jsonb end,
             o.published_at, now()
      from owned_content o
      where o.connection_id = $3 and o.kind = 'note' and o.external_id = $4

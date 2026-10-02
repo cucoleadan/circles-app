@@ -173,6 +173,10 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
   const [refreshing, setRefreshing] = useState(false)
   const [firstSyncDone, setFirstSyncDone] = useState(false)
   const [editing, setEditing] = useState<ScheduledNote | null>(null)
+  // Keeps the closing dialog's content rendered through its exit animation.
+  const [lastEditing, setLastEditing] = useState(editing)
+  if (editing && editing !== lastEditing) setLastEditing(editing)
+  const shownEditing = editing ?? lastEditing
   const [deleting, setDeleting] = useState<ScheduledNote | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<{
@@ -762,24 +766,24 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
             showCloseButton={false}
           >
             <DialogTitle className="sr-only">
-              {editing?.editable ? "Edit Note" : "Reschedule Note"}
+              {shownEditing?.editable ? "Edit Note" : "Reschedule Note"}
             </DialogTitle>
             <DialogDescription className="sr-only">
               Changes are saved to Substack.
             </DialogDescription>
-            {editing && (
+            {shownEditing && (
               <NoteComposer
-                key={editing.id}
-                note={editing}
+                key={shownEditing.id}
+                note={shownEditing}
                 connectionReady={connectionReady}
                 profileName={connection?.profileName ?? null}
                 onSaved={onSaved}
                 onCancel={() => setEditing(null)}
                 onDelete={
-                  editing.status === "draft" || editing.status === "scheduled"
+                  shownEditing.status === "draft" || shownEditing.status === "scheduled"
                     ? () => {
                         // The confirmation renders below the dialog's layer, so close the editor first.
-                        setDeleting(editing)
+                        setDeleting(shownEditing)
                         setEditing(null)
                       }
                     : undefined

@@ -55,6 +55,7 @@ import {
   NOTE_TEXT_LIMIT,
   noteTitle,
   notesApi,
+  parseTimeText,
   replyRoleLabels,
   timeZoneLabel,
   type NoteAttachment,
@@ -64,6 +65,7 @@ import {
   type UploadedImage,
 } from "../../lib/notes"
 import { NoteEditor, toSubstackDoc } from "./note-editor"
+import { PostPreview } from "./note-item"
 import { NoteTagChip, NoteTagPicker, useNoteTags } from "./note-tags"
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -494,6 +496,28 @@ export function NoteComposer({
             </div>
           )}
 
+          {kept.map(
+            (item) =>
+              item.post && (
+                <div key={item.id} className="mt-3">
+                  <PostPreview post={item.post}>
+                    <button
+                      type="button"
+                      aria-label="Remove restacked post"
+                      onClick={() =>
+                        setKept((prev) =>
+                          prev.filter((other) => other.id !== item.id)
+                        )
+                      }
+                      className="self-start rounded-full p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </PostPreview>
+                </div>
+              )
+          )}
+
           {(imagePreviews.length > 0 ||
             linkPreviews.length > 0 ||
             uploading > 0) && (
@@ -846,6 +870,12 @@ export function NoteComposer({
             onChange={(event) =>
               event.target.value && setPickTime(event.target.value)
             }
+            onPaste={(event) => {
+              const time = parseTimeText(event.clipboardData.getData("text"))
+              if (!time) return
+              event.preventDefault()
+              setPickTime(time)
+            }}
             className="h-9 w-full text-sm"
             aria-label="Time"
           />

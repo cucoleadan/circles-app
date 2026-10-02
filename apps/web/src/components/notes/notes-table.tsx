@@ -33,6 +33,11 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { Input } from "@workspace/ui/components/input"
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@workspace/ui/components/tooltip"
+import {
   Table,
   TableBody,
   TableCell,
@@ -50,7 +55,6 @@ import {
   type ScheduledNote,
 } from "../../lib/notes"
 import {
-  AttachmentSummary,
   isOpen,
   NoteActionsMenu,
   NoteStatusBadge,
@@ -81,8 +85,7 @@ const columnLabels: Record<string, string> = {
   status: "Status",
   bodyText: "Note",
   tags: "Tags",
-  mentions: "Mentions",
-  attachments: "Attachments",
+  extras: "Extras",
   replyMinimumRole: "Replies",
   origin: "Source",
   updatedAt: "Last edited",
@@ -108,6 +111,30 @@ function SortHeader({
   )
 }
 
+const PAGE_SIZE = 25
+
+const extraLabels: Record<string, string> = {
+  post: "Restack",
+  comment: "Quote",
+  image: "Image",
+  link: "Link",
+  video: "Video",
+  poll: "Poll",
+  live_stream: "Live",
+}
+
+/** What a Note carries besides text, e.g. ["Restack", "Image ×2", "Mention"]. */
+function noteExtras(note: ScheduledNote): string[] {
+  const counts = new Map<string, number>()
+  for (const item of note.attachments) {
+    if (item.type === "missing") continue
+    const label = extraLabels[item.type] ?? item.type.replace(/_/g, " ")
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  if (note.mentions.length) counts.set("Mention", note.mentions.length)
+  return [...counts].map(([label, n]) => (n > 1 ? `${label} ×${n}` : label))
+}
+
 const ALL_STATUSES: NoteStatus[] = [
   "scheduled",
   "draft",
@@ -130,7 +157,7 @@ export function NotesTable({
     useState<ColumnVisibilityState>({ updatedAt: false })
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
-    pageSize: 25,
+    pageSize: PAGE_SIZE,
   })
   const [statuses, setStatuses] = useState<NoteStatus[]>([
     "scheduled",
@@ -183,18 +210,34 @@ export function NotesTable({
         columnHelper.accessor("bodyText", {
           header: "Note",
           filterFn: "includesString",
-          cell: ({ row }) => (
-            <button
-              type="button"
-              disabled={!isOpen(row.original)}
-              onClick={() => handlers.onEdit(row.original)}
-              className="block max-w-[28rem] truncate text-left disabled:cursor-default"
-              title={row.original.bodyText}
-            >
-              {row.original.bodyText.replace(/\s+/g, " ") ||
-                "(Attachment only)"}
-            </button>
-          ),
+          cell: ({ row }) => {
+            const note = row.original
+            const text = note.bodyText.replace(/\s+/g, " ") || "(Attachment only)"
+            const className =
+              "block max-w-[28rem] cursor-pointer truncate text-left hover:underline disabled:cursor-default disabled:no-underline"
+            // Published Notes can't be edited upstream; open them on Substack instead.
+            return !isOpen(note) && note.noteUrl ? (
+              <a
+                href={note.noteUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={className}
+                title={note.bodyText}
+              >
+                {text}
+              </a>
+            ) : (
+              <button
+                type="button"
+                disabled={!isOpen(note)}
+                onClick={() => handlers.onEdit(note)}
+                className={className}
+                title={note.bodyText}
+              >
+                {text}
+              </button>
+            )
+          },
         }),
         columnHelper.accessor(
           (note) => note.tags.map((tag) => tag.name).join(", "),
@@ -216,27 +259,42 @@ export function NotesTable({
             ),
           }
         ),
-        columnHelper.accessor(
-          (note) => note.mentions.map((mention) => mention.label).join(", "),
-          {
-            id: "mentions",
-            header: "Mentions",
-            cell: ({ getValue }) => (
-              <span className="block max-w-40 truncate text-muted-foreground">
-                {String(getValue() || "—")}
-              </span>
-            ),
-          }
-        ),
-        columnHelper.accessor((note) => note.attachments.length, {
-          id: "attachments",
-          header: "Attachments",
-          cell: ({ row }) =>
-            row.original.attachments.length ? (
-              <AttachmentSummary note={row.original} />
+        columnHelper.accessor((note) => noteExtras(note).join(", "), {
+          id: "extras",
+          header: "Extras",
+          cell: ({ row }) => {
+            const extras = noteExtras(row.original)
+            const mentioned = row.original.mentions
+              .map((mention) => mention.label)
+              .join(", ")
+            return extras.length ? (
+              <div className="flex flex-wrap gap-1">
+                {extras.map((label) => {
+                  const badge = (
+                    <Badge
+                      key={label}
+                      variant="outline"
+                      className="h-5 rounded-full px-1.5 text-[10px] whitespace-nowrap capitalize"
+                    >
+                      {label}
+                    </Badge>
+                  )
+                  return label.startsWith("Mention") ? (
+                    <Tooltip key={label}>
+                      <TooltipTrigger asChild>{badge}</TooltipTrigger>
+                      <TooltipContent side="top" className="text-xs">
+                        {mentioned}
+                      </TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    badge
+                  )
+                })}
+              </div>
             ) : (
               <span className="text-muted-foreground">—</span>
-            ),
+            )
+          },
         }),
         columnHelper.accessor("replyMinimumRole", {
           header: "Replies",
@@ -373,9 +431,11 @@ export function NotesTable({
         </DropdownMenu>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-stone-200/80 bg-white dark:border-stone-800 dark:bg-stone-900">
+      {/* Rows scroll inside the Table's own container, so the page's view
+          tabs, this toolbar and the sticky column header stay in view. */}
+      <div className="overflow-hidden rounded-xl border border-stone-200/80 bg-white dark:border-stone-800 dark:bg-stone-900 [&>[data-slot=table-container]]:max-h-[max(20rem,calc(100svh-17rem))]">
         <Table className="text-xs">
-          <TableHeader className="bg-stone-50 dark:bg-stone-950">
+          <TableHeader className="sticky top-0 z-10 bg-stone-50 shadow-[inset_0_-1px_0_rgb(231_229_228)] dark:bg-stone-950 dark:shadow-[inset_0_-1px_0_rgb(41_37_36)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
@@ -421,31 +481,24 @@ export function NotesTable({
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
+          Showing {table.getRowModel().rows.length} of{" "}
           {table.getFilteredRowModel().rows.length} Note
           {table.getFilteredRowModel().rows.length === 1 ? "" : "s"}
         </span>
-        <div className="flex items-center gap-2">
-          <span>
-            Page {pagination.pageIndex + 1} of{" "}
-            {Math.max(1, table.getPageCount())}
-          </span>
+        {table.getCanNextPage() && (
           <Button
             variant="outline"
             size="sm"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
+            onClick={() =>
+              setPagination({
+                pageIndex: 0,
+                pageSize: pagination.pageSize + PAGE_SIZE,
+              })
+            }
           >
-            Previous
+            Load more
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-          </Button>
-        </div>
+        )}
       </div>
     </div>
   )

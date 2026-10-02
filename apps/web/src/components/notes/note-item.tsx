@@ -1,3 +1,5 @@
+import type { ReactNode } from "react"
+
 import {
   CopyPlus,
   ExternalLink,
@@ -6,6 +8,7 @@ import {
   Link2,
   MoreHorizontal,
   Pencil,
+  Repeat2,
   Trash2,
   Zap,
 } from "lucide-react"
@@ -25,6 +28,7 @@ import {
   noteMoment,
   statusClasses,
   statusLabels,
+  type NoteAttachment,
   type ScheduledNote,
 } from "../../lib/notes"
 import { NoteTagList } from "./note-tags"
@@ -123,7 +127,8 @@ export function NoteActionsMenu({
 export function AttachmentSummary({ note }: { note: ScheduledNote }) {
   const images = note.attachments.filter((item) => item.type === "image").length
   const links = note.attachments.filter((item) => item.type === "link").length
-  if (!images && !links) return null
+  const posts = note.attachments.filter((item) => item.post).length
+  if (!images && !links && !posts) return null
   return (
     <span className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
       {images > 0 && (
@@ -136,7 +141,54 @@ export function AttachmentSummary({ note }: { note: ScheduledNote }) {
           <Link2 className="size-3" /> {links}
         </span>
       )}
+      {posts > 0 && (
+        <span className="inline-flex items-center gap-0.5">
+          <Repeat2 className="size-3" /> {posts}
+        </span>
+      )}
     </span>
+  )
+}
+
+/** The post a restack-with-Note quotes, linking to it. */
+export function PostPreview({
+  post,
+  children,
+}: {
+  post: NonNullable<NoteAttachment["post"]>
+  children?: ReactNode
+}) {
+  return (
+    <div className="flex max-w-md items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 p-2 dark:border-stone-800 dark:bg-stone-900">
+      {post.coverImage && (
+        <img
+          src={post.coverImage}
+          alt=""
+          className="size-14 shrink-0 rounded-lg object-cover"
+        />
+      )}
+      <a
+        href={post.url ?? undefined}
+        target="_blank"
+        rel="noreferrer"
+        className="min-w-0 flex-1 text-xs hover:underline"
+      >
+        <span className="line-clamp-2 font-semibold text-stone-900 dark:text-stone-100">
+          {post.title ?? post.url ?? "Post"}
+        </span>
+        {post.subtitle && (
+          <span className="line-clamp-2 text-muted-foreground">
+            {post.subtitle}
+          </span>
+        )}
+        {post.publicationName && (
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {post.publicationName}
+          </span>
+        )}
+      </a>
+      {children}
+    </div>
   )
 }
 
@@ -182,6 +234,9 @@ export function NoteCard({
         >
           {note.bodyText || "(Attachment only)"}
         </button>
+        {note.attachments.map(
+          (item) => item.post && <PostPreview key={item.id} post={item.post} />
+        )}
         <NoteTagList note={note} />
       </div>
       {thumbnail && (

@@ -8,7 +8,6 @@ import "@workspace/ui/globals.css"
     <main class="grid min-h-screen place-items-center px-6">
       <form id="auth-form" class="w-full max-w-sm space-y-4 rounded-xl border p-6">
         <div><p class="text-sm text-muted-foreground">Circles CRM</p><h1 class="text-2xl font-semibold">Welcome</h1></div>
-        <input class="w-full rounded-md border bg-transparent px-3 py-2" name="name" placeholder="Name (first setup only)" />
         <input class="w-full rounded-md border bg-transparent px-3 py-2" name="email" type="email" placeholder="Email" required />
         <input class="w-full rounded-md border bg-transparent px-3 py-2" name="password" type="password" placeholder="Password" required minlength="8" />
         <div class="flex gap-2">
@@ -34,7 +33,8 @@ import "@workspace/ui/globals.css"
         const response = await fetch(`/api/auth/${path}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(Object.fromEntries(new FormData(form))),
+          // Better Auth requires a name; the CRM shows the Substack profile name instead.
+          body: JSON.stringify({ name: "", ...Object.fromEntries(new FormData(form)) }),
         })
         if (response.ok) location.href = "/"
         else status.textContent = action === "sign-up" ? "Account creation is closed or invalid." : "Invalid email or password."
