@@ -3,7 +3,9 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",
+    "types": ["bun"],
     "skipLibCheck": true,
     "strict": true
-  }
+  },
+  "include": ["scripts/**/*.ts"]
 }
