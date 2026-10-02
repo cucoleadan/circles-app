@@ -53,6 +53,9 @@ export interface ActivityItemInput {
   targetBody?: string | null
   target_url?: string | null
   targetUrl?: string | null
+  /** Post cover image and publication name; kept in metadata for preview cards. */
+  targetImage?: string
+  targetPublication?: string
   actor?: InteractionAuthorInput | null
   target_author?: InteractionAuthorInput | null
   targetAuthor?: InteractionAuthorInput | null

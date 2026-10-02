@@ -12,6 +12,7 @@ import {
   Link2,
   LoaderCircle,
   MoreHorizontal,
+  Tag,
   Trash2,
   X,
 } from "lucide-react"
@@ -63,6 +64,7 @@ import {
   type UploadedImage,
 } from "../../lib/notes"
 import { NoteEditor, toSubstackDoc } from "./note-editor"
+import { NoteTagChip, NoteTagPicker, useNoteTags } from "./note-tags"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const CARD_CLASS =
@@ -170,7 +172,7 @@ export function NoteComposer({
 }: {
   note?: ScheduledNote | null
   /** Prefilled content for a new Note, such as a duplicate. */
-  seed?: { bodyJson: JSONContent } | null
+  seed?: { bodyJson: JSONContent; tagIds?: string[] } | null
   initialDate?: Date | null
   /** A day picked on the calendar; each new nonce moves the schedule there without clearing the text. */
   pickedDay?: { day: Date; nonce: number } | null
@@ -219,6 +221,16 @@ export function NoteComposer({
       setPickTime(timeOf(next))
     }
   }
+  const { tags: allTags, setNoteTags } = useNoteTags()
+  const [tagIds, setTagIds] = useState<string[]>(
+    () => note?.tags.map((tag) => tag.id) ?? seed?.tagIds ?? []
+  )
+  const selectedTags = tagIds.flatMap((id) => {
+    const tag =
+      allTags.find((item) => item.id === id) ??
+      note?.tags.find((item) => item.id === id)
+    return tag ? [tag] : []
+  })
   const [uploading, setUploading] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -307,8 +319,15 @@ export function NoteComposer({
       .run()
   }
 
+  /** A new Note sends its tags when saved; an existing Note saves them now. */
+  function changeTags(ids: string[]) {
+    setTagIds(ids)
+    if (note) void setNoteTags(note, ids)
+  }
+
   function clearComposer() {
     editorRef.current?.commands.clearContent(true)
+    setTagIds([])
     setImages([])
     setLink("")
     const next = defaultSchedule(null, null)
@@ -367,6 +386,7 @@ export function NoteComposer({
             jsonInit("POST", {
               clientRequestId: requestId.current,
               ...content,
+              tagIds,
               attachments: attachments.filter(
                 (item) => item.type !== "existing"
               ),
@@ -523,6 +543,20 @@ export function NoteComposer({
             </div>
           )}
 
+          {selectedTags.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1">
+              {selectedTags.map((tag) => (
+                <NoteTagChip
+                  key={tag.id}
+                  tag={tag}
+                  onRemove={() =>
+                    changeTags(tagIds.filter((id) => id !== tag.id))
+                  }
+                />
+              ))}
+            </div>
+          )}
+
           {error && (
             <p
               role="alert"
@@ -614,6 +648,17 @@ export function NoteComposer({
                 <AtSign className="size-[18px]" />
               </IconButton>
             )}
+
+            <NoteTagPicker selectedIds={tagIds} onChange={changeTags}>
+              <button
+                type="button"
+                aria-label="Add tags"
+                title="Add tags"
+                className={iconButtonClass}
+              >
+                <Tag className="size-[18px]" />
+              </button>
+            </NoteTagPicker>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>

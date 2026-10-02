@@ -132,6 +132,18 @@ function itemUrl(item: Record<string, any>): string | null {
   return firstString(context?.fallbackUrl, comment?.canonical_url, comment?.url, post?.canonical_url, post?.url)
 }
 
+/** Cover image and publication for a post target; omitted keys keep stored values. */
+function postPreview(item: Record<string, any>): { targetImage?: string; targetPublication?: string } {
+  const post = record(item.post)
+  if (!post) return {}
+  const image = firstString(post.cover_image)
+  const publication = firstString(record(item.publication)?.name, record(post.publication)?.name)
+  return {
+    ...(image && { targetImage: image }),
+    ...(publication && { targetPublication: publication }),
+  }
+}
+
 function noteUrl(author: Record<string, any> | null, id: string): string | null {
   const handle = firstString(author?.handle, author?.username)?.replace(/^@/, "")
   if (!handle) return null
@@ -192,6 +204,7 @@ export function normalizeOutboundProfileFeed(
         targetTitle: firstString(post?.title),
         targetBody,
         targetUrl,
+        ...(targetKind === "post" ? postPreview(item) : {}),
         targetAuthor,
         threadKind: postId ? "post" : "note",
         threadRootId: rootId,
@@ -227,6 +240,7 @@ export function normalizeOutboundProfileFeed(
       targetId,
       targetTitle: firstString(post?.title),
       targetUrl: itemUrl(item),
+      ...(hasParent ? {} : postPreview(item)),
       targetAuthor,
       threadKind: postId ? "post" : "note",
       threadRootId: postId ?? rootCommentId(comment) ?? targetId,

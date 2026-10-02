@@ -18,19 +18,28 @@ import {
 
 import {
   applyDraftToRow,
+  currentConnection,
   getNoteByRequest,
   getNoteRow,
   insertPendingNote,
   listNotes,
+  noteView,
   NoteRequestError,
   reconcileDrafts,
   requireActiveConnection,
   substackFor,
-  toNoteView,
   upstreamError,
   type NoteConnection,
   type ScheduledNoteRow,
 } from "../../db/scheduled-notes.js"
+import {
+  addNoteTags,
+  createNoteTag,
+  deleteNoteTag,
+  listNoteTags,
+  setNoteTags,
+  updateNoteTag,
+} from "../../db/note-tags.js"
 import { withTenant } from "../../db/tenant.js"
 import type { V1Env } from "./types.js"
 
@@ -69,7 +78,13 @@ const content = {
   triggerAt: z.string().max(40).nullable().optional(),
 }
 
-const createInput = z.object({ clientRequestId: z.string().trim().min(8).max(100), ...content })
+const tagIds = z.array(z.string().min(1).max(100)).max(20)
+
+const createInput = z.object({
+  clientRequestId: z.string().trim().min(8).max(100),
+  ...content,
+  tagIds: tagIds.default([]),
+})
 const updateInput = z.object({
   bodyJson: content.bodyJson.optional(),
   attachments: z.array(attachment).max(6).optional(),
@@ -211,13 +226,17 @@ notesRoutes.post("/notes", noteBodyLimit, async (c) => {
         triggerAt,
         postNow: input.mode === "post_now",
       })
+      if (pending) await addNoteTags(client, appUser, pending.id, input.tagIds)
       return pending
         ? { pending, existing: null }
         : { pending: null, existing: await getNoteByRequest(client, appUser, input.clientRequestId) }
     })
     if (claim.existing) {
       if (claim.existing.status === "pending") throw new NoteRequestError("This Note is still being saved.", 409)
-      return c.json({ note: toNoteView(claim.existing, conn.profileHandle) })
+      const existing = claim.existing
+      return c.json({
+        note: await withTenant({ appUserId: appUser }, (client) => noteView(client, existing, conn.profileHandle)),
+      })
     }
     const pending = claim.pending!
 
@@ -237,14 +256,15 @@ notesRoutes.post("/notes", noteBodyLimit, async (c) => {
       throw await upstreamError(appUser, conn, error)
     }
 
-    const row = await withTenant({ appUserId: appUser }, (client) =>
-      applyDraftToRow(client, pending.id, conn.id, draft, {
+    const note = await withTenant({ appUserId: appUser }, async (client) => {
+      const row = await applyDraftToRow(client, pending.id, conn.id, draft, {
         bodyText: noteBodyText(bodyJson),
         bodyJson,
         postNow: input.mode === "post_now",
-      }),
-    )
-    return c.json({ note: toNoteView(row, conn.profileHandle) }, 201)
+      })
+      return noteView(client, row, conn.profileHandle)
+    })
+    return c.json({ note }, 201)
   } catch (error) {
     return fail(c, error)
   }
@@ -281,14 +301,15 @@ notesRoutes.patch("/notes/:id", noteBodyLimit, async (c) => {
       throw await upstreamError(appUser, conn, error)
     }
 
-    const updated = await withTenant({ appUserId: appUser }, (client) =>
-      applyDraftToRow(client, row.id, conn.id, draft, {
+    const note = await withTenant({ appUserId: appUser }, async (client) => {
+      const updated = await applyDraftToRow(client, row.id, conn.id, draft, {
         bodyText: input.bodyJson === undefined ? row.bodyText : noteBodyText(bodyJson),
         bodyJson,
         postNow: input.mode === "post_now",
-      }),
-    )
-    return c.json({ note: toNoteView(updated, conn.profileHandle) })
+      })
+      return noteView(client, updated, conn.profileHandle)
+    })
+    return c.json({ note })
   } catch (error) {
     return fail(c, error)
   }
@@ -312,10 +333,15 @@ notesRoutes.post("/notes/:id/abort", async (c) => {
     } catch (error) {
       throw await upstreamError(appUser, conn, error)
     }
-    const updated = await withTenant({ appUserId: appUser }, (client) =>
-      applyDraftToRow(client, row.id, conn.id, draft, { bodyText: row.bodyText, bodyJson: row.bodyJson, postNow: false }),
-    )
-    return c.json({ note: toNoteView(updated, conn.profileHandle) })
+    const note = await withTenant({ appUserId: appUser }, async (client) => {
+      const updated = await applyDraftToRow(client, row.id, conn.id, draft, {
+        bodyText: row.bodyText,
+        bodyJson: row.bodyJson,
+        postNow: false,
+      })
+      return noteView(client, updated, conn.profileHandle)
+    })
+    return c.json({ note })
   } catch (error) {
     return fail(c, error)
   }
@@ -337,6 +363,69 @@ notesRoutes.delete("/notes/:id", async (c) => {
       ),
     )
     return c.body(null, 204)
+  } catch (error) {
+    return fail(c, error)
+  }
+})
+
+// Tags are Circles-only labels; changing them never calls Substack.
+
+const tagInput = z.object({
+  name: z.string().trim().min(1).max(60),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+})
+
+notesRoutes.get("/notes/tags", async (c) => {
+  const tags = await withTenant({ appUserId: c.get("appUser") }, listNoteTags)
+  return c.json({ tags })
+})
+
+notesRoutes.post("/notes/tags", async (c) => {
+  const appUser = c.get("appUser")
+  const parsed = tagInput.safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: "Give the tag a name up to 60 characters." }, 400)
+  try {
+    const tag = await withTenant({ appUserId: appUser }, (client) => createNoteTag(client, appUser, parsed.data))
+    return c.json({ tag }, 201)
+  } catch (error) {
+    return fail(c, error)
+  }
+})
+
+notesRoutes.patch("/notes/tags/:tagId", async (c) => {
+  const parsed = tagInput.partial().safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: "Give the tag a name up to 60 characters." }, 400)
+  try {
+    const tag = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+      updateNoteTag(client, c.req.param("tagId"), parsed.data),
+    )
+    if (!tag) return c.json({ error: "Tag not found." }, 404)
+    return c.json({ tag })
+  } catch (error) {
+    return fail(c, error)
+  }
+})
+
+notesRoutes.delete("/notes/tags/:tagId", async (c) => {
+  const deleted = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+    deleteNoteTag(client, c.req.param("tagId")),
+  )
+  if (!deleted) return c.json({ error: "Tag not found." }, 404)
+  return c.body(null, 204)
+})
+
+/** Replaces a Note's tags. Works for any Note, including published ones. */
+notesRoutes.put("/notes/:id/tags", async (c) => {
+  const appUser = c.get("appUser")
+  const parsed = z.object({ tagIds }).safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: "Invalid tags" }, 400)
+  try {
+    const note = await withTenant({ appUserId: appUser }, async (client) => {
+      const row = await setNoteTags(client, appUser, c.req.param("id"), parsed.data.tagIds)
+      const conn = await currentConnection(client, appUser)
+      return noteView(client, row, conn?.profileHandle ?? null)
+    })
+    return c.json({ note })
   } catch (error) {
     return fail(c, error)
   }

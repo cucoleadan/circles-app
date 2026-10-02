@@ -47,8 +47,13 @@ describe("profile outbound history normalization", () => {
         context: { type: "post_restack", source: "db-restack", timestamp: "2026-09-04T10:00:00Z" },
         post: {
           id: 202,
+          title: "Dave's essay",
+          subtitle: "Why restacks matter",
+          canonical_url: "https://dave.substack.com/p/essay",
+          cover_image: "https://substack-post-media.s3.amazonaws.com/cover.png",
           publishedBylines: [{ id: 9004, handle: "dave", name: "Dave" }],
         },
+        publication: { name: "Dave's Letters" },
       },
     ], ownerId)
 
@@ -61,7 +66,14 @@ describe("profile outbound history normalization", () => {
     expect(items[1]).toMatchObject({
       externalId: "outbound:restack:post:202",
       targetAuthor: { id: "9004", handle: "dave" },
+      targetTitle: "Dave's essay",
+      targetBody: "Why restacks matter",
+      targetUrl: "https://dave.substack.com/p/essay",
+      targetImage: "https://substack-post-media.s3.amazonaws.com/cover.png",
+      targetPublication: "Dave's Letters",
     })
+    // No cover image: the key is left out so a replay keeps a stored one.
+    expect(items[0]).not.toHaveProperty("targetImage")
   })
 
   test("links a comment like to the comment author, not the enclosing post author", () => {

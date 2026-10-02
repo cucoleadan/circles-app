@@ -29,7 +29,9 @@ import { withTenant } from "../db/tenant.js"
 
 export const ext = new Hono<{ Variables: { appUser: string; userEmail: string } }>()
 
-function substackAuthor(value: unknown): { id?: string; handle: string; name?: string | null } | null {
+function substackAuthor(
+  value: unknown,
+): { id?: string; handle: string; name?: string | null; photo_url?: string } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
   const data = value as Record<string, any>
   const nested = [
@@ -41,6 +43,8 @@ function substackAuthor(value: unknown): { id?: string; handle: string; name?: s
     data.item?.comment?.user,
     data.post?.user,
     data.post?.author,
+    data.publishedBylines?.[0],
+    data.post?.publishedBylines?.[0],
   ]
   for (const candidate of nested) {
     if (!candidate || typeof candidate !== "object") continue
@@ -50,10 +54,26 @@ function substackAuthor(value: unknown): { id?: string; handle: string; name?: s
         id: candidate.id === undefined ? undefined : String(candidate.id),
         handle: handle.trim().replace(/^@/, ""),
         name: typeof candidate.name === "string" ? candidate.name : null,
+        ...(typeof candidate.photo_url === "string" && { photo_url: candidate.photo_url }),
       }
     }
   }
   return null
+}
+
+/**
+ * True for a URL that points at one post, Note, or comment. The extension
+ * falls back to the page the action happened on, which is often the feed.
+ */
+export function isSubstackContentUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false
+  try {
+    const { protocol, pathname } = new URL(value)
+    return protocol === "https:" &&
+      /\/p\/[^/]+|\/(?:home|inbox)\/post\/p-?\d+|\/note\/c-\d+|\/comment\/\d+/.test(pathname)
+  } catch {
+    return false
+  }
 }
 
 function substackText(value: unknown): string | null {
@@ -87,11 +107,16 @@ function substackTargetContext(value: unknown, targetKind: string, targetId: str
       ? `https://substack.com/@${encodeURIComponent(author.handle)}/note/${encodeURIComponent(noteId)}`
       : null
   )
+  const text = (value: unknown) => (typeof value === "string" && value.trim() ? value.trim() : null)
   return {
     author,
     targetBody,
     targetTitle: typeof target?.title === "string" ? target.title : null,
     targetUrl: typeof targetUrl === "string" ? targetUrl : null,
+    targetImage: targetKind === "post" ? text(target?.cover_image) : null,
+    targetPublication: targetKind === "post"
+      ? text(data.publication?.name) ?? text(target?.publication?.name)
+      : null,
   }
 }
 
@@ -258,9 +283,14 @@ ext.post("/activity", captureBodyLimit, async (c) => {
   // authenticated reader API so outbound actions attach to the actual person,
   // including replies made from the owner's own post/Note page. This runs
   // outside any transaction so a slow upstream never holds a pooled connection.
+  // The lookup also supplies the real post/Note URL in place of the page URL.
+  if (payload?.kind === "outbound-action" && !isSubstackContentUrl(payload.targetUrl)) {
+    payload.targetUrl = null
+  }
   if (
     payload?.kind === "outbound-action" &&
-    (payload.targetKind === "comment" || !payload?.targetAuthor?.handle || !payload?.targetBody) &&
+    (payload.targetKind === "comment" || !payload?.targetAuthor?.handle || !payload?.targetBody ||
+      !payload.targetUrl) &&
     conn?.ciphertext
   ) {
     try {
@@ -276,6 +306,8 @@ ext.post("/activity", captureBodyLimit, async (c) => {
       if (context.targetBody) payload.targetBody = context.targetBody
       if (context.targetTitle) payload.targetTitle = context.targetTitle
       if (context.targetUrl) payload.targetUrl = context.targetUrl
+      if (context.targetImage) payload.targetImage = context.targetImage
+      if (context.targetPublication) payload.targetPublication = context.targetPublication
     } catch (error) {
       console.warn("Could not resolve outbound Substack target author:", (error as Error)?.message ?? error)
     }

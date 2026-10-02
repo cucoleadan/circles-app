@@ -7,7 +7,9 @@ import {
   LayoutList,
   LoaderCircle,
   RefreshCw,
+  Settings2,
   Sheet as SheetIcon,
+  Tag,
   Zap,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -29,6 +31,15 @@ import {
   DialogDescription,
   DialogTitle,
 } from "@workspace/ui/components/dialog"
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@workspace/ui/components/dropdown-menu"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Toaster } from "@workspace/ui/components/sonner"
 import {
@@ -47,6 +58,7 @@ import {
   POST_NOW_ABORT_CUTOFF_MS,
   type NoteMode,
   type NotesResponse,
+  type NoteTagSummary,
   type ScheduledNote,
 } from "../../lib/notes"
 import type { JSONContent } from "@tiptap/core"
@@ -56,6 +68,11 @@ import type { NoteHandlers } from "./note-item"
 import { NotesCalendar } from "./notes-calendar"
 import { NotesQueue } from "./notes-queue"
 import { NotesTable } from "./notes-table"
+import {
+  NoteTagsManager,
+  NoteTagsProvider,
+  type NoteTagsApi,
+} from "./note-tags"
 
 type View = "queue" | "calendar" | "table"
 const VIEWS: View[] = ["queue", "calendar", "table"]
@@ -111,7 +128,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   const [busyId, setBusyId] = useState<string | null>(null)
   const [composerSeed, setComposerSeed] = useState<{
     key: number
-    seed: { bodyJson: JSONContent } | null
+    seed: { bodyJson: JSONContent; tagIds?: string[] } | null
     date: Date | null
   }>({ key: 0, seed: null, date: null })
   const composerRef = useRef<HTMLDivElement>(null)
@@ -120,6 +137,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     nonce: number
   } | null>(null)
   const postingIds = useRef(new Set<string>())
+  const [tags, setTags] = useState<NoteTagSummary[]>([])
+  const [managingTags, setManagingTags] = useState(false)
+  const [tagFilter, setTagFilter] = useState<string[]>([])
 
   const connectionReady = connection?.status === "active"
   const posting = useMemo(
@@ -197,6 +217,106 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     return () => timers.forEach(clearTimeout)
   }, [posting, refresh])
 
+  const loadTags = useCallback(() => {
+    notesApi<{ tags: NoteTagSummary[] }>("/notes/tags")
+      .then((body) => setTags(body.tags))
+      .catch(() => {})
+  }, [])
+
+  useEffect(loadTags, [loadTags])
+
+  const sortTags = (list: NoteTagSummary[]) =>
+    [...list].sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+    )
+
+  const tagsApi: NoteTagsApi = {
+    tags,
+    openManager: () => setManagingTags(true),
+    createTag: async (name, color) => {
+      try {
+        const { tag } = await notesApi<{ tag: NoteTagSummary }>(
+          "/notes/tags",
+          jsonInit("POST", { name, color })
+        )
+        setTags((prev) => sortTags([...prev, tag]))
+        return tag
+      } catch (err) {
+        toast.error(errorMessage(err, "Could not create the tag."))
+        return null
+      }
+    },
+    updateTag: async (id, change) => {
+      try {
+        const { tag } = await notesApi<{ tag: NoteTagSummary }>(
+          `/notes/tags/${id}`,
+          jsonInit("PATCH", change)
+        )
+        setTags((prev) =>
+          sortTags(
+            prev.map((item) => (item.id === id ? { ...item, ...tag } : item))
+          )
+        )
+        setNotes((prev) =>
+          prev.map((note) => ({
+            ...note,
+            tags: note.tags.map((item) =>
+              item.id === id ? { ...item, ...tag } : item
+            ),
+          }))
+        )
+        return true
+      } catch (err) {
+        toast.error(errorMessage(err, "Could not update the tag."))
+        return false
+      }
+    },
+    deleteTag: async (id) => {
+      try {
+        await notesApi(`/notes/tags/${id}`, { method: "DELETE" })
+        setTags((prev) => prev.filter((item) => item.id !== id))
+        setTagFilter((prev) => prev.filter((item) => item !== id))
+        setNotes((prev) =>
+          prev.map((note) => ({
+            ...note,
+            tags: note.tags.filter((item) => item.id !== id),
+          }))
+        )
+        return true
+      } catch (err) {
+        toast.error(errorMessage(err, "Could not delete the tag."))
+        return false
+      }
+    },
+    setNoteTags: async (note, tagIds) => {
+      // Show the change at once; the response confirms it.
+      const optimistic = tags.filter((tag) => tagIds.includes(tag.id))
+      setNotes((prev) =>
+        prev.map((item) =>
+          item.id === note.id ? { ...item, tags: optimistic } : item
+        )
+      )
+      try {
+        const { note: updated } = await notesApi<{ note: ScheduledNote }>(
+          `/notes/${note.id}/tags`,
+          jsonInit("PUT", { tagIds })
+        )
+        // A published Note listed from synced content gets a new ID here.
+        setNotes((prev) =>
+          prev.map((item) => (item.id === note.id ? updated : item))
+        )
+        loadTags()
+      } catch (err) {
+        setNotes((prev) =>
+          prev.map((item) =>
+            item.id === note.id ? { ...item, tags: note.tags } : item
+          )
+        )
+        toast.error(errorMessage(err, "Could not update the tags."))
+      }
+    },
+  }
+
   function upsert(note: ScheduledNote) {
     setNotes((prev) => [note, ...prev.filter((item) => item.id !== note.id)])
     if (note.status === "scheduled" && note.postNow)
@@ -205,6 +325,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
 
   function onSaved(note: ScheduledNote, mode: NoteMode) {
     upsert(note)
+    if (note.tags.length > 0) loadTags()
     setEditing(null)
     if (mode === "post_now") toast("Posting in 1 minute. You can still abort.")
     else if (mode === "draft") toast.success("Saved as a draft.")
@@ -266,7 +387,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   }
 
   function focusComposer(
-    seed: { bodyJson: JSONContent } | null,
+    seed: { bodyJson: JSONContent; tagIds?: string[] } | null,
     date: Date | null
   ) {
     setComposerSeed((prev) => ({ key: prev.key + 1, seed, date }))
@@ -290,7 +411,13 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       onUnschedule: (note) =>
         void patch(note, { mode: "draft" }, "Moved to drafts."),
       onDuplicate: (note) => {
-        focusComposer({ bodyJson: note.bodyJson as JSONContent }, null)
+        focusComposer(
+          {
+            bodyJson: note.bodyJson as JSONContent,
+            tagIds: note.tags.map((tag) => tag.id),
+          },
+          null
+        )
         toast("Copied into the composer.")
       },
       onDelete: (note) => setDeleting(note),
@@ -306,6 +433,12 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     window.history.replaceState(null, "", url)
   }
 
+  const visibleNotes =
+    tagFilter.length === 0
+      ? notes
+      : notes.filter((note) =>
+          note.tags.some((tag) => tagFilter.includes(tag.id))
+        )
   const drafts = notes
     .filter((note) => note.status === "draft")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -315,248 +448,326 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   }
 
   return (
-    <main className="flex min-h-screen flex-col bg-[#f7f5f1] text-[#191817] dark:bg-stone-950 dark:text-stone-100">
-      <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 backdrop-blur-md dark:border-stone-800 dark:bg-stone-900/80">
-        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-3 sm:px-6 lg:px-8">
-          <div className="flex items-center gap-3">
-            <a
-              href="/"
-              className="flex items-center gap-2 text-sm font-bold tracking-tight sm:text-base"
-            >
-              <span className="flex size-7 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
-                <CircleDot className="size-4" />
-              </span>
-              <span>Circles</span>
-            </a>
-            <span className="text-stone-300 dark:text-stone-700">/</span>
-            <span className="text-sm font-semibold">Notes</span>
+    <NoteTagsProvider value={tagsApi}>
+      <main className="flex min-h-screen flex-col bg-[#f7f5f1] text-[#191817] dark:bg-stone-950 dark:text-stone-100">
+        <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 backdrop-blur-md dark:border-stone-800 dark:bg-stone-900/80">
+          <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-3 sm:px-6 lg:px-8">
+            <div className="flex items-center gap-3">
+              <a
+                href="/"
+                className="flex items-center gap-2 text-sm font-bold tracking-tight sm:text-base"
+              >
+                <span className="flex size-7 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
+                  <CircleDot className="size-4" />
+                </span>
+                <span>Circles</span>
+              </a>
+              <span className="text-stone-300 dark:text-stone-700">/</span>
+              <span className="text-sm font-semibold">Notes</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                asChild
+                variant="ghost"
+                size="sm"
+                className="hidden rounded-full text-xs sm:inline-flex"
+              >
+                <a href="/">
+                  <ArrowLeft /> Contacts
+                </a>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="rounded-full text-xs"
+                onClick={() => void refresh(true)}
+                disabled={refreshing || !connectionReady}
+                title="Refresh from Substack"
+              >
+                <RefreshCw
+                  className={refreshing ? "animate-spin text-[#f15a3a]" : ""}
+                />
+                <span className="hidden sm:inline">Refresh</span>
+              </Button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
+        </header>
+
+        {!connectionReady && (
+          <div className="flex items-center justify-between gap-3 border-b border-rose-200/90 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 sm:px-6 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
+            <span className="flex items-center gap-2">
+              <AlertTriangle className="size-4 shrink-0 text-rose-600" />
+              {connection?.status === "expired"
+                ? "Your Substack session expired. Reconnect to schedule or change Notes."
+                : "Connect your Substack account to schedule Notes."}
+            </span>
             <Button
               asChild
-              variant="ghost"
               size="sm"
-              className="hidden rounded-full text-xs sm:inline-flex"
-            >
-              <a href="/">
-                <ArrowLeft /> Contacts
-              </a>
-            </Button>
-            <Button
               variant="outline"
-              size="sm"
-              className="rounded-full text-xs"
-              onClick={() => void refresh(true)}
-              disabled={refreshing || !connectionReady}
-              title="Refresh from Substack"
+              className="h-7 rounded-full bg-white text-xs dark:bg-stone-900"
             >
-              <RefreshCw
-                className={refreshing ? "animate-spin text-[#f15a3a]" : ""}
-              />
-              <span className="hidden sm:inline">Refresh</span>
+              <a href="/?settings=connection">Open settings</a>
             </Button>
           </div>
-        </div>
-      </header>
+        )}
 
-      {!connectionReady && (
-        <div className="flex items-center justify-between gap-3 border-b border-rose-200/90 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 sm:px-6 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
-          <span className="flex items-center gap-2">
-            <AlertTriangle className="size-4 shrink-0 text-rose-600" />
-            {connection?.status === "expired"
-              ? "Your Substack session expired. Reconnect to schedule or change Notes."
-              : "Connect your Substack account to schedule Notes."}
-          </span>
-          <Button
-            asChild
-            size="sm"
-            variant="outline"
-            className="h-7 rounded-full bg-white text-xs dark:bg-stone-900"
-          >
-            <a href="/?settings=connection">Open settings</a>
-          </Button>
-        </div>
-      )}
-
-      {posting.length > 0 && (
-        <div className="border-b border-orange-200 bg-orange-50 dark:border-orange-900/60 dark:bg-orange-950/40">
-          <div className="mx-auto max-w-7xl space-y-1.5 px-3 py-2 sm:px-6 lg:px-8">
-            {posting.map((note) => {
-              const remaining = new Date(note.triggerAt!).getTime() - now
-              const seconds = Math.max(0, Math.ceil(remaining / 1000))
-              const canAbort = remaining > POST_NOW_ABORT_CUTOFF_MS
-              return (
-                <div
-                  key={note.id}
-                  className="flex items-center justify-between gap-3 text-xs"
-                >
-                  <span className="flex min-w-0 items-center gap-2 text-orange-900 dark:text-orange-200">
-                    <Zap className="size-3.5 shrink-0 text-[#f15a3a]" />
-                    <span className="shrink-0 font-semibold tabular-nums">
-                      {remaining > 0 ? `Posting in ${seconds}s` : "Publishing…"}
-                    </span>
-                    <span className="truncate text-orange-800/80 dark:text-orange-300/80">
-                      {noteTitle(note)}
-                    </span>
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="h-7 shrink-0 rounded-full border-orange-300 bg-white text-xs text-orange-900 hover:bg-orange-100 dark:bg-stone-900"
-                    disabled={!canAbort || busyId === note.id}
-                    onClick={() => void abort(note)}
+        {posting.length > 0 && (
+          <div className="border-b border-orange-200 bg-orange-50 dark:border-orange-900/60 dark:bg-orange-950/40">
+            <div className="mx-auto max-w-7xl space-y-1.5 px-3 py-2 sm:px-6 lg:px-8">
+              {posting.map((note) => {
+                const remaining = new Date(note.triggerAt!).getTime() - now
+                const seconds = Math.max(0, Math.ceil(remaining / 1000))
+                const canAbort = remaining > POST_NOW_ABORT_CUTOFF_MS
+                return (
+                  <div
+                    key={note.id}
+                    className="flex items-center justify-between gap-3 text-xs"
                   >
-                    {busyId === note.id ? (
-                      <LoaderCircle className="animate-spin" />
-                    ) : null}
-                    Abort
-                  </Button>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
-      <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-3 py-4 sm:px-6 sm:py-8 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:px-8">
-        <div
-          ref={composerRef}
-          className="scroll-mt-20 self-start lg:sticky lg:top-24"
-        >
-          <div>
-            <NoteComposer
-              framed
-              key={composerSeed.key}
-              seed={composerSeed.seed}
-              initialDate={composerSeed.date}
-              pickedDay={pickedDay}
-              connectionReady={connectionReady}
-              profileName={connection?.profileName ?? null}
-              drafts={drafts}
-              onPickDraft={handlers.onEdit}
-              onSaved={onSaved}
-            />
-          </div>
-        </div>
-
-        <section className="min-w-0 space-y-4">
-          <Tabs value={view} onValueChange={changeView}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <TabsList>
-                <TabsTrigger value="queue" className="text-xs">
-                  <LayoutList /> Queue
-                </TabsTrigger>
-                <TabsTrigger value="calendar" className="text-xs">
-                  <CalendarDays /> Calendar
-                </TabsTrigger>
-                <TabsTrigger value="table" className="text-xs">
-                  <SheetIcon /> Table
-                </TabsTrigger>
-              </TabsList>
-              <p className="text-xs text-muted-foreground">
-                {counts.scheduled} scheduled · {counts.drafts} draft
-                {counts.drafts === 1 ? "" : "s"}
-              </p>
+                    <span className="flex min-w-0 items-center gap-2 text-orange-900 dark:text-orange-200">
+                      <Zap className="size-3.5 shrink-0 text-[#f15a3a]" />
+                      <span className="shrink-0 font-semibold tabular-nums">
+                        {remaining > 0
+                          ? `Posting in ${seconds}s`
+                          : "Publishing…"}
+                      </span>
+                      <span className="truncate text-orange-800/80 dark:text-orange-300/80">
+                        {noteTitle(note)}
+                      </span>
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 rounded-full border-orange-300 bg-white text-xs text-orange-900 hover:bg-orange-100 dark:bg-stone-900"
+                      disabled={!canAbort || busyId === note.id}
+                      onClick={() => void abort(note)}
+                    >
+                      {busyId === note.id ? (
+                        <LoaderCircle className="animate-spin" />
+                      ) : null}
+                      Abort
+                    </Button>
+                  </div>
+                )
+              })}
             </div>
+          </div>
+        )}
 
-            {!firstSyncDone && notes.length === 0 ? (
-              <div className="mt-4 space-y-2">
-                {Array.from({ length: 4 }, (_, index) => (
-                  <Skeleton key={index} className="h-20 rounded-xl" />
-                ))}
+        <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-3 py-4 sm:px-6 sm:py-8 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:px-8">
+          <div
+            ref={composerRef}
+            className="scroll-mt-20 self-start lg:sticky lg:top-24"
+          >
+            <div>
+              <NoteComposer
+                framed
+                key={composerSeed.key}
+                seed={composerSeed.seed}
+                initialDate={composerSeed.date}
+                pickedDay={pickedDay}
+                connectionReady={connectionReady}
+                profileName={connection?.profileName ?? null}
+                drafts={drafts}
+                onPickDraft={handlers.onEdit}
+                onSaved={onSaved}
+              />
+            </div>
+          </div>
+
+          <section className="min-w-0 space-y-4">
+            <Tabs value={view} onValueChange={changeView}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <TabsList>
+                  <TabsTrigger value="queue" className="text-xs">
+                    <LayoutList /> Queue
+                  </TabsTrigger>
+                  <TabsTrigger value="calendar" className="text-xs">
+                    <CalendarDays /> Calendar
+                  </TabsTrigger>
+                  <TabsTrigger value="table" className="text-xs">
+                    <SheetIcon /> Table
+                  </TabsTrigger>
+                </TabsList>
+                <div className="flex items-center gap-2">
+                  <p className="text-xs text-muted-foreground">
+                    {counts.scheduled} scheduled · {counts.drafts} draft
+                    {counts.drafts === 1 ? "" : "s"}
+                  </p>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={`h-7 rounded-full text-xs ${
+                          tagFilter.length > 0
+                            ? "border-[#f15a3a]/50 bg-orange-50 text-[#c2410c] dark:bg-orange-950/40"
+                            : ""
+                        }`}
+                      >
+                        <Tag />
+                        {tagFilter.length === 0
+                          ? "Tags"
+                          : tagFilter.length === 1
+                            ? (tags.find((tag) => tag.id === tagFilter[0])
+                                ?.name ?? "1 tag")
+                            : `${tagFilter.length} tags`}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel className="text-xs">
+                        Show Notes tagged
+                      </DropdownMenuLabel>
+                      {tags.length === 0 ? (
+                        <p className="px-2 pb-2 text-xs text-muted-foreground">
+                          No tags yet.
+                        </p>
+                      ) : (
+                        tags.map((tag) => (
+                          <DropdownMenuCheckboxItem
+                            key={tag.id}
+                            checked={tagFilter.includes(tag.id)}
+                            onSelect={(event) => event.preventDefault()}
+                            onCheckedChange={(checked) =>
+                              setTagFilter((prev) =>
+                                checked
+                                  ? [...prev, tag.id]
+                                  : prev.filter((id) => id !== tag.id)
+                              )
+                            }
+                            className="text-xs"
+                          >
+                            <span
+                              className="size-2 shrink-0 rounded-full"
+                              style={{ backgroundColor: tag.color }}
+                            />
+                            <span className="truncate">{tag.name}</span>
+                            <span className="ml-auto pl-2 text-[10px] text-muted-foreground tabular-nums">
+                              {tag.count}
+                            </span>
+                          </DropdownMenuCheckboxItem>
+                        ))
+                      )}
+                      <DropdownMenuSeparator />
+                      {tagFilter.length > 0 && (
+                        <DropdownMenuItem
+                          className="text-xs"
+                          onSelect={() => setTagFilter([])}
+                        >
+                          Show all Notes
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem
+                        className="text-xs"
+                        onSelect={() => setManagingTags(true)}
+                      >
+                        <Settings2 /> Manage tags…
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
               </div>
-            ) : (
-              <>
-                <TabsContent value="queue" className="mt-4">
-                  <NotesQueue notes={notes} handlers={handlers} />
-                </TabsContent>
-                <TabsContent value="calendar" className="mt-4">
-                  <NotesCalendar
-                    notes={notes}
-                    handlers={handlers}
-                    month={month}
-                    onMonthChange={setMonth}
-                    onCreateOn={(day) => {
-                      setPickedDay({ day, nonce: Date.now() })
-                      composerRef.current?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "start",
-                      })
-                    }}
-                  />
-                </TabsContent>
-                <TabsContent value="table" className="mt-4">
-                  <NotesTable notes={notes} handlers={handlers} />
-                </TabsContent>
-              </>
-            )}
-          </Tabs>
-        </section>
-      </div>
 
-      <Dialog
-        open={Boolean(editing)}
-        onOpenChange={(open) => !open && setEditing(null)}
-      >
-        <DialogContent
-          className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-stone-200 bg-white p-4 shadow-2xl dark:border-stone-800 dark:bg-stone-900"
-          showCloseButton={false}
+              {!firstSyncDone && notes.length === 0 ? (
+                <div className="mt-4 space-y-2">
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <Skeleton key={index} className="h-20 rounded-xl" />
+                  ))}
+                </div>
+              ) : (
+                <>
+                  <TabsContent value="queue" className="mt-4">
+                    <NotesQueue notes={visibleNotes} handlers={handlers} />
+                  </TabsContent>
+                  <TabsContent value="calendar" className="mt-4">
+                    <NotesCalendar
+                      notes={visibleNotes}
+                      handlers={handlers}
+                      month={month}
+                      onMonthChange={setMonth}
+                      onCreateOn={(day) => {
+                        setPickedDay({ day, nonce: Date.now() })
+                        composerRef.current?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        })
+                      }}
+                    />
+                  </TabsContent>
+                  <TabsContent value="table" className="mt-4">
+                    <NotesTable notes={visibleNotes} handlers={handlers} />
+                  </TabsContent>
+                </>
+              )}
+            </Tabs>
+          </section>
+        </div>
+
+        <Dialog
+          open={Boolean(editing)}
+          onOpenChange={(open) => !open && setEditing(null)}
         >
-          <DialogTitle className="sr-only">
-            {editing?.editable ? "Edit Note" : "Reschedule Note"}
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            Changes are saved to Substack.
-          </DialogDescription>
-          {editing && (
-            <NoteComposer
-              key={editing.id}
-              note={editing}
-              connectionReady={connectionReady}
-              profileName={connection?.profileName ?? null}
-              onSaved={onSaved}
-              onCancel={() => setEditing(null)}
-              onDelete={
-                editing.status === "draft" || editing.status === "scheduled"
-                  ? () => {
-                      // The confirmation renders below the dialog's layer, so close the editor first.
-                      setDeleting(editing)
-                      setEditing(null)
-                    }
-                  : undefined
-              }
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+          <DialogContent
+            className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-stone-200 bg-white p-4 shadow-2xl dark:border-stone-800 dark:bg-stone-900"
+            showCloseButton={false}
+          >
+            <DialogTitle className="sr-only">
+              {editing?.editable ? "Edit Note" : "Reschedule Note"}
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Changes are saved to Substack.
+            </DialogDescription>
+            {editing && (
+              <NoteComposer
+                key={editing.id}
+                note={editing}
+                connectionReady={connectionReady}
+                profileName={connection?.profileName ?? null}
+                onSaved={onSaved}
+                onCancel={() => setEditing(null)}
+                onDelete={
+                  editing.status === "draft" || editing.status === "scheduled"
+                    ? () => {
+                        // The confirmation renders below the dialog's layer, so close the editor first.
+                        setDeleting(editing)
+                        setEditing(null)
+                      }
+                    : undefined
+                }
+              />
+            )}
+          </DialogContent>
+        </Dialog>
 
-      <AlertDialog
-        open={Boolean(deleting)}
-        onOpenChange={(open) => !open && setDeleting(null)}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this Note?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This permanently removes the{" "}
-              {deleting?.status === "scheduled" ? "scheduled Note" : "draft"}{" "}
-              from Substack. It can't be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction
-              variant="destructive"
-              onClick={() => void confirmDelete()}
-              disabled={busyId === deleting?.id}
-            >
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <AlertDialog
+          open={Boolean(deleting)}
+          onOpenChange={(open) => !open && setDeleting(null)}
+        >
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this Note?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This permanently removes the{" "}
+                {deleting?.status === "scheduled" ? "scheduled Note" : "draft"}{" "}
+                from Substack. It can't be undone.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep it</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                onClick={() => void confirmDelete()}
+                disabled={busyId === deleting?.id}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
 
-      <Toaster position="bottom-right" />
-    </main>
+        <NoteTagsManager open={managingTags} onOpenChange={setManagingTags} />
+        <Toaster position="bottom-right" />
+      </main>
+    </NoteTagsProvider>
   )
 }

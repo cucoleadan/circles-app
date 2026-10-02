@@ -23,6 +23,18 @@ export interface UploadedImage {
   imageHeight: number
 }
 
+export interface NoteTag {
+  id: string
+  name: string
+  color: string
+}
+
+export interface NoteTagSummary extends NoteTag {
+  /** Notes carrying the tag, excluding deleted ones. */
+  count: number
+  createdAt: string
+}
+
 export interface ScheduledNote {
   id: string
   substackDraftId: string | null
@@ -39,6 +51,7 @@ export interface ScheduledNote {
   postNow: boolean
   publishedAt: string | null
   noteUrl: string | null
+  tags: NoteTag[]
   createdAt: string
   updatedAt: string
 }

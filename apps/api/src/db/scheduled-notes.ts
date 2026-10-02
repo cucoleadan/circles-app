@@ -53,6 +53,12 @@ export interface ScheduledNoteRow {
   updatedAt: string
 }
 
+export interface NoteTag {
+  id: string
+  name: string
+  color: string
+}
+
 export interface ScheduledNoteView {
   id: string
   substackDraftId: string | null
@@ -70,6 +76,7 @@ export interface ScheduledNoteView {
   postNow: boolean
   publishedAt: string | null
   noteUrl: string | null
+  tags: NoteTag[]
   createdAt: string
   updatedAt: string
 }
@@ -95,7 +102,7 @@ function iso(value: unknown): string | null {
   return value instanceof Date ? value.toISOString() : String(value)
 }
 
-export function toNoteView(row: ScheduledNoteRow, handle: string | null): ScheduledNoteView {
+export function toNoteView(row: ScheduledNoteRow, handle: string | null, tags: NoteTag[] = []): ScheduledNoteView {
   const open = row.status === "draft" || row.status === "scheduled"
   return {
     id: row.id,
@@ -112,9 +119,33 @@ export function toNoteView(row: ScheduledNoteRow, handle: string | null): Schedu
     postNow: row.postNow,
     publishedAt: iso(row.publishedAt),
     noteUrl: row.status === "published" ? noteUrl(handle, row.substackDraftId) : null,
+    tags,
     createdAt: iso(row.createdAt)!,
     updatedAt: iso(row.updatedAt)!,
   }
+}
+
+/** Tags per Note ID, sorted by name. */
+export async function noteTagsFor(client: PoolClient, noteIds: string[]): Promise<Map<string, NoteTag[]>> {
+  const tags = new Map<string, NoteTag[]>()
+  if (noteIds.length === 0) return tags
+  const res = await client.query(
+    `select st.note_id as "noteId", t.id, t.name, t.color
+     from scheduled_note_tags st
+     join note_tags t on t.id = st.tag_id
+     where st.note_id = any($1::text[])
+     order by lower(t.name)`,
+    [noteIds],
+  )
+  for (const { noteId, ...tag } of res.rows) {
+    tags.set(noteId, [...(tags.get(noteId) ?? []), tag])
+  }
+  return tags
+}
+
+/** One Note's view with its tags. */
+export async function noteView(client: PoolClient, row: ScheduledNoteRow, handle: string | null) {
+  return toNoteView(row, handle, (await noteTagsFor(client, [row.id])).get(row.id))
 }
 
 /** The newest non-revoked connection; mutations additionally require it to be active. */
@@ -231,6 +262,16 @@ export async function applyDraftToRow(
   fallback: { bodyText: string; bodyJson: unknown; postNow: boolean },
 ): Promise<ScheduledNoteRow> {
   const draftId = String(draft.id)
+  // Tags added to the duplicate while both existed move to the kept row.
+  await client.query(
+    `insert into scheduled_note_tags (note_id, tag_id, user_id)
+     select $3, st.tag_id, st.user_id
+     from scheduled_note_tags st
+     join scheduled_notes dup on dup.id = st.note_id
+     where dup.connection_id = $1 and dup.substack_draft_id = $2 and dup.id <> $3
+     on conflict (note_id, tag_id) do nothing`,
+    [connectionId, draftId, rowId],
+  )
   await client.query(
     "delete from scheduled_notes where connection_id = $1 and substack_draft_id = $2 and id <> $3",
     [connectionId, draftId, rowId],
@@ -382,7 +423,8 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
        limit 500`,
       [conn.id, range.from, range.to],
     )
-    const notes = rows.rows.map((row) => toNoteView(row, conn.profileHandle))
+    const tags = await noteTagsFor(client, rows.rows.map((row) => row.id))
+    const notes = rows.rows.map((row) => toNoteView(row, conn.profileHandle, tags.get(row.id)))
     for (const row of owned.rows) {
       notes.push({
         id: `note:${row.external_id}`,
@@ -399,6 +441,7 @@ export async function listNotes(appUser: string, range: { from: string; to: stri
         postNow: false,
         publishedAt: iso(row.published_at),
         noteUrl: row.url ?? noteUrl(conn.profileHandle, row.external_id),
+        tags: [],
         createdAt: iso(row.created_at)!,
         updatedAt: iso(row.updated_at)!,
       })

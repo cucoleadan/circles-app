@@ -109,7 +109,7 @@ beforeEach(async () => {
     people, relationship_stats, tags, person_tags, lists, list_members,
     saved_views, interactions, substack_connections, profile_snapshots,
     thread_snapshots, activity_snapshots, note_replies_snapshots, sync_state,
-    import_runs, ingestion_batches, audit_log, jobs
+    import_runs, ingestion_batches, audit_log, jobs, note_tags
     restart identity cascade`)
 })
 
@@ -1883,6 +1883,64 @@ describe("note scheduling", () => {
       client.query("select status from scheduled_notes where id = $1", [note.id]),
     )
     expect(stillThere.rows[0].status).toBe("draft")
+  })
+
+  test("creates, renames, attaches, and deletes Note tags", async () => {
+    const created = await call("POST", "/notes/tags", { name: "Growth", color: "#2563eb" })
+    expect(created.status).toBe(201)
+    const growth = ((await created.json()) as any).tag
+    expect(growth).toMatchObject({ name: "Growth", color: "#2563eb", count: 0 })
+    expect((await call("POST", "/notes/tags", { name: "growth" })).status).toBe(409)
+    const launch = ((await (await call("POST", "/notes/tags", { name: "Launch" })).json()) as any).tag
+
+    // Tags sent with a new Note are attached to it.
+    const { note } = (await (await call("POST", "/notes", {
+      clientRequestId: "req-tags-1",
+      bodyJson: doc("Tagged"),
+      mode: "draft",
+      tagIds: [growth.id],
+    })).json()) as any
+    expect(note.tags.map((tag: any) => tag.name)).toEqual(["Growth"])
+
+    // Editing the Note keeps its tags; PUT replaces the set.
+    const edited = (await (await call("PATCH", `/notes/${note.id}`, { mode: "schedule", triggerAt: inOneDay() })).json()) as any
+    expect(edited.note.tags.map((tag: any) => tag.name)).toEqual(["Growth"])
+    const replaced = (await (await call("PUT", `/notes/${note.id}/tags`, { tagIds: [launch.id] })).json()) as any
+    expect(replaced.note.tags.map((tag: any) => tag.name)).toEqual(["Launch"])
+
+    const renamed = await call("PATCH", `/notes/tags/${launch.id}`, { name: "Launches", color: "#16a34a" })
+    expect(((await renamed.json()) as any).tag).toMatchObject({ name: "Launches", color: "#16a34a" })
+    const tags = ((await (await call("GET", "/notes/tags")).json()) as any).tags
+    expect(tags.map((tag: any) => [tag.name, tag.count])).toEqual([["Growth", 0], ["Launches", 1]])
+
+    // Another tenant cannot see the tags or tag this Note.
+    expect(((await (await call("GET", "/notes/tags", undefined, cookieB)).json()) as any).tags).toHaveLength(0)
+    expect((await call("PUT", `/notes/${note.id}/tags`, { tagIds: [] }, cookieB)).status).toBe(404)
+
+    expect((await call("DELETE", `/notes/tags/${launch.id}`)).status).toBe(204)
+    const list = ((await (await call("GET", "/notes")).json()) as any).notes
+    expect(list.find((item: any) => item.id === note.id).tags).toEqual([])
+    expect(substack.requests.filter((line) => line.includes("tag"))).toHaveLength(0)
+  })
+
+  test("tags a published Note that only exists in owned content", async () => {
+    await migrate.query(
+      `insert into owned_content (id, user_id, connection_id, kind, external_id, body, published_at)
+       values ('owned-note-1', $1, 'conn-notes-a', 'note', '991', 'Published elsewhere', now() - interval '1 day')`,
+      [userA],
+    )
+    const tag = ((await (await call("POST", "/notes/tags", { name: "Evergreen" })).json()) as any).tag
+    const res = await call("PUT", "/notes/note:991/tags", { tagIds: [tag.id] })
+    expect(res.status).toBe(200)
+    const { note } = (await res.json()) as any
+    expect(note).toMatchObject({ status: "published", substackDraftId: "991", bodyText: "Published elsewhere" })
+    expect(note.tags.map((item: any) => item.name)).toEqual(["Evergreen"])
+
+    // The list now shows the mirror row once, with its tag.
+    const list = ((await (await call("GET", "/notes")).json()) as any).notes
+    const matches = list.filter((item: any) => item.substackDraftId === "991")
+    expect(matches).toHaveLength(1)
+    expect(matches[0].tags.map((item: any) => item.name)).toEqual(["Evergreen"])
   })
 
   test("identifies supported image formats by their bytes", () => {

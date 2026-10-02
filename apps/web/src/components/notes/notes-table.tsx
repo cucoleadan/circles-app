@@ -56,6 +56,7 @@ import {
   NoteStatusBadge,
   type NoteHandlers,
 } from "./note-item"
+import { NoteTagList } from "./note-tags"
 
 const features = tableFeatures({
   columnFilteringFeature,
@@ -79,6 +80,7 @@ const columnLabels: Record<string, string> = {
   when: "When",
   status: "Status",
   bodyText: "Note",
+  tags: "Tags",
   mentions: "Mentions",
   attachments: "Attachments",
   replyMinimumRole: "Replies",
@@ -194,6 +196,26 @@ export function NotesTable({
             </button>
           ),
         }),
+        columnHelper.accessor(
+          (note) => note.tags.map((tag) => tag.name).join(", "),
+          {
+            id: "tags",
+            sortFn: "text",
+            header: ({ column }) => (
+              <SortHeader
+                label="Tags"
+                onToggle={() =>
+                  column.toggleSorting(column.getIsSorted() === "asc")
+                }
+              />
+            ),
+            cell: ({ row }) => (
+              <div className="min-w-24">
+                <NoteTagList note={row.original} />
+              </div>
+            ),
+          }
+        ),
         columnHelper.accessor(
           (note) => note.mentions.map((mention) => mention.label).join(", "),
           {

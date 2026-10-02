@@ -27,6 +27,7 @@ import {
   statusLabels,
   type ScheduledNote,
 } from "../../lib/notes"
+import { NoteTagList } from "./note-tags"
 
 export interface NoteHandlers {
   onEdit: (note: ScheduledNote) => void
@@ -181,6 +182,7 @@ export function NoteCard({
         >
           {note.bodyText || "(Attachment only)"}
         </button>
+        <NoteTagList note={note} />
       </div>
       {thumbnail && (
         <img
