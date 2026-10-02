@@ -2,7 +2,7 @@
   "name": "api",
   "type": "module",
   "scripts": {
-    "dev": "tsx watch src/index.ts",
+    "dev": "bun --watch src/index.ts",
     "build": "tsc",
     "start": "bun dist/index.js",
     "migrate": "bun dist/migrate.js",
@@ -24,7 +24,6 @@
     "@types/bun": "^1.4.2",
     "@types/node": "^26.1.1",
     "@types/pg": "^8.23.1",
-    "tsx": "^4.23.0",
     "typescript": "^7.0.2"
   }
 }

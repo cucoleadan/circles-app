@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { setTimeout as sleep } from "node:timers/promises"
 import type { PoolClient } from "pg"
 import {
   ingestActivityBatch,
@@ -588,7 +589,7 @@ export async function syncOwnedNotesPage(
     let result: any
     try {
       // Pacing delay between note detail fetches to avoid upstream rate limits
-      await new Promise((resolve) => setTimeout(resolve, 300))
+      await sleep(300)
       result = await sdk.getNoteWithEngagement(noteId)
     } catch (error) {
       // Deleted or no-longer-readable historical Notes should not poison the

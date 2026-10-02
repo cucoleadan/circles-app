@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises"
 import { Pool } from "pg"
 
 import { bootstrapRoles } from "./bootstrap-roles.js"
@@ -10,7 +11,7 @@ async function connectWithRetry(db: Pool) {
       return
     } catch (error) {
       if (attempt === 30) throw error
-      await new Promise((resolve) => setTimeout(resolve, 2000))
+      await sleep(2000)
     }
   }
 }

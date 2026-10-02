@@ -151,14 +151,8 @@ try {
 
     console.log("Starting API, worker, and web app…")
     apps = [
-      spawn(
-        [process.execPath, "x", "tsx", "watch", "src/index.ts"],
-        `${root}/apps/api`
-      ),
-      spawn(
-        [process.execPath, "x", "tsx", "watch", "src/index.ts"],
-        `${root}/apps/worker`
-      ),
+      spawn([process.execPath, "--watch", "src/index.ts"], `${root}/apps/api`),
+      spawn([process.execPath, "--watch", "src/index.ts"], `${root}/apps/worker`),
       spawn(
         [process.execPath, "x", "astro", "dev", "--ignore-lock"],
         `${root}/apps/web`

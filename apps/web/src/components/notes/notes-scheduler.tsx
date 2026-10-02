@@ -122,16 +122,6 @@ function useNow(active: boolean) {
   return now
 }
 
-/** Fills fields an older API may omit, so a response never breaks rendering. */
-function normalizeNotes(notes: ScheduledNote[] | undefined): ScheduledNote[] {
-  return (notes ?? []).map((note) => ({
-    ...note,
-    tags: note.tags ?? [],
-    mentions: note.mentions ?? [],
-    attachments: note.attachments ?? [],
-  }))
-}
-
 /** Shows a crash instead of a blank page. */
 class NotesErrorBoundary extends Component<
   { children: ReactNode },
@@ -174,9 +164,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
 }
 
 function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
-  const [notes, setNotes] = useState<ScheduledNote[]>(() =>
-    normalizeNotes(initial.notes)
-  )
+  const [notes, setNotes] = useState<ScheduledNote[]>(initial.notes ?? [])
   const [connection, setConnection] = useState(initial.connection)
   const [view, setView] = useState<View>(readView)
   const [month, setMonth] = useState(
@@ -211,7 +199,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
 
   const applyResponse = useCallback((body: NotesResponse) => {
     setConnection(body.connection)
-    const incoming = normalizeNotes(body.notes)
+    const incoming = body.notes ?? []
     setNotes(incoming)
     // Announce "Post now" Notes that just went live.
     for (const note of incoming) {

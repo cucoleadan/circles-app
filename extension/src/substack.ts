@@ -55,18 +55,8 @@ function setButtonState(
   button.classList.toggle("done", state === "done");
   button.classList.toggle("error", state === "error");
   button.disabled = state === "busy";
-  if (icon) {
-    button.innerHTML = `${icon}${escapeHtml(text)}`;
-  } else {
-    button.textContent = text;
-  }
-}
-
-function escapeHtml(str: string): string {
-  return str
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  button.innerHTML = icon ?? "";
+  button.append(text);
 }
 
 function formatListLabel(lists: Array<{ id: string; name: string }>): string {

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto"
+import { setTimeout as sleep } from "node:timers/promises"
 import type { PoolClient } from "pg"
 import {
   createSubstackClient,
@@ -115,7 +116,7 @@ export async function processActivitySync(
   const pages: any[] = []
   let cursor: string | null = null
   do {
-    if (pages.length > 0) await new Promise((resolve) => setTimeout(resolve, ACTIVITY_PAGE_PAUSE_MS))
+    if (pages.length > 0) await sleep(ACTIVITY_PAGE_PAUSE_MS)
     let activityPage: any
     try {
       activityPage = await sdk.getActivityPage(cursor ? { after: cursor } : undefined)

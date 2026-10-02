@@ -1,33 +1,14 @@
 import { randomUUID } from "node:crypto"
+import { setTimeout as sleep } from "node:timers/promises"
 import { Pool } from "pg"
-import { installFetchTimeout } from "@workspace/core"
+import { installFetchTimeout, runtimeDatabaseUrl } from "@workspace/core"
 import { claimAndRunJob } from "./jobs.js"
 import { MAINTENANCE_INTERVAL_MS, runQueueMaintenance } from "./maintenance.js"
-
-const dedicatedUrl = process.env.APP_DATABASE_URL
-const baseUrl = process.env.DATABASE_URL
-const appPassword = process.env.APP_DB_PASSWORD
-let connectionString = dedicatedUrl
-if (!connectionString) {
-  if (!baseUrl) throw new Error("APP_DATABASE_URL or DATABASE_URL is required")
-  if (appPassword) {
-    const url = new URL(baseUrl)
-    url.username = "circles_app"
-    url.password = appPassword
-    connectionString = url.toString()
-  } else if (process.env.NODE_ENV === "production") {
-    throw new Error(
-      "APP_DATABASE_URL is required in production so the worker connects as the limited circles_app role"
-    )
-  } else {
-    connectionString = baseUrl
-  }
-}
 
 installFetchTimeout()
 
 const db = new Pool({
-  connectionString,
+  connectionString: runtimeDatabaseUrl(),
   max: 4,
   connectionTimeoutMillis: 10_000,
   // Jobs that still read Substack inside a transaction are bounded by the
@@ -52,10 +33,10 @@ async function loop() {
       // One worker process owns the queue loop. Keep a gap after every
       // authenticated job so independently scheduled streams cannot burst the
       // same Substack session back-to-back.
-      await new Promise((resolve) => setTimeout(resolve, didWork ? 1000 : 3000))
+      await sleep(didWork ? 1000 : 3000)
     } catch (err) {
       console.error("[Circles Worker] Loop iteration error:", err)
-      await new Promise((resolve) => setTimeout(resolve, 5000))
+      await sleep(5000)
     }
   }
 }
