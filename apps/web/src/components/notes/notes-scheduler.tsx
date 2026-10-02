@@ -23,10 +23,20 @@ import {
   AlertDialogTitle,
 } from "@workspace/ui/components/alert-dialog"
 import { Button } from "@workspace/ui/components/button"
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@workspace/ui/components/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@workspace/ui/components/dialog"
 import { Skeleton } from "@workspace/ui/components/skeleton"
 import { Toaster } from "@workspace/ui/components/sonner"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@workspace/ui/components/tabs"
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@workspace/ui/components/tabs"
 
 import {
   errorMessage,
@@ -53,10 +63,22 @@ const DAY_MS = 24 * 60 * 60 * 1000
 
 function rangeFor(month: Date) {
   const now = Date.now()
-  const monthStart = new Date(month.getFullYear(), month.getMonth(), 1).getTime()
-  const monthEnd = new Date(month.getFullYear(), month.getMonth() + 1, 1).getTime()
-  const from = new Date(Math.min(now - 31 * DAY_MS, monthStart - 7 * DAY_MS)).toISOString()
-  const to = new Date(Math.max(now + 93 * DAY_MS, monthEnd + 7 * DAY_MS)).toISOString()
+  const monthStart = new Date(
+    month.getFullYear(),
+    month.getMonth(),
+    1
+  ).getTime()
+  const monthEnd = new Date(
+    month.getFullYear(),
+    month.getMonth() + 1,
+    1
+  ).getTime()
+  const from = new Date(
+    Math.min(now - 31 * DAY_MS, monthStart - 7 * DAY_MS)
+  ).toISOString()
+  const to = new Date(
+    Math.max(now + 93 * DAY_MS, monthEnd + 7 * DAY_MS)
+  ).toISOString()
   return `from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`
 }
 
@@ -79,7 +101,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   const [notes, setNotes] = useState<ScheduledNote[]>(initial.notes)
   const [connection, setConnection] = useState(initial.connection)
   const [view, setView] = useState<View>(readView)
-  const [month, setMonth] = useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+  const [month, setMonth] = useState(
+    () => new Date(new Date().getFullYear(), new Date().getMonth(), 1)
+  )
   const [refreshing, setRefreshing] = useState(false)
   const [firstSyncDone, setFirstSyncDone] = useState(false)
   const [editing, setEditing] = useState<ScheduledNote | null>(null)
@@ -91,12 +115,16 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     date: Date | null
   }>({ key: 0, seed: null, date: null })
   const composerRef = useRef<HTMLDivElement>(null)
+  const [pickedDay, setPickedDay] = useState<{
+    day: Date
+    nonce: number
+  } | null>(null)
   const postingIds = useRef(new Set<string>())
 
   const connectionReady = connection?.status === "active"
   const posting = useMemo(
     () => notes.filter((note) => note.status === "scheduled" && note.postNow),
-    [notes],
+    [notes]
   )
   const now = useNow(posting.length > 0)
 
@@ -108,29 +136,40 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       if (note.status === "published" && postingIds.current.has(note.id)) {
         postingIds.current.delete(note.id)
         toast.success("Your Note is live.", {
-          action: note.noteUrl ? { label: "Open", onClick: () => window.open(note.noteUrl!, "_blank") } : undefined,
+          action: note.noteUrl
+            ? {
+                label: "Open",
+                onClick: () => window.open(note.noteUrl!, "_blank"),
+              }
+            : undefined,
         })
       }
     }
-    for (const note of body.notes) if (note.status === "scheduled" && note.postNow) postingIds.current.add(note.id)
+    for (const note of body.notes)
+      if (note.status === "scheduled" && note.postNow)
+        postingIds.current.add(note.id)
   }, [])
 
   const refresh = useCallback(
     async (force = false) => {
       setRefreshing(true)
       try {
-        const body = await notesApi<NotesResponse>(`/notes/refresh?${force ? "force=1&" : ""}${rangeFor(month)}`, {
-          method: "POST",
-        })
+        const body = await notesApi<NotesResponse>(
+          `/notes/refresh?${force ? "force=1&" : ""}${rangeFor(month)}`,
+          {
+            method: "POST",
+          }
+        )
         applyResponse(body)
       } catch (err) {
-        if (force || errorStatus(err) === 401) toast.error(errorMessage(err, "Could not refresh from Substack."))
+        if (force || errorStatus(err) === 401)
+          toast.error(errorMessage(err, "Could not refresh from Substack."))
       } finally {
         setRefreshing(false)
         setFirstSyncDone(true)
       }
     },
-    [applyResponse, month],
+    [applyResponse, month]
   )
 
   // Sync with Substack on open and whenever the tab regains focus (throttled by the API).
@@ -144,7 +183,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
 
   // Reload the window when the calendar moves outside the loaded range.
   useEffect(() => {
-    notesApi<NotesResponse>(`/notes?${rangeFor(month)}`).then(applyResponse).catch(() => {})
+    notesApi<NotesResponse>(`/notes?${rangeFor(month)}`)
+      .then(applyResponse)
+      .catch(() => {})
   }, [month, applyResponse])
 
   // Check back shortly after each "Post now" Note's publish time.
@@ -158,7 +199,8 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
 
   function upsert(note: ScheduledNote) {
     setNotes((prev) => [note, ...prev.filter((item) => item.id !== note.id)])
-    if (note.status === "scheduled" && note.postNow) postingIds.current.add(note.id)
+    if (note.status === "scheduled" && note.postNow)
+      postingIds.current.add(note.id)
   }
 
   function onSaved(note: ScheduledNote, mode: NoteMode) {
@@ -169,10 +211,17 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     else toast.success("Scheduled.")
   }
 
-  async function patch(note: ScheduledNote, body: Record<string, unknown>, message: string) {
+  async function patch(
+    note: ScheduledNote,
+    body: Record<string, unknown>,
+    message: string
+  ) {
     setBusyId(note.id)
     try {
-      const { note: updated } = await notesApi<{ note: ScheduledNote }>(`/notes/${note.id}`, jsonInit("PATCH", body))
+      const { note: updated } = await notesApi<{ note: ScheduledNote }>(
+        `/notes/${note.id}`,
+        jsonInit("PATCH", body)
+      )
       upsert(updated)
       toast(message)
     } catch (err) {
@@ -185,7 +234,10 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
   async function abort(note: ScheduledNote) {
     setBusyId(note.id)
     try {
-      const { note: updated } = await notesApi<{ note: ScheduledNote }>(`/notes/${note.id}/abort`, { method: "POST" })
+      const { note: updated } = await notesApi<{ note: ScheduledNote }>(
+        `/notes/${note.id}/abort`,
+        { method: "POST" }
+      )
       postingIds.current.delete(note.id)
       upsert(updated)
       toast.success("Aborted. The Note is kept as a draft.")
@@ -213,16 +265,30 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
     }
   }
 
-  function focusComposer(seed: { bodyJson: JSONContent } | null, date: Date | null) {
+  function focusComposer(
+    seed: { bodyJson: JSONContent } | null,
+    date: Date | null
+  ) {
     setComposerSeed((prev) => ({ key: prev.key + 1, seed, date }))
-    requestAnimationFrame(() => composerRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }))
+    requestAnimationFrame(() =>
+      composerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      })
+    )
   }
 
   const handlers: NoteHandlers = useMemo(
     () => ({
       onEdit: (note) => setEditing(note),
-      onPostNow: (note) => void patch(note, { mode: "post_now" }, "Posting in 1 minute. You can still abort."),
-      onUnschedule: (note) => void patch(note, { mode: "draft" }, "Moved to drafts."),
+      onPostNow: (note) =>
+        void patch(
+          note,
+          { mode: "post_now" },
+          "Posting in 1 minute. You can still abort."
+        ),
+      onUnschedule: (note) =>
+        void patch(note, { mode: "draft" }, "Moved to drafts."),
       onDuplicate: (note) => {
         focusComposer({ bodyJson: note.bodyJson as JSONContent }, null)
         toast("Copied into the composer.")
@@ -230,7 +296,7 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       onDelete: (note) => setDeleting(note),
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [],
+    []
   )
 
   function changeView(next: string) {
@@ -253,7 +319,10 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       <header className="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 backdrop-blur-md dark:border-stone-800 dark:bg-stone-900/80">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-3 sm:px-6 lg:px-8">
           <div className="flex items-center gap-3">
-            <a href="/" className="flex items-center gap-2 text-sm font-bold tracking-tight sm:text-base">
+            <a
+              href="/"
+              className="flex items-center gap-2 text-sm font-bold tracking-tight sm:text-base"
+            >
               <span className="flex size-7 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
                 <CircleDot className="size-4" />
               </span>
@@ -263,7 +332,12 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
             <span className="text-sm font-semibold">Notes</span>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="sm" className="hidden rounded-full text-xs sm:inline-flex">
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="hidden rounded-full text-xs sm:inline-flex"
+            >
               <a href="/">
                 <ArrowLeft /> Contacts
               </a>
@@ -276,7 +350,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
               disabled={refreshing || !connectionReady}
               title="Refresh from Substack"
             >
-              <RefreshCw className={refreshing ? "animate-spin text-[#f15a3a]" : ""} />
+              <RefreshCw
+                className={refreshing ? "animate-spin text-[#f15a3a]" : ""}
+              />
               <span className="hidden sm:inline">Refresh</span>
             </Button>
           </div>
@@ -284,14 +360,19 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       </header>
 
       {!connectionReady && (
-        <div className="flex items-center justify-between gap-3 border-b border-rose-200/90 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200 sm:px-6">
+        <div className="flex items-center justify-between gap-3 border-b border-rose-200/90 bg-rose-50 px-4 py-2.5 text-xs text-rose-900 sm:px-6 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-200">
           <span className="flex items-center gap-2">
             <AlertTriangle className="size-4 shrink-0 text-rose-600" />
             {connection?.status === "expired"
               ? "Your Substack session expired. Reconnect to schedule or change Notes."
               : "Connect your Substack account to schedule Notes."}
           </span>
-          <Button asChild size="sm" variant="outline" className="h-7 rounded-full bg-white text-xs dark:bg-stone-900">
+          <Button
+            asChild
+            size="sm"
+            variant="outline"
+            className="h-7 rounded-full bg-white text-xs dark:bg-stone-900"
+          >
             <a href="/?settings=connection">Open settings</a>
           </Button>
         </div>
@@ -305,13 +386,18 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
               const seconds = Math.max(0, Math.ceil(remaining / 1000))
               const canAbort = remaining > POST_NOW_ABORT_CUTOFF_MS
               return (
-                <div key={note.id} className="flex items-center justify-between gap-3 text-xs">
+                <div
+                  key={note.id}
+                  className="flex items-center justify-between gap-3 text-xs"
+                >
                   <span className="flex min-w-0 items-center gap-2 text-orange-900 dark:text-orange-200">
                     <Zap className="size-3.5 shrink-0 text-[#f15a3a]" />
                     <span className="shrink-0 font-semibold tabular-nums">
                       {remaining > 0 ? `Posting in ${seconds}s` : "Publishing…"}
                     </span>
-                    <span className="truncate text-orange-800/80 dark:text-orange-300/80">{noteTitle(note)}</span>
+                    <span className="truncate text-orange-800/80 dark:text-orange-300/80">
+                      {noteTitle(note)}
+                    </span>
                   </span>
                   <Button
                     size="sm"
@@ -320,7 +406,9 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
                     disabled={!canAbort || busyId === note.id}
                     onClick={() => void abort(note)}
                   >
-                    {busyId === note.id ? <LoaderCircle className="animate-spin" /> : null}
+                    {busyId === note.id ? (
+                      <LoaderCircle className="animate-spin" />
+                    ) : null}
                     Abort
                   </Button>
                 </div>
@@ -331,13 +419,17 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
       )}
 
       <div className="mx-auto grid w-full max-w-7xl flex-1 gap-6 px-3 py-4 sm:px-6 sm:py-8 lg:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] lg:px-8">
-        <div ref={composerRef} className="scroll-mt-20 self-start lg:sticky lg:top-24">
+        <div
+          ref={composerRef}
+          className="scroll-mt-20 self-start lg:sticky lg:top-24"
+        >
           <div>
             <NoteComposer
               framed
               key={composerSeed.key}
               seed={composerSeed.seed}
               initialDate={composerSeed.date}
+              pickedDay={pickedDay}
               connectionReady={connectionReady}
               profileName={connection?.profileName ?? null}
               drafts={drafts}
@@ -362,7 +454,8 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
                 </TabsTrigger>
               </TabsList>
               <p className="text-xs text-muted-foreground">
-                {counts.scheduled} scheduled · {counts.drafts} draft{counts.drafts === 1 ? "" : "s"}
+                {counts.scheduled} scheduled · {counts.drafts} draft
+                {counts.drafts === 1 ? "" : "s"}
               </p>
             </div>
 
@@ -383,7 +476,13 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
                     handlers={handlers}
                     month={month}
                     onMonthChange={setMonth}
-                    onCreateOn={(day) => focusComposer(null, day)}
+                    onCreateOn={(day) => {
+                      setPickedDay({ day, nonce: Date.now() })
+                      composerRef.current?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      })
+                    }}
                   />
                 </TabsContent>
                 <TabsContent value="table" className="mt-4">
@@ -395,10 +494,20 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
         </section>
       </div>
 
-      <Dialog open={Boolean(editing)} onOpenChange={(open) => !open && setEditing(null)}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto rounded-2xl p-4 sm:max-w-xl" showCloseButton={false}>
-          <DialogTitle className="sr-only">{editing?.editable ? "Edit Note" : "Reschedule Note"}</DialogTitle>
-          <DialogDescription className="sr-only">Changes are saved to Substack.</DialogDescription>
+      <Dialog
+        open={Boolean(editing)}
+        onOpenChange={(open) => !open && setEditing(null)}
+      >
+        <DialogContent
+          className="max-h-[90vh] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl border border-stone-200 bg-white p-4 shadow-2xl dark:border-stone-800 dark:bg-stone-900"
+          showCloseButton={false}
+        >
+          <DialogTitle className="sr-only">
+            {editing?.editable ? "Edit Note" : "Reschedule Note"}
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            Changes are saved to Substack.
+          </DialogDescription>
           {editing && (
             <NoteComposer
               key={editing.id}
@@ -407,22 +516,40 @@ export function NotesScheduler({ initial }: { initial: NotesResponse }) {
               profileName={connection?.profileName ?? null}
               onSaved={onSaved}
               onCancel={() => setEditing(null)}
+              onDelete={
+                editing.status === "draft" || editing.status === "scheduled"
+                  ? () => {
+                      // The confirmation renders below the dialog's layer, so close the editor first.
+                      setDeleting(editing)
+                      setEditing(null)
+                    }
+                  : undefined
+              }
             />
           )}
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
+      <AlertDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this Note?</AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes the {deleting?.status === "scheduled" ? "scheduled Note" : "draft"} from Substack. It can't be undone.
+              This permanently removes the{" "}
+              {deleting?.status === "scheduled" ? "scheduled Note" : "draft"}{" "}
+              from Substack. It can't be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction variant="destructive" onClick={() => void confirmDelete()} disabled={busyId === deleting?.id}>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => void confirmDelete()}
+              disabled={busyId === deleting?.id}
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

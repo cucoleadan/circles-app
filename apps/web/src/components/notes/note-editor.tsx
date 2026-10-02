@@ -1,16 +1,43 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react"
+import {
+  forwardRef,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+} from "react"
 import { Extension, type JSONContent } from "@tiptap/core"
 import { Mention } from "@tiptap/extension-mention"
 import { CharacterCount, Placeholder } from "@tiptap/extensions"
 import { Markdown } from "@tiptap/markdown"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
-import { EditorContent, ReactRenderer, useEditor, type Editor } from "@tiptap/react"
+import {
+  EditorContent,
+  ReactRenderer,
+  useEditor,
+  type Editor,
+} from "@tiptap/react"
 import { BubbleMenu } from "@tiptap/react/menus"
 import StarterKit from "@tiptap/starter-kit"
-import type { SuggestionKeyDownProps, SuggestionProps } from "@tiptap/suggestion"
-import { Bold, Code, Italic, Link2, List, ListOrdered, Quote, Strikethrough } from "lucide-react"
+import type {
+  SuggestionKeyDownProps,
+  SuggestionProps,
+} from "@tiptap/suggestion"
+import {
+  Bold,
+  Code,
+  Italic,
+  Link2,
+  List,
+  ListOrdered,
+  Quote,
+  Strikethrough,
+} from "lucide-react"
 
-import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+} from "@workspace/ui/components/avatar"
 
 import type { Person } from "../../lib/types"
 
@@ -26,10 +53,17 @@ interface MentionCandidate {
 async function searchContacts(query: string): Promise<MentionCandidate[]> {
   if (!query) return []
   try {
-    const res = await fetch(`/api/v1/people?search=${encodeURIComponent(query)}&limit=25`)
+    const res = await fetch(
+      `/api/v1/people?search=${encodeURIComponent(query)}&limit=25`
+    )
     const body = await res.json()
     return ((body.people ?? []) as Person[])
-      .filter((person) => person.substackProfileId && person.handle && /^\d+$/.test(person.substackProfileId))
+      .filter(
+        (person) =>
+          person.substackProfileId &&
+          person.handle &&
+          /^\d+$/.test(person.substackProfileId)
+      )
       .slice(0, 8)
       .map((person) => ({
         id: Number(person.substackProfileId),
@@ -44,20 +78,34 @@ async function searchContacts(query: string): Promise<MentionCandidate[]> {
 }
 
 function initials(name: string): string {
-  return name.split(/\s+/).map((part) => part[0]).filter(Boolean).slice(0, 2).join("").toUpperCase()
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase()
 }
 
 interface MentionListHandle {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean
 }
 
-const MentionList = forwardRef<MentionListHandle, SuggestionProps<MentionCandidate>>(function MentionList(props, ref) {
+const MentionList = forwardRef<
+  MentionListHandle,
+  SuggestionProps<MentionCandidate>
+>(function MentionList(props, ref) {
   const [selected, setSelected] = useState(0)
   useEffect(() => setSelected(0), [props.items])
 
   const pick = (index: number) => {
     const item = props.items[index]
-    if (item) props.command({ id: String(item.id), label: item.label, url: item.url } as never)
+    if (item)
+      props.command({
+        id: String(item.id),
+        label: item.label,
+        url: item.url,
+      } as never)
   }
 
   useImperativeHandle(ref, () => ({
@@ -65,7 +113,9 @@ const MentionList = forwardRef<MentionListHandle, SuggestionProps<MentionCandida
       if (!props.items.length) return false
       if (event.key === "ArrowDown" || event.key === "ArrowUp") {
         const step = event.key === "ArrowDown" ? 1 : -1
-        setSelected((index) => (index + step + props.items.length) % props.items.length)
+        setSelected(
+          (index) => (index + step + props.items.length) % props.items.length
+        )
         return true
       }
       if (event.key === "Enter" || event.key === "Tab") {
@@ -77,10 +127,12 @@ const MentionList = forwardRef<MentionListHandle, SuggestionProps<MentionCandida
   }))
 
   return (
-    <div className="z-50 w-72 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-lg dark:border-stone-800 dark:bg-stone-900">
+    <div className="relative z-[70] w-72 overflow-hidden rounded-xl border border-stone-200 bg-white p-1 shadow-lg dark:border-stone-800 dark:bg-stone-900">
       {props.items.length === 0 ? (
         <p className="px-2.5 py-2 text-xs text-muted-foreground">
-          {props.query ? "No contacts with a Substack profile match." : "Type a name to mention someone."}
+          {props.query
+            ? "No contacts with a Substack profile match."
+            : "Type a name to mention someone."}
         </p>
       ) : (
         props.items.map((item, index) => (
@@ -98,10 +150,14 @@ const MentionList = forwardRef<MentionListHandle, SuggestionProps<MentionCandida
           >
             <Avatar className="size-6">
               {item.avatarUrl && <AvatarImage src={item.avatarUrl} alt="" />}
-              <AvatarFallback className="text-[10px]">{initials(item.label)}</AvatarFallback>
+              <AvatarFallback className="text-[10px]">
+                {initials(item.label)}
+              </AvatarFallback>
             </Avatar>
             <span className="truncate font-medium">{item.label}</span>
-            <span className="ml-auto truncate text-xs text-muted-foreground">@{item.handle}</span>
+            <span className="ml-auto truncate text-xs text-muted-foreground">
+              @{item.handle}
+            </span>
           </button>
         ))
       )}
@@ -122,16 +178,26 @@ const SubstackMention = Mention.extend({
 }).configure({
   HTMLAttributes: { class: "mention" },
   renderText: ({ node }) => `@${node.attrs.label ?? node.attrs.id}`,
-  renderHTML: ({ options, node }) => ["span", options.HTMLAttributes, `@${node.attrs.label ?? node.attrs.id}`],
+  renderHTML: ({ options, node }) => [
+    "span",
+    options.HTMLAttributes,
+    `@${node.attrs.label ?? node.attrs.id}`,
+  ],
   suggestion: {
     char: "@",
     items: ({ query }) => searchContacts(query),
     render: () => {
-      let component: ReactRenderer<MentionListHandle, SuggestionProps<MentionCandidate>> | null = null
+      let component: ReactRenderer<
+        MentionListHandle,
+        SuggestionProps<MentionCandidate>
+      > | null = null
       let unmount: (() => void) | null = null
       return {
         onStart: (props) => {
-          component = new ReactRenderer(MentionList, { props, editor: props.editor })
+          component = new ReactRenderer(MentionList, {
+            props,
+            editor: props.editor,
+          })
           unmount = props.mount(component.element)
         },
         onUpdate: (props) => component?.updateProps(props),
@@ -164,15 +230,35 @@ const RICH_HTML = /<(strong|b|em|i|ul|ol|li|blockquote|a\s|h[1-6]|code)[\s>]/i
 export function toNoteContent(nodes: JSONContent[] = []): JSONContent[] {
   return nodes.flatMap((node): JSONContent[] => {
     if (node.type === "heading") {
-      return [{
-        type: "paragraph",
-        content: (node.content ?? []).map((child) =>
-          child.type === "text" ? { ...child, marks: [...(child.marks ?? []).filter((m) => m.type !== "bold"), { type: "bold" }] } : child,
-        ),
-      }]
+      return [
+        {
+          type: "paragraph",
+          content: (node.content ?? []).map((child) =>
+            child.type === "text"
+              ? {
+                  ...child,
+                  marks: [
+                    ...(child.marks ?? []).filter((m) => m.type !== "bold"),
+                    { type: "bold" },
+                  ],
+                }
+              : child
+          ),
+        },
+      ]
     }
-    if (node.type === "horizontalRule" || node.type === "image" || node.type === "table") return []
-    return [{ ...node, ...(node.content ? { content: toNoteContent(node.content) } : {}) }]
+    if (
+      node.type === "horizontalRule" ||
+      node.type === "image" ||
+      node.type === "table"
+    )
+      return []
+    return [
+      {
+        ...node,
+        ...(node.content ? { content: toNoteContent(node.content) } : {}),
+      },
+    ]
   })
 }
 
@@ -187,7 +273,13 @@ const PasteMarkdown = Extension.create({
           handlePaste: (_view, event) => {
             const text = event.clipboardData?.getData("text/plain")
             const html = event.clipboardData?.getData("text/html") ?? ""
-            if (!text || !editor.markdown || RICH_HTML.test(html) || !MARKDOWN_HINT.test(text)) return false
+            if (
+              !text ||
+              !editor.markdown ||
+              RICH_HTML.test(html) ||
+              !MARKDOWN_HINT.test(text)
+            )
+              return false
             const parsed = editor.markdown.parse(text)
             const content = toNoteContent(parsed.content)
             if (!content.length) return false
@@ -278,7 +370,12 @@ export function NoteEditor({
         heading: false,
         horizontalRule: false,
         underline: false,
-        link: { openOnClick: false, autolink: true, linkOnPaste: true, defaultProtocol: "https" },
+        link: {
+          openOnClick: false,
+          autolink: true,
+          linkOnPaste: true,
+          defaultProtocol: "https",
+        },
       }),
       Placeholder.configure({ placeholder }),
       CharacterCount,
@@ -297,7 +394,8 @@ export function NoteEditor({
     ],
     editorProps: {
       attributes: {
-        class: "min-h-32 max-h-[50vh] overflow-y-auto text-[15px] leading-relaxed outline-none",
+        class:
+          "min-h-32 max-h-[50vh] overflow-y-auto text-[15px] leading-relaxed outline-none",
         "aria-label": "Note text",
       },
     },
@@ -317,7 +415,15 @@ export function NoteEditor({
       return
     }
     const href = window.prompt("Link URL")?.trim()
-    if (href) editor.chain().focus().extendMarkRange("link").setLink({ href: /^https?:\/\//i.test(href) ? href : `https://${href}` }).run()
+    if (href)
+      editor
+        .chain()
+        .focus()
+        .extendMarkRange("link")
+        .setLink({
+          href: /^https?:\/\//i.test(href) ? href : `https://${href}`,
+        })
+        .run()
   }
 
   return (
@@ -340,31 +446,63 @@ export function NoteEditor({
         <BubbleMenu
           editor={editor}
           options={{ placement: "top" }}
-          className="flex items-center gap-0.5 rounded-lg bg-stone-900 p-1 shadow-lg dark:bg-stone-800"
+          className="z-[70] flex items-center gap-0.5 rounded-lg bg-stone-900 p-1 shadow-lg dark:bg-stone-800"
         >
-          <ToolbarButton label="Bold" active={editor.isActive("bold")} onClick={() => editor.chain().focus().toggleBold().run()}>
+          <ToolbarButton
+            label="Bold"
+            active={editor.isActive("bold")}
+            onClick={() => editor.chain().focus().toggleBold().run()}
+          >
             <Bold className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Italic" active={editor.isActive("italic")} onClick={() => editor.chain().focus().toggleItalic().run()}>
+          <ToolbarButton
+            label="Italic"
+            active={editor.isActive("italic")}
+            onClick={() => editor.chain().focus().toggleItalic().run()}
+          >
             <Italic className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Strikethrough" active={editor.isActive("strike")} onClick={() => editor.chain().focus().toggleStrike().run()}>
+          <ToolbarButton
+            label="Strikethrough"
+            active={editor.isActive("strike")}
+            onClick={() => editor.chain().focus().toggleStrike().run()}
+          >
             <Strikethrough className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Inline code" active={editor.isActive("code")} onClick={() => editor.chain().focus().toggleCode().run()}>
+          <ToolbarButton
+            label="Inline code"
+            active={editor.isActive("code")}
+            onClick={() => editor.chain().focus().toggleCode().run()}
+          >
             <Code className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Link" active={editor.isActive("link")} onClick={setLink}>
+          <ToolbarButton
+            label="Link"
+            active={editor.isActive("link")}
+            onClick={setLink}
+          >
             <Link2 className="size-3.5" />
           </ToolbarButton>
           <span className="mx-0.5 h-4 w-px bg-white/20" />
-          <ToolbarButton label="Bulleted list" active={editor.isActive("bulletList")} onClick={() => editor.chain().focus().toggleBulletList().run()}>
+          <ToolbarButton
+            label="Bulleted list"
+            active={editor.isActive("bulletList")}
+            onClick={() => editor.chain().focus().toggleBulletList().run()}
+          >
             <List className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Numbered list" active={editor.isActive("orderedList")} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
+          <ToolbarButton
+            label="Numbered list"
+            active={editor.isActive("orderedList")}
+            onClick={() => editor.chain().focus().toggleOrderedList().run()}
+          >
             <ListOrdered className="size-3.5" />
           </ToolbarButton>
-          <ToolbarButton label="Quote" active={editor.isActive("blockquote")} onClick={() => editor.chain().focus().toggleBlockquote().run()}>
+          <ToolbarButton
+            label="Quote"
+            active={editor.isActive("blockquote")}
+            onClick={() => editor.chain().focus().toggleBlockquote().run()}
+          >
             <Quote className="size-3.5" />
           </ToolbarButton>
         </BubbleMenu>

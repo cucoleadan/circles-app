@@ -49,7 +49,13 @@ import {
   type NoteStatus,
   type ScheduledNote,
 } from "../../lib/notes"
-import { AttachmentSummary, isOpen, NoteActionsMenu, NoteStatusBadge, type NoteHandlers } from "./note-item"
+import {
+  AttachmentSummary,
+  isOpen,
+  NoteActionsMenu,
+  NoteStatusBadge,
+  type NoteHandlers,
+} from "./note-item"
 
 const features = tableFeatures({
   columnFilteringFeature,
@@ -60,7 +66,11 @@ const features = tableFeatures({
   paginatedRowModel: createPaginatedRowModel(),
   sortedRowModel: createSortedRowModel(),
   filterFns: { includesString: filterFn_includesString },
-  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text, basic: sortFn_basic },
+  sortFns: {
+    alphanumeric: sortFn_alphanumeric,
+    text: sortFn_text,
+    basic: sortFn_basic,
+  },
 })
 
 const columnHelper = createColumnHelper<typeof features, ScheduledNote>()
@@ -76,45 +86,95 @@ const columnLabels: Record<string, string> = {
   updatedAt: "Last edited",
 }
 
-function SortHeader({ label, onToggle }: { label: string; onToggle: () => void }) {
+function SortHeader({
+  label,
+  onToggle,
+}: {
+  label: string
+  onToggle: () => void
+}) {
   return (
-    <Button variant="ghost" size="xs" className="-ml-2 text-[11px] font-semibold" onClick={onToggle}>
+    <Button
+      variant="ghost"
+      size="xs"
+      className="-ml-2 text-[11px] font-semibold"
+      onClick={onToggle}
+    >
       {label}
       <ArrowUpDown className="size-3" />
     </Button>
   )
 }
 
-const ALL_STATUSES: NoteStatus[] = ["scheduled", "draft", "published", "pending"]
+const ALL_STATUSES: NoteStatus[] = [
+  "scheduled",
+  "draft",
+  "published",
+  "pending",
+]
 
-export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handlers: NoteHandlers }) {
-  const [sorting, setSorting] = useState<SortingState>([{ id: "when", desc: false }])
+export function NotesTable({
+  notes,
+  handlers,
+}: {
+  notes: ScheduledNote[]
+  handlers: NoteHandlers
+}) {
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "when", desc: false },
+  ])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
-  const [columnVisibility, setColumnVisibility] = useState<ColumnVisibilityState>({ updatedAt: false })
-  const [pagination, setPagination] = useState<PaginationState>({ pageIndex: 0, pageSize: 25 })
-  const [statuses, setStatuses] = useState<NoteStatus[]>(["scheduled", "draft", "published", "pending"])
+  const [columnVisibility, setColumnVisibility] =
+    useState<ColumnVisibilityState>({ updatedAt: false })
+  const [pagination, setPagination] = useState<PaginationState>({
+    pageIndex: 0,
+    pageSize: 25,
+  })
+  const [statuses, setStatuses] = useState<NoteStatus[]>([
+    "scheduled",
+    "draft",
+    "published",
+    "pending",
+  ])
 
   const columns = useMemo(
     () =>
       columnHelper.columns([
-        columnHelper.accessor((note) => noteMoment(note)?.getTime() ?? Number.MAX_SAFE_INTEGER, {
-          id: "when",
-          sortFn: "basic",
-          header: ({ column }) => (
-            <SortHeader label="When" onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")} />
-          ),
-          cell: ({ row }) => {
-            const moment = noteMoment(row.original)
-            return (
-              <span className="whitespace-nowrap tabular-nums">
-                {moment ? formatWhen(moment) : <span className="text-muted-foreground">No time</span>}
-              </span>
-            )
-          },
-        }),
+        columnHelper.accessor(
+          (note) => noteMoment(note)?.getTime() ?? Number.MAX_SAFE_INTEGER,
+          {
+            id: "when",
+            sortFn: "basic",
+            header: ({ column }) => (
+              <SortHeader
+                label="When"
+                onToggle={() =>
+                  column.toggleSorting(column.getIsSorted() === "asc")
+                }
+              />
+            ),
+            cell: ({ row }) => {
+              const moment = noteMoment(row.original)
+              return (
+                <span className="whitespace-nowrap tabular-nums">
+                  {moment ? (
+                    formatWhen(moment)
+                  ) : (
+                    <span className="text-muted-foreground">No time</span>
+                  )}
+                </span>
+              )
+            },
+          }
+        ),
         columnHelper.accessor("status", {
           header: ({ column }) => (
-            <SortHeader label="Status" onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")} />
+            <SortHeader
+              label="Status"
+              onToggle={() =>
+                column.toggleSorting(column.getIsSorted() === "asc")
+              }
+            />
           ),
           cell: ({ row }) => <NoteStatusBadge note={row.original} />,
         }),
@@ -129,43 +189,70 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
               className="block max-w-[28rem] truncate text-left disabled:cursor-default"
               title={row.original.bodyText}
             >
-              {row.original.bodyText.replace(/\s+/g, " ") || "(Attachment only)"}
+              {row.original.bodyText.replace(/\s+/g, " ") ||
+                "(Attachment only)"}
             </button>
           ),
         }),
-        columnHelper.accessor((note) => note.mentions.map((mention) => mention.label).join(", "), {
-          id: "mentions",
-          header: "Mentions",
-          cell: ({ getValue }) => (
-            <span className="block max-w-40 truncate text-muted-foreground">{String(getValue() || "—")}</span>
-          ),
-        }),
+        columnHelper.accessor(
+          (note) => note.mentions.map((mention) => mention.label).join(", "),
+          {
+            id: "mentions",
+            header: "Mentions",
+            cell: ({ getValue }) => (
+              <span className="block max-w-40 truncate text-muted-foreground">
+                {String(getValue() || "—")}
+              </span>
+            ),
+          }
+        ),
         columnHelper.accessor((note) => note.attachments.length, {
           id: "attachments",
           header: "Attachments",
           cell: ({ row }) =>
-            row.original.attachments.length ? <AttachmentSummary note={row.original} /> : <span className="text-muted-foreground">—</span>,
+            row.original.attachments.length ? (
+              <AttachmentSummary note={row.original} />
+            ) : (
+              <span className="text-muted-foreground">—</span>
+            ),
         }),
         columnHelper.accessor("replyMinimumRole", {
           header: "Replies",
-          cell: ({ row }) => <span className="whitespace-nowrap">{replyRoleLabels[row.original.replyMinimumRole] ?? "Everyone"}</span>,
+          cell: ({ row }) => (
+            <span className="whitespace-nowrap">
+              {replyRoleLabels[row.original.replyMinimumRole] ?? "Everyone"}
+            </span>
+          ),
         }),
         columnHelper.accessor("origin", {
           header: ({ column }) => (
-            <SortHeader label="Source" onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")} />
+            <SortHeader
+              label="Source"
+              onToggle={() =>
+                column.toggleSorting(column.getIsSorted() === "asc")
+              }
+            />
           ),
           cell: ({ row }) => (
-            <Badge variant="outline" className="h-5 rounded-full px-1.5 text-[10px] text-muted-foreground">
+            <Badge
+              variant="outline"
+              className="h-5 rounded-full px-1.5 text-[10px] text-muted-foreground"
+            >
               {row.original.origin === "substack" ? "Substack" : "Circles"}
             </Badge>
           ),
         }),
         columnHelper.accessor("updatedAt", {
           header: ({ column }) => (
-            <SortHeader label="Last edited" onToggle={() => column.toggleSorting(column.getIsSorted() === "asc")} />
+            <SortHeader
+              label="Last edited"
+              onToggle={() =>
+                column.toggleSorting(column.getIsSorted() === "asc")
+              }
+            />
           ),
           cell: ({ row }) => (
-            <span className="whitespace-nowrap tabular-nums text-muted-foreground">
+            <span className="whitespace-nowrap text-muted-foreground tabular-nums">
               {formatWhen(new Date(row.original.updatedAt))}
             </span>
           ),
@@ -173,13 +260,18 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
         columnHelper.display({
           id: "actions",
           enableHiding: false,
-          cell: ({ row }) => <NoteActionsMenu note={row.original} handlers={handlers} />,
+          cell: ({ row }) => (
+            <NoteActionsMenu note={row.original} handlers={handlers} />
+          ),
         }),
       ]),
-    [handlers],
+    [handlers]
   )
 
-  const data = useMemo(() => notes.filter((note) => statuses.includes(note.status)), [notes, statuses])
+  const data = useMemo(
+    () => notes.filter((note) => statuses.includes(note.status)),
+    [notes, statuses]
+  )
 
   const table = useTable({
     features,
@@ -196,11 +288,15 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-52 flex-1">
-          <Search className="absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Filter Notes…"
-            value={(table.getColumn("bodyText")?.getFilterValue() as string) ?? ""}
-            onChange={(event) => table.getColumn("bodyText")?.setFilterValue(event.target.value)}
+            value={
+              (table.getColumn("bodyText")?.getFilterValue() as string) ?? ""
+            }
+            onChange={(event) =>
+              table.getColumn("bodyText")?.setFilterValue(event.target.value)
+            }
             className="h-8 bg-white pl-8 text-xs dark:bg-stone-950"
           />
         </div>
@@ -218,7 +314,11 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
                 key={status}
                 checked={statuses.includes(status)}
                 onCheckedChange={(checked) =>
-                  setStatuses((prev) => (checked ? [...prev, status] : prev.filter((item) => item !== status)))
+                  setStatuses((prev) =>
+                    checked
+                      ? [...prev, status]
+                      : prev.filter((item) => item !== status)
+                  )
                 }
                 onSelect={(event) => event.preventDefault()}
               >
@@ -257,8 +357,13 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
                 {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id} className="h-8 border-r border-stone-200/70 text-[11px] last:border-r-0 dark:border-stone-800">
-                    {header.isPlaceholder ? null : <table.FlexRender header={header} />}
+                  <TableHead
+                    key={header.id}
+                    className="h-8 border-r border-stone-200/70 text-[11px] last:border-r-0 dark:border-stone-800"
+                  >
+                    {header.isPlaceholder ? null : (
+                      <table.FlexRender header={header} />
+                    )}
                   </TableHead>
                 ))}
               </TableRow>
@@ -269,7 +374,10 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
               table.getRowModel().rows.map((row) => (
                 <TableRow key={row.id}>
                   {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id} className="border-r border-stone-200/70 py-1.5 last:border-r-0 dark:border-stone-800">
+                    <TableCell
+                      key={cell.id}
+                      className="border-r border-stone-200/70 py-1.5 last:border-r-0 dark:border-stone-800"
+                    >
                       <table.FlexRender cell={cell} />
                     </TableCell>
                   ))}
@@ -277,7 +385,10 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length} className="h-20 text-center text-muted-foreground">
+                <TableCell
+                  colSpan={columns.length}
+                  className="h-20 text-center text-muted-foreground"
+                >
                   No Notes match.
                 </TableCell>
               </TableRow>
@@ -288,16 +399,28 @@ export function NotesTable({ notes, handlers }: { notes: ScheduledNote[]; handle
 
       <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
         <span>
-          {table.getFilteredRowModel().rows.length} Note{table.getFilteredRowModel().rows.length === 1 ? "" : "s"}
+          {table.getFilteredRowModel().rows.length} Note
+          {table.getFilteredRowModel().rows.length === 1 ? "" : "s"}
         </span>
         <div className="flex items-center gap-2">
           <span>
-            Page {pagination.pageIndex + 1} of {Math.max(1, table.getPageCount())}
+            Page {pagination.pageIndex + 1} of{" "}
+            {Math.max(1, table.getPageCount())}
           </span>
-          <Button variant="outline" size="sm" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.previousPage()}
+            disabled={!table.getCanPreviousPage()}
+          >
             Previous
           </Button>
-          <Button variant="outline" size="sm" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => table.nextPage()}
+            disabled={!table.getCanNextPage()}
+          >
             Next
           </Button>
         </div>

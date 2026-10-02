@@ -12,6 +12,7 @@ import {
   Link2,
   LoaderCircle,
   MoreHorizontal,
+  Trash2,
   X,
 } from "lucide-react"
 
@@ -146,7 +147,9 @@ function IconButton({
           {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
+      <TooltipContent side="bottom" className="z-[70]">
+        {label}
+      </TooltipContent>
     </Tooltip>
   )
 }
@@ -155,24 +158,30 @@ export function NoteComposer({
   note = null,
   seed = null,
   initialDate = null,
+  pickedDay = null,
   connectionReady,
   profileName,
   drafts = [],
   onPickDraft,
   onSaved,
   onCancel,
+  onDelete,
   framed = false,
 }: {
   note?: ScheduledNote | null
   /** Prefilled content for a new Note, such as a duplicate. */
   seed?: { bodyJson: JSONContent } | null
   initialDate?: Date | null
+  /** A day picked on the calendar; each new nonce moves the schedule there without clearing the text. */
+  pickedDay?: { day: Date; nonce: number } | null
   connectionReady: boolean
   profileName: string | null
   drafts?: ScheduledNote[]
   onPickDraft?: (note: ScheduledNote) => void
   onSaved: (note: ScheduledNote, mode: NoteMode) => void
   onCancel?: () => void
+  /** Shown for open Notes being edited; asks for confirmation before deleting. */
+  onDelete?: () => void
   /** Render the composer and schedule as separate cards (the page) rather than one panel (the dialog). */
   framed?: boolean
 }) {
@@ -196,6 +205,20 @@ export function NoteComposer({
   const [pickDay, setPickDay] = useState<Date>(startOfDay(initialSchedule))
   const [pickTime, setPickTime] = useState(timeOf(initialSchedule))
   const [dayOpen, setDayOpen] = useState(false)
+  const [seenPick, setSeenPick] = useState(pickedDay?.nonce ?? null)
+  if (pickedDay && pickedDay.nonce !== seenPick) {
+    setSeenPick(pickedDay.nonce)
+    setPickDay(startOfDay(pickedDay.day))
+    // Today at 9:00 may already be past; offer the next full hour instead.
+    if (
+      dayKey(pickedDay.day) === dayKey(new Date()) &&
+      atTime(pickedDay.day, pickTime) <= new Date()
+    ) {
+      const next = new Date()
+      next.setHours(next.getHours() + 1, 0, 0, 0)
+      setPickTime(timeOf(next))
+    }
+  }
   const [uploading, setUploading] = useState(0)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -398,7 +421,7 @@ export function NoteComposer({
                   <ChevronDown className="size-3" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
+              <DropdownMenuContent align="end" className="z-[70] w-72">
                 <DropdownMenuLabel className="text-xs">
                   Unscheduled drafts
                 </DropdownMenuLabel>
@@ -551,7 +574,10 @@ export function NoteComposer({
                   <Link2 className="size-[18px]" />
                 </button>
               </PopoverTrigger>
-              <PopoverContent align="start" className="w-80 space-y-2 p-3">
+              <PopoverContent
+                align="start"
+                className="z-[70] w-80 space-y-2 p-3"
+              >
                 <p className="text-xs font-semibold">Attach a link</p>
                 <form
                   className="flex gap-2"
@@ -600,7 +626,7 @@ export function NoteComposer({
                   <MoreHorizontal className="size-[18px]" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-52">
+              <DropdownMenuContent align="start" className="z-[70] w-52">
                 <DropdownMenuItem
                   disabled={submitting || !hasContent}
                   onSelect={() => void submit("draft")}
@@ -614,7 +640,7 @@ export function NoteComposer({
                   <DropdownMenuSubTrigger>
                     <AtSign /> Who can reply
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent>
+                  <DropdownMenuSubContent className="z-[70]">
                     <DropdownMenuRadioGroup
                       value={replyRole}
                       onValueChange={(value) =>
@@ -640,8 +666,35 @@ export function NoteComposer({
                     </DropdownMenuItem>
                   </>
                 )}
+                {onDelete && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+                      <Trash2 /> Delete Note
+                    </DropdownMenuItem>
+                  </>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {onDelete && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Delete Note"
+                    onClick={onDelete}
+                    disabled={submitting}
+                    className={`${iconButtonClass} hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-950/40 dark:hover:text-rose-400`}
+                  >
+                    <Trash2 className="size-[18px]" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="z-[70]">
+                  Delete Note
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
 
           <div className="flex items-center gap-2">
@@ -727,7 +780,7 @@ export function NoteComposer({
                 <ChevronDown className="ml-auto size-3.5 text-stone-400" />
               </Button>
             </PopoverTrigger>
-            <PopoverContent align="start" className="w-auto p-0">
+            <PopoverContent align="start" className="z-[70] w-auto p-0">
               <Calendar
                 mode="single"
                 required
