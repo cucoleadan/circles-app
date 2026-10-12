@@ -12,8 +12,13 @@ Update this file as work completes. Last updated: 2026-10-12.
       with the status/content filters. Content titles and Open Note/article on
       Substack buttons open the source in a new tab; missing Note URLs use the
       existing profile-handle permalink helper.
+- [x] Comments default to the preceding 48 hours. A date-range picker reuses the
+      existing shadcn Calendar/Popover and includes whole local calendar days;
+      Last 48 hours resets the selection. API dates are validated and filtered
+      before pagination, with the same 48-hour default for direct requests.
 - [x] Regression coverage added for response exclusion, pagination, removed Likes,
-      duplicate comments, tenant isolation, request validation and source links.
+      duplicate comments, tenant isolation, request validation and source links,
+      plus date boundaries, historical selection and the rolling 48-hour default.
 - [x] Typecheck and diff whitespace checks pass for the follow-up.
 - [ ] Run database tests and visually verify the view. Per user instruction,
       no services, tunnels or builds were started for this follow-up.

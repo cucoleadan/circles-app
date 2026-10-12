@@ -303,6 +303,8 @@ describe("transactional edits", () => {
 
 describe("interactions", () => {
   test("comment response exclusion applies before pagination and links open the owned content", async () => {
+    const recentBase = Date.now() - 60 * 60 * 1000
+    const oldTime = recentBase - 72 * 60 * 60 * 1000
     await migrate.query(
       `insert into substack_connections
          (id, user_id, envelope_version, key_id, wrapped_key, iv, ciphertext, profile_handle)
@@ -321,15 +323,18 @@ describe("interactions", () => {
         recordInteraction(client, userA, {
           personId: person.id, connectionId: "comments-connection", direction: "inbound",
           actionType: "comment", targetType: "note", targetId: "900",
-          threadKind: "note", threadRootId: "900", occurredAt: "2026-10-12T12:00:00Z",
+          threadKind: "note", threadRootId: "900", occurredAt: new Date(recentBase).toISOString(),
           ...input,
         })
       for (const [index, id] of ["liked", "replied", "both", "dismissed", "new", "unliked"].entries()) {
-        await add({ externalId: `comment-${id}`, body: id, occurredAt: new Date(Date.UTC(2026, 9, 12, 12, index)).toISOString(),
+        await add({ externalId: `comment-${id}`, body: id, occurredAt: new Date(recentBase + index * 60 * 1000).toISOString(),
           ...(id === "replied" ? { targetType: "post", targetId: "901", threadKind: "post", threadRootId: "901" } : {}),
         })
       }
       await add({ externalId: "feed-new", metadata: { commentId: "new", rootCommentId: "900" }, body: "new" })
+      await add({ externalId: "comment-old", occurredAt: new Date(oldTime).toISOString() })
+      await add({ externalId: "comment-old-end", occurredAt: new Date(oldTime + 1).toISOString() })
+      await add({ externalId: "comment-future", occurredAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() })
       for (const id of ["liked", "both", "unliked"]) {
         const like = await add({ externalId: `like-${id}`, direction: "outbound", actionType: "like", targetType: "comment", targetId: id })
         if (id === "unliked") await client.query("update interactions set removed_at = now() where id = $1", [like!.id])
@@ -341,6 +346,10 @@ describe("interactions", () => {
       await add({ externalId: "like-note", direction: "outbound", actionType: "like" })
       const all = await listComments(client)
       expect(all.comments).toHaveLength(6)
+      const historical = await listComments(client, {
+        since: new Date(oldTime).toISOString(), until: new Date(oldTime + 1).toISOString(),
+      })
+      expect(historical.comments.map((item) => item.commentId)).toEqual(["old"])
       const note = all.comments.find((item) => item.commentId === "new")!
       const article = all.comments.find((item) => item.commentId === "replied")!
       expect(note.contentUrl).toBe("https://substack.com/@tester/note/c-900")
@@ -365,6 +374,11 @@ describe("interactions", () => {
     expect((await filtered.json() as any).comments).toHaveLength(3)
     expect((await (await request("excludeResponded=false")).json() as any).comments).toHaveLength(6)
     expect((await request("excludeResponded=invalid")).status).toBe(400)
+    const historicalQuery = new URLSearchParams({ since: new Date(oldTime).toISOString(), until: new Date(oldTime + 1).toISOString() })
+    expect((await (await request(historicalQuery.toString())).json() as any).comments.map((item: any) => item.commentId)).toEqual(["old"])
+    expect((await request("since=invalid&until=invalid")).status).toBe(400)
+    expect((await request("since=2026-10-12T00:00:00Z")).status).toBe(400)
+    expect((await request("since=2026-10-13T00:00:00Z&until=2026-10-12T00:00:00Z")).status).toBe(400)
   })
 
   test("contact refetch queues one non-retrying job and scopes status to its owner", async () => {

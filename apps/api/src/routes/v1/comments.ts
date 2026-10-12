@@ -12,6 +12,11 @@ const queryInput = z.object({
   status: z.enum(["all", "pending", "not-interested"]).default("all"),
   kind: z.enum(["all", "note", "post"]).default("all"),
   excludeResponded: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
+  since: z.iso.datetime({ offset: true }).optional(),
+  until: z.iso.datetime({ offset: true }).optional(),
+}).refine((value) => (!value.since && !value.until) ||
+  (value.since && value.until && Date.parse(value.since) < Date.parse(value.until)), {
+  message: "Select a valid comment date range",
 })
 
 commentsRoutes.get("/comments", async (c) => {

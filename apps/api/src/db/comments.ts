@@ -15,15 +15,19 @@ export async function listComments(client: PoolLike, options: {
   status?: "all" | "pending" | "not-interested"
   kind?: "all" | "note" | "post"
   excludeResponded?: boolean
+  since?: string
+  until?: string
 } = {}) {
   const limit = options.limit ?? 50
-  const params: unknown[] = [options.search ?? "", options.kind ?? "all", options.status ?? "all", options.excludeResponded ?? false]
+  const now = Date.now()
+  const params: unknown[] = [options.search ?? "", options.kind ?? "all", options.status ?? "all", options.excludeResponded ?? false,
+    options.since ?? new Date(now - 48 * 60 * 60 * 1000).toISOString(), options.until ?? new Date(now).toISOString()]
   let cursorWhere = ""
   if (options.cursor) {
     const cursor = decodeCursor(options.cursor)
     if (!cursor) throw new Error("Invalid cursor")
     params.push(cursor.o, cursor.d)
-    cursorWhere = "and (c.occurred_at, c.id) < ($5, $6)"
+    cursorWhere = "and (c.occurred_at, c.id) < ($7, $8)"
   }
   params.push(limit + 1)
   const result = await client.query(
@@ -75,6 +79,7 @@ export async function listComments(client: PoolLike, options: {
       and ($3 = 'all' or ($3 = 'pending' and not c.dismissed and not c.replied and not c.liked)
         or ($3 = 'not-interested' and c.dismissed))
       and (not $4::boolean or (not c.replied and not c.liked))
+      and c.occurred_at >= $5::timestamptz and c.occurred_at < $6::timestamptz
       ${cursorWhere}
     order by c.occurred_at desc, c.id desc limit $${params.length}`,
     params,

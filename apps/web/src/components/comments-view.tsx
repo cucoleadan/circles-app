@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react"
-import { ExternalLink, EyeOff, Heart, Loader2, MessageSquare, RefreshCw, Undo2 } from "lucide-react"
+import { useEffect, useMemo, useState } from "react"
+import { CalendarDays, ExternalLink, EyeOff, Heart, Loader2, MessageSquare, RefreshCw, Undo2 } from "lucide-react"
 import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
+import { Calendar } from "@workspace/ui/components/calendar"
 import { Card, CardContent, CardFooter, CardHeader } from "@workspace/ui/components/card"
+import { Popover, PopoverContent, PopoverTrigger } from "@workspace/ui/components/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { commentDateWindow } from "../lib/comments"
 import { profileUrlForPerson } from "../lib/profile-url"
 import { initials } from "./contact-card/contact-card-badges"
 import { contentUrl, formatDate } from "./timeline/timeline-item"
@@ -34,12 +37,15 @@ export function CommentsView({ search, refreshKey }: { search: string; refreshKe
   const [status, setStatus] = useState("all")
   const [kind, setKind] = useState("all")
   const [excludeResponded, setExcludeResponded] = useState(false)
+  const [dateRange, setDateRange] = useState<{ from: Date | undefined; to?: Date }>()
+  const [dateOpen, setDateOpen] = useState(false)
   const [reload, setReload] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const query = new URLSearchParams({ search: search.trim(), status, kind, excludeResponded: String(excludeResponded), limit: "50" }).toString()
+  const dateWindow = useMemo(() => commentDateWindow(dateRange?.from, dateRange?.to), [dateRange, reload, refreshKey])
+  const query = new URLSearchParams({ search: search.trim(), status, kind, excludeResponded: String(excludeResponded), ...dateWindow, limit: "50" }).toString()
 
   useEffect(() => {
     const refresh = () => setReload((key) => key + 1)
@@ -121,6 +127,27 @@ export function CommentsView({ search, refreshKey }: { search: string; refreshKe
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
+        <Popover open={dateOpen} onOpenChange={setDateOpen}>
+          <PopoverTrigger asChild>
+            <Button variant="outline" aria-label="Comment dates" disabled={loadingMore || Boolean(saving)}>
+              <CalendarDays className="size-4" />
+              {dateRange?.from
+                ? `${dateRange.from.toLocaleDateString()}${dateRange.to ? ` – ${dateRange.to.toLocaleDateString()}` : ""}`
+                : "Last 48 hours"}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="w-auto p-0">
+            <Calendar mode="range" selected={dateRange} onSelect={setDateRange} defaultMonth={dateRange?.from} disabled={{ after: new Date() }} />
+            <div className="flex justify-between gap-2 border-t p-2">
+              <Button variant="ghost" size="sm" onClick={() => {
+                setDateRange(undefined)
+                setReload((key) => key + 1)
+                setDateOpen(false)
+              }}>Last 48 hours</Button>
+              <Button size="sm" onClick={() => setDateOpen(false)}>Done</Button>
+            </div>
+          </PopoverContent>
+        </Popover>
         <Select value={status} onValueChange={setStatus} disabled={loadingMore || Boolean(saving)}>
           <SelectTrigger aria-label="Comment status" className="w-44"><SelectValue /></SelectTrigger>
           <SelectContent>
