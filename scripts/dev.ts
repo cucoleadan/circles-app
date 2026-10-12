@@ -1,6 +1,6 @@
 import { connect } from "node:net"
 
-const sshHost = process.env.CIRCLES_SSH_HOST ?? "home"
+const sshHost = process.env.CIRCLES_SSH_HOST ?? "home-remote"
 const localDatabasePort = Number(process.env.CIRCLES_DB_PORT ?? 5433)
 const remoteDatabasePort = 15432
 const databaseProxy = "circles-dev-db-proxy"

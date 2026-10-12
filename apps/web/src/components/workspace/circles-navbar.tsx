@@ -15,6 +15,7 @@ import { HistoryBackfill } from "../history-backfill"
 
 export function CirclesNavbar({
   search,
+  searchPlaceholder = "Search name or @handle…",
   onSearchChange,
   onOpenGuide,
   onOpenSettings,
@@ -25,6 +26,7 @@ export function CirclesNavbar({
   onLogout,
 }: {
   search: string
+  searchPlaceholder?: string
   onSearchChange: (value: string) => void
   onOpenGuide: () => void
   onOpenSettings: (tab: "connection" | "queue" | "extension" | "lists") => void
@@ -57,7 +59,8 @@ export function CirclesNavbar({
               <Input
                 value={search}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search name or @handle…"
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
                 className="pl-9 h-8.5 sm:h-9 text-xs bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded-full"
               />
             </div>

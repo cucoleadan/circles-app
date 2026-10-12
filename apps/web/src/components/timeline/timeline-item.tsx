@@ -91,7 +91,7 @@ export function targetLabel(targetType: string | null) {
 }
 
 /** Only links that open one post, Note, or comment; never the feed it was seen in. */
-function contentUrl(value: string | null): string | null {
+export function contentUrl(value: string | null): string | null {
   if (!value) return null
   try {
     const url = new URL(value)

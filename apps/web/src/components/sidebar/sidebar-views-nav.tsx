@@ -21,6 +21,12 @@ import type { CirclesOverview, PeopleView } from "../../lib/types"
 
 export const actionViews: { id: PeopleView; label: string; icon: any; desc: string }[] = [
   {
+    id: "comments",
+    label: "Comments",
+    icon: MessageSquare,
+    desc: "Comments received on your Notes and articles, with recorded replies, Likes, and per-comment Not interested choices.",
+  },
+  {
     id: "priority",
     label: "Priority to Engage",
     icon: Sparkles,

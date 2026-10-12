@@ -3,6 +3,7 @@ import { Hono } from "hono"
 import { auth } from "../auth.js"
 import { getOrCreateAppUser } from "../db/repositories.js"
 import { connectionRoutes } from "./v1/connection.js"
+import { commentsRoutes } from "./v1/comments.js"
 import { importsRoutes } from "./v1/imports.js"
 import { listsRoutes } from "./v1/lists.js"
 import { notesRoutes } from "./v1/notes.js"
@@ -24,6 +25,7 @@ v1.use("*", async (c, next) => {
 
 v1.route("/", settingsRoutes)
 v1.route("/", peopleRoutes)
+v1.route("/", commentsRoutes)
 v1.route("/", listsRoutes)
 v1.route("/", tagsRoutes)
 v1.route("/", overviewRoutes)

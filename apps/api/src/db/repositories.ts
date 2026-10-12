@@ -771,13 +771,14 @@ export interface InteractionPage {
   nextCursor: string | null
 }
 
-const encodeCursor = (occurredAt: string, id: string) =>
+export const encodeCursor = (occurredAt: string, id: string) =>
   Buffer.from(JSON.stringify({ o: occurredAt, d: id })).toString("base64url")
 
-const decodeCursor = (cursor: string) => {
+export const decodeCursor = (cursor: string) => {
   try {
     const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString())
-    if (typeof parsed.o === "string" && typeof parsed.d === "string") return parsed
+    if (typeof parsed?.o === "string" && Number.isFinite(Date.parse(parsed.o)) &&
+        typeof parsed.d === "string" && parsed.d.length > 0 && parsed.d.length <= 200) return parsed
   } catch {
     /* fall through */
   }

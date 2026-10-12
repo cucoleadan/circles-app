@@ -100,6 +100,7 @@ export interface Interaction {
 
 export type PeopleView =
   | "all"
+  | "comments"
   | "needs-reply"
   | "awaiting-response"
   | "mutual"

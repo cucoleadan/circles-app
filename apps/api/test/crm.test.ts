@@ -28,6 +28,7 @@ import {
   circlesOverview,
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
+import { listComments, setCommentNotInterested } from "../src/db/comments.js"
 import {
   applyFollowerSnapshot,
   applyFollowingSnapshot,
@@ -40,6 +41,7 @@ import {
 import { ext } from "../src/routes/ext.js"
 import { v1 } from "../src/routes/v1.js"
 import { sniffImageType } from "../src/routes/v1/notes.js"
+import type { InteractionInput } from "../src/db/repositories.js"
 
 let admin: Pool
 let migrate: Pool
