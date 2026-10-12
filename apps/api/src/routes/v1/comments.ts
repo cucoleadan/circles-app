@@ -11,6 +11,7 @@ const queryInput = z.object({
   search: z.string().trim().max(500).optional(),
   status: z.enum(["all", "pending", "not-interested"]).default("all"),
   kind: z.enum(["all", "note", "post"]).default("all"),
+  excludeResponded: z.enum(["true", "false"]).default("false").transform((value) => value === "true"),
 })
 
 commentsRoutes.get("/comments", async (c) => {

@@ -33,12 +33,13 @@ export function CommentsView({ search, refreshKey }: { search: string; refreshKe
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [status, setStatus] = useState("all")
   const [kind, setKind] = useState("all")
+  const [excludeResponded, setExcludeResponded] = useState(false)
   const [reload, setReload] = useState(0)
   const [loading, setLoading] = useState(true)
   const [loadingMore, setLoadingMore] = useState(false)
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const query = new URLSearchParams({ search: search.trim(), status, kind, limit: "50" }).toString()
+  const query = new URLSearchParams({ search: search.trim(), status, kind, excludeResponded: String(excludeResponded), limit: "50" }).toString()
 
   useEffect(() => {
     const refresh = () => setReload((key) => key + 1)
@@ -136,6 +137,14 @@ export function CommentsView({ search, refreshKey }: { search: string; refreshKe
             <SelectItem value="post">Articles</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant={excludeResponded ? "default" : "outline"}
+          aria-pressed={excludeResponded}
+          disabled={loadingMore || Boolean(saving)}
+          onClick={() => setExcludeResponded((value) => !value)}
+        >
+          Exclude liked/replied
+        </Button>
       </div>
       <p className="text-xs text-muted-foreground">Showing synced comments. Replied and Liked reflect recorded actions on that comment; older actions may be missing. Not interested applies only to this comment.</p>
       {error && <p role="alert" className="rounded-lg border border-destructive/20 bg-destructive/5 p-3 text-sm text-destructive">{error}</p>}
@@ -178,11 +187,15 @@ export function CommentsView({ search, refreshKey }: { search: string; refreshKe
               <p className="whitespace-pre-wrap break-words text-sm leading-relaxed">{comment.body || "Comment text is unavailable in the synced data."}</p>
               <div className="border-l-2 border-stone-200 pl-3 dark:border-stone-700">
                 <p className="text-[11px] font-medium text-muted-foreground">On your {comment.contentKind === "note" ? "Note" : "article"}</p>
-                <p className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">{comment.contentTitle || comment.contentBody || "Untitled"}</p>
+                {threadUrl ? (
+                  <a href={threadUrl} target="_blank" rel="noreferrer" className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground hover:text-foreground hover:underline">
+                    {comment.contentTitle || comment.contentBody || "Untitled"}
+                  </a>
+                ) : <p className="mt-0.5 line-clamp-2 break-words text-xs text-muted-foreground">{comment.contentTitle || comment.contentBody || "Untitled"}</p>}
               </div>
             </CardContent>
             <CardFooter className="flex flex-wrap justify-between gap-2">
-              {threadUrl ? <Button asChild variant="outline" size="sm"><a href={threadUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-3.5" /> Open thread</a></Button> : <span className="text-xs text-muted-foreground">Thread link unavailable</span>}
+              {threadUrl ? <Button asChild variant="outline" size="sm"><a href={threadUrl} target="_blank" rel="noreferrer"><ExternalLink className="size-3.5" /> Open {comment.contentKind === "note" ? "Note" : "article"} on Substack</a></Button> : <span className="text-xs text-muted-foreground">Substack link unavailable</span>}
               <Button variant="ghost" size="sm" aria-pressed={comment.notInterested} disabled={Boolean(saving) || loadingMore} onClick={() => void toggleNotInterested(comment)}>
                 {saving === comment.id ? <Loader2 className="size-3.5 animate-spin" /> : comment.notInterested ? <Undo2 className="size-3.5" /> : <EyeOff className="size-3.5" />}
                 {comment.notInterested ? "Undo not interested" : "Not interested"}

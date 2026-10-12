@@ -302,6 +302,71 @@ describe("transactional edits", () => {
 })
 
 describe("interactions", () => {
+  test("comment response exclusion applies before pagination and links open the owned content", async () => {
+    await migrate.query(
+      `insert into substack_connections
+         (id, user_id, envelope_version, key_id, wrapped_key, iv, ciphertext, profile_handle)
+       values ('comments-connection', $1, 1, 'test', 'test', 'test', 'test', 'tester')`,
+      [userA],
+    )
+    await migrate.query(
+      `insert into owned_content (id, user_id, connection_id, kind, external_id, title, url)
+       values ('owned-note', $1, 'comments-connection', 'note', '900', null, null),
+              ('owned-post', $1, 'comments-connection', 'post', '901', 'Article', 'https://tester.substack.com/p/article')`,
+      [userA],
+    )
+    await withTenant({ appUserId: userA }, async (client) => {
+      const person = await createPerson(client, userA, { name: "Commenter", handle: "commenter" })
+      const add = (input: Partial<InteractionInput> & Pick<InteractionInput, "externalId">) =>
+        recordInteraction(client, userA, {
+          personId: person.id, connectionId: "comments-connection", direction: "inbound",
+          actionType: "comment", targetType: "note", targetId: "900",
+          threadKind: "note", threadRootId: "900", occurredAt: "2026-10-12T12:00:00Z",
+          ...input,
+        })
+      for (const [index, id] of ["liked", "replied", "both", "dismissed", "new", "unliked"].entries()) {
+        await add({ externalId: `comment-${id}`, body: id, occurredAt: new Date(Date.UTC(2026, 9, 12, 12, index)).toISOString(),
+          ...(id === "replied" ? { targetType: "post", targetId: "901", threadKind: "post", threadRootId: "901" } : {}),
+        })
+      }
+      await add({ externalId: "feed-new", metadata: { commentId: "new", rootCommentId: "900" }, body: "new" })
+      for (const id of ["liked", "both", "unliked"]) {
+        const like = await add({ externalId: `like-${id}`, direction: "outbound", actionType: "like", targetType: "comment", targetId: id })
+        if (id === "unliked") await client.query("update interactions set removed_at = now() where id = $1", [like!.id])
+      }
+      for (const id of ["replied", "both"]) {
+        await add({ externalId: `reply-${id}`, direction: "outbound", actionType: "reply", targetType: "comment", targetId: id })
+      }
+      // Liking a Note does not acknowledge an individual comment on that Note.
+      await add({ externalId: "like-note", direction: "outbound", actionType: "like" })
+      const all = await listComments(client)
+      expect(all.comments).toHaveLength(6)
+      const note = all.comments.find((item) => item.commentId === "new")!
+      const article = all.comments.find((item) => item.commentId === "replied")!
+      expect(note.contentUrl).toBe("https://substack.com/@tester/note/c-900")
+      expect(article.contentUrl).toBe("https://tester.substack.com/p/article")
+      expect(await setCommentNotInterested(client, all.comments.find((item) => item.commentId === "dismissed")!.id, true)).toBe(true)
+      const remaining = await listComments(client, { excludeResponded: true })
+      expect(remaining.comments.map((item) => item.commentId)).toEqual(["unliked", "new", "dismissed"])
+      expect(remaining.comments.every((item) => !item.liked && !item.replied)).toBe(true)
+      expect((await listComments(client, { excludeResponded: true, status: "pending" })).comments.map((item) => item.commentId)).toEqual(["unliked", "new"])
+      const first = await listComments(client, { excludeResponded: true, limit: 1 })
+      const second = await listComments(client, { excludeResponded: true, limit: 1, cursor: first.nextCursor! })
+      expect(first.comments.map((item) => item.commentId)).toEqual(["unliked"])
+      expect(second.comments.map((item) => item.commentId)).toEqual(["new"])
+      expect(await setCommentNotInterested(client, note.id, true)).toBe(true)
+      const duplicateChoices = await client.query("select not_interested from interactions where external_id in ('comment-new', 'feed-new')")
+      expect(duplicateChoices.rows.every((item) => item.not_interested)).toBe(true)
+    })
+    expect((await withTenant({ appUserId: userB }, (client) => listComments(client, { excludeResponded: true }))).comments).toEqual([])
+    const request = (query: string) => v1.fetch(new Request(`http://localhost:3000/comments?${query}`, { headers: { cookie: signedCookieA } }))
+    const filtered = await request("excludeResponded=true")
+    expect(filtered.status).toBe(200)
+    expect((await filtered.json() as any).comments).toHaveLength(3)
+    expect((await (await request("excludeResponded=false")).json() as any).comments).toHaveLength(6)
+    expect((await request("excludeResponded=invalid")).status).toBe(400)
+  })
+
   test("contact refetch queues one non-retrying job and scopes status to its owner", async () => {
     const person = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Refetch Person", handle: "refetch-person" })

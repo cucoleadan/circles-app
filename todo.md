@@ -1,7 +1,23 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-10-02.
+Update this file as work completes. Last updated: 2026-10-12.
+
+## 2026-10-12 Unified comments
+
+- [x] Comments view lists synced comments and direct replies received on owned
+      Notes/articles, with authors, per-comment Replied/Liked badges and reversible
+      Not interested choices (migration `032`).
+- [x] Top-level Exclude liked/replied toggle filters before pagination and combines
+      with the status/content filters. Content titles and Open Note/article on
+      Substack buttons open the source in a new tab; missing Note URLs use the
+      existing profile-handle permalink helper.
+- [x] Regression coverage added for response exclusion, pagination, removed Likes,
+      duplicate comments, tenant isolation, request validation and source links.
+- [x] Typecheck and diff whitespace checks pass for the follow-up.
+- [ ] Run database tests and visually verify the view. Per user instruction,
+      no services, tunnels or builds were started for this follow-up.
+- [ ] Deploy migration `032`; older unrecorded outbound actions remain unknown.
 
 ## 2026-10-02 Note tags and restack previews
 
