@@ -180,7 +180,24 @@ export async function claimAndRunJob(
         jobResult = result.skipped
           ? { skipped: true }
           : numericSummary("stats" in result ? result.stats : null, ["processedItems", "newInteractions", "newPeople"])
-        if (!result.skipped) {
+        // Notifications are polled every few minutes; reply-tree and outbound
+        // refreshes run at most every 3 hours, audience sweeps once a day.
+        const recentRefresh = result.skipped ? null : await client.query(
+          `select 1 from jobs
+           where type = 'sync:history' and payload->>'connectionId' = $1
+             and created_at > now() - interval '3 hours'
+           limit 1`,
+          [connectionId],
+        )
+        const recentAudience = result.skipped ? null : await client.query(
+          `select 1 from jobs
+           where type in ('sync:subscribers', 'sync:followers', 'sync:following')
+             and payload->>'connectionId' = $1
+             and created_at > now() - interval '23 hours'
+           limit 1`,
+          [connectionId],
+        )
+        if (!result.skipped && !recentRefresh?.rows[0]) {
           const scheduledHistory: Array<{
             stream: ScheduledHistoryStream
             outboundStage?: OutboundStage
@@ -213,15 +230,17 @@ export async function claimAndRunJob(
               ],
             )
           }
-          // Scheduled syncs read only new subscribers; one full sweep per day
+        }
+        if (!result.skipped && !recentAudience?.rows[0]) {
+          // Daily syncs read only new subscribers; one full sweep per week
           // re-reads the whole list so unsubscribes can be reconciled safely.
+          // A failed attempt counts too, so a blocked sweep is not retried daily.
           const recentFullSweep = await client.query(
             `select 1 from jobs
-             where type = 'sync:subscribers' and status = 'done'
+             where type = 'sync:subscribers'
                and payload->>'connectionId' = $1
                and coalesce(payload->>'mode', 'full') = 'full'
-               and result->>'completed' = 'true'
-               and updated_at > now() - interval '23 hours'
+               and created_at > now() - interval '7 days'
              limit 1`,
             [connectionId],
           )
@@ -274,9 +293,11 @@ export async function claimAndRunJob(
               ],
             )
           }
+        }
+        if (!result.skipped) {
           enqueue(
             `insert into jobs (type, payload, status, run_at)
-             select 'sync:activity', $1, 'pending', now() + interval '3 hours'
+             select 'sync:activity', $1, 'pending', now() + interval '10 minutes'
              where not exists (
                select 1 from jobs existing
                where existing.type = 'sync:activity'
@@ -547,7 +568,7 @@ export async function claimAndRunJob(
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
         /\b429\b/.test(errorMessage) || isUpstreamChallenge
-      // The recurring activity sync owns the 3-hour schedule; dead-lettering it
+      // The recurring activity sync owns the polling schedule; dead-lettering it
       // would silently stop all syncing, so it backs off and keeps retrying.
       const keepsRetrying = job.type === "sync:activity"
       const isDead = sessionExpired || optionalProfileUnauthorized || job.type === "refetch:contact" || (

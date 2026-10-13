@@ -85,9 +85,9 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(leaseUpdate?.params?.[0]).toBe("job-101")
     expect(leaseUpdate?.params?.[1]).toBe("test-worker-1")
 
-    // Verify next sync job was rescheduled for 3 hours
+    // Verify next notification poll was rescheduled
     const reschedule = executedQueries.find((q) =>
-      q.sql.includes("insert into jobs") && q.sql.includes("3 hours")
+      q.sql.includes("insert into jobs") && q.sql.includes("10 minutes")
     )
     expect(reschedule).toBeDefined()
     expect(reschedule?.sql).toContain("existing.id <> $3")
@@ -107,6 +107,35 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(JSON.parse(doneUpdate?.params?.[2])).toEqual({
       processedItems: 12, newInteractions: 2, newPeople: 1,
     })
+  })
+
+  test("activity poll skips refreshes still inside their 3-hour and daily windows", async () => {
+    const runPoll = async (recent: "history" | "audience") => {
+      const executedQueries: { sql: string; params?: any[] }[] = []
+      const mockClient: any = {
+        query: async (sql: string, params: any[] = []) => {
+          executedQueries.push({ sql, params })
+          if (sql.includes("select id, type, payload")) return { rows: [{
+            id: "job-102", type: "sync:activity", attempts: 0, max_attempts: 5,
+            payload: { userId: "user-1", connectionId: "conn-1" },
+          }] }
+          if (recent === "history" && sql.includes("type = 'sync:history'") && sql.includes("3 hours")) return { rows: [{}] }
+          if (recent === "audience" && sql.includes("'sync:following')") && sql.includes("23 hours")) return { rows: [{}] }
+          return { rows: [] }
+        },
+        release: () => {},
+      }
+      await claimAndRunJob({ connect: async () => mockClient } as any, "test-worker-1", {
+        onSync: async () => ({ skipped: false, stats: { processedItems: 1, newInteractions: 0, newPeople: 0 } }),
+      })
+      return {
+        history: executedQueries.some((q) => q.sql.includes("select 'sync:history'")),
+        audience: executedQueries.some((q) => q.params?.[0] === "sync:subscribers"),
+        poll: executedQueries.some((q) => q.sql.includes("select 'sync:activity'") && q.sql.includes("10 minutes")),
+      }
+    }
+    expect(await runPoll("history")).toEqual({ history: false, audience: true, poll: true })
+    expect(await runPoll("audience")).toEqual({ history: true, audience: false, poll: true })
   })
 
   test("schedules next page when import:history job is not yet completed", async () => {

@@ -537,7 +537,7 @@ async function upsertOwnedContent(
   const title = firstString(raw.title, raw.headline, item.title)
   const body = firstString(raw.body, raw.body_text, raw.subtitle) ?? bodyText(raw.body_json)
   const url = firstString(raw.canonical_url, raw.url, item.canonical_url, item.url)
-  const publishedAt = raw.published_at ?? raw.post_date ?? raw.created_at ?? item.created_at ?? null
+  const publishedAt = raw.published_at ?? raw.post_date ?? raw.created_at ?? raw.date ?? item.created_at ?? null
   await client.query(
     `insert into owned_content
         (id, user_id, connection_id, kind, external_id, title, body, url, published_at, raw, last_synced_at)
@@ -575,12 +575,14 @@ export async function syncOwnedNotesPage(
 
   for (const item of items) {
     const raw = record(item.comment) ?? item
-    const rawDate = raw.published_at ?? raw.created_at ?? item.created_at ?? null
+    // Profile-feed Notes carry their publish time in `comment.date`. The feed
+    // is not guaranteed chronological, so skip old items rather than stopping.
+    const rawDate = raw.published_at ?? raw.created_at ?? raw.date ?? item.created_at ?? null
     if (cutoff && rawDate) {
       const d = new Date(rawDate)
       if (!Number.isNaN(d.getTime()) && d <= cutoff) {
         hitCutoff = true
-        break
+        continue
       }
     }
 

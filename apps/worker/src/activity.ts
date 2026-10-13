@@ -164,7 +164,7 @@ export async function processActivitySync(
       `update sync_state
        set cursor = coalesce($2, cursor),
            last_synced_at = now(),
-           next_run_at = now() + interval '3 hours',
+           next_run_at = now() + interval '10 minutes',
            status = 'idle',
            error = null,
            updated_at = now()

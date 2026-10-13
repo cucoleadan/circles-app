@@ -174,10 +174,12 @@ Relationship rules:
 
 ## Sync and historical coverage
 
-Scheduled/manual sync reads activity pages newest-first back to the last
+Scheduled/manual sync polls the activity (notification) feed every 10 minutes,
+reading pages newest-first back to the last
 successful activity sync minus a 30-minute overlap (at most 5 pages; first sync
 reads one page) and ingests every item on those pages without a time filter,
-because grouped notifications gain new senders after creation. It refreshes the
+because grouped notifications gain new senders after creation. At most every 3
+hours per connection a poll also queues the audience sweeps and heavier refreshes: it refreshes the
 reply trees of the 6 newest owned Notes from the last 7 days and the 3 newest
 posts from the last 14 days, and re-reads the newest Likes, restacks, and
 authored-replies pages over a 24-hour window. The `sync:activity` job never
@@ -188,9 +190,10 @@ connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
 set; always read them through `openSessionToken`, never `ciphertext` directly.
 Subscriber and follower audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
-Scheduled subscriber refreshes read only new subscribers (incremental, never
-reconciling) and run the full reconciling sweep at most once per ~23 hours per
-connection.
+Scheduled audience sweeps (subscribers, followers, following) run at most once
+per ~23 hours per connection. The daily subscriber refresh reads only new
+subscribers (incremental, stopping at the stored checkpoint, never reconciling);
+the full reconciling sweep that detects unsubscribes runs at most once per 7 days.
 Historical cursors belong to backfill jobs, not incremental sync. Activity,
 owned Notes, owned posts, and outbound history have independent
 status/completeness state so one stream cannot silently advance another.
