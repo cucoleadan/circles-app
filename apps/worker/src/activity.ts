@@ -238,7 +238,9 @@ export async function processScheduledHistorySync(
             client, sdk, context, null,
             SCHEDULED_POST_REFRESH_LIMIT, new Date(now - SCHEDULED_POST_REFRESH_DAYS * DAY_MS),
           )
-        : await syncRecentOutboundActions(client, sdk, context, 20, outboundStage, new Date(now - DAY_MS))
+        : await syncRecentOutboundActions(
+            client, sdk, context, outboundStage === "replies" ? 40 : 20, outboundStage, new Date(now - DAY_MS),
+          )
 
     await client.query(
       `update sync_stream_state

@@ -367,20 +367,31 @@ export async function syncRecentOutboundActions(
   let newInteractions = 0
   let newPeople = 0
   for (const currentStage of stage ? [stage] : OUTBOUND_STAGES) {
-    const page = await fetchOutboundPage(sdk, context.ownerId, currentStage, null, limit)
-    await preserveOutboundEvidence(client, context, currentStage, page)
-    const rawItems = Array.isArray(page?.items) ? page.items : []
-    const normalized = normalizeOutboundProfileFeed(rawItems, context.ownerId)
-    const filtered = cutoff
-      ? normalized.filter((item) => !isAtOrBeforeCutoff(item, cutoff))
-      : normalized
-    const stats = await ingestActivityBatch(client, {
-      ...context,
-      items: filtered,
-    })
-    items += filtered.length
-    newInteractions += stats.newInteractions
-    newPeople += stats.newPeople
+    // Substack ignores `limit` and returns ~12 items a page, so follow the
+    // cursor until `limit` items are read or the page reaches the cutoff.
+    let cursor: string | null = null
+    let read = 0
+    do {
+      if (read > 0) await sleep(2_000)
+      const page = await fetchOutboundPage(sdk, context.ownerId, currentStage, cursor, limit)
+      await preserveOutboundEvidence(client, context, currentStage, page)
+      const rawItems = Array.isArray(page?.items) ? page.items : []
+      const normalized = normalizeOutboundProfileFeed(rawItems, context.ownerId)
+      const filtered = cutoff
+        ? normalized.filter((item) => !isAtOrBeforeCutoff(item, cutoff))
+        : normalized
+      const stats = await ingestActivityBatch(client, {
+        ...context,
+        items: filtered,
+      })
+      items += filtered.length
+      newInteractions += stats.newInteractions
+      newPeople += stats.newPeople
+      read += rawItems.length
+      cursor = rawItems.length > 0 && filtered.length === normalized.length
+        ? firstString(page?.nextCursor) ?? null
+        : null
+    } while (cursor && read < limit)
   }
   return { items, newInteractions, newPeople, nextCursor: null, complete: true }
 }

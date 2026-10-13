@@ -180,15 +180,20 @@ export async function claimAndRunJob(
         jobResult = result.skipped
           ? { skipped: true }
           : numericSummary("stats" in result ? result.stats : null, ["processedItems", "newInteractions", "newPeople"])
-        // Notifications are polled every few minutes; reply-tree and outbound
-        // refreshes run at most every 3 hours, audience sweeps once a day.
-        const recentRefresh = result.skipped ? null : await client.query(
-          `select 1 from jobs
-           where type = 'sync:history' and payload->>'connectionId' = $1
-             and created_at > now() - interval '3 hours'
-           limit 1`,
-          [connectionId],
-        )
+        // Notifications are polled every few minutes; the owner's own replies
+        // every 30 minutes; reply-tree, Like and restack refreshes at most every
+        // 3 hours; audience sweeps once a day.
+        const recentHistory = async (stream: string, outboundStage: string, window: string) =>
+          Boolean((await client.query(
+            `select 1 from jobs
+             where type = 'sync:history' and payload->>'connectionId' = $1
+               and payload->>'stream' = $2 and coalesce(payload->>'outboundStage', '') = $3
+               and created_at > now() - $4::interval
+             limit 1`,
+            [connectionId, stream, outboundStage, window],
+          )).rows[0])
+        const refreshDue = !result.skipped && !await recentHistory("owned_notes", "", "3 hours")
+        const repliesDue = !result.skipped && !await recentHistory("outbound_actions", "replies", "30 minutes")
         const recentAudience = result.skipped ? null : await client.query(
           `select 1 from jobs
            where type in ('sync:subscribers', 'sync:followers', 'sync:following')
@@ -197,17 +202,19 @@ export async function claimAndRunJob(
            limit 1`,
           [connectionId],
         )
-        if (!result.skipped && !recentRefresh?.rows[0]) {
+        {
           const scheduledHistory: Array<{
             stream: ScheduledHistoryStream
             outboundStage?: OutboundStage
             delay: number
           }> = [
-            { stream: "owned_notes", delay: 10 },
-            { stream: "owned_posts", delay: 20 },
-            { stream: "outbound_actions", outboundStage: "likes", delay: 30 },
-            { stream: "outbound_actions", outboundStage: "restacks", delay: 40 },
-            { stream: "outbound_actions", outboundStage: "replies", delay: 50 },
+            ...(refreshDue ? [
+              { stream: "owned_notes", delay: 10 },
+              { stream: "owned_posts", delay: 20 },
+              { stream: "outbound_actions", outboundStage: "likes", delay: 30 },
+              { stream: "outbound_actions", outboundStage: "restacks", delay: 40 },
+            ] as const : []),
+            ...(repliesDue ? [{ stream: "outbound_actions", outboundStage: "replies", delay: 50 }] as const : []),
           ]
           for (const scheduled of scheduledHistory) {
             enqueue(

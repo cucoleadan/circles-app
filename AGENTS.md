@@ -181,8 +181,10 @@ reads one page) and ingests every item on those pages without a time filter,
 because grouped notifications gain new senders after creation. At most every 3
 hours per connection a poll also queues the audience sweeps and heavier refreshes: it refreshes the
 reply trees of the 6 newest owned Notes from the last 7 days and the 3 newest
-posts from the last 14 days, and re-reads the newest Likes, restacks, and
-authored-replies pages over a 24-hour window. The `sync:activity` job never
+posts from the last 14 days, and re-reads the newest Likes and restacks pages
+over a 24-hour window. Separately, every 30 minutes it re-reads up to 40 of the
+owner's authored replies from the last 24 hours (Substack ignores `limit` and
+returns ~12 per page, so this follows the cursor). The `sync:activity` job never
 dead-letters except on session expiry; the worker's queue maintenance re-seeds
 it for any active connection without one, and connecting schedules it at once.
 Connecting rejects a session Substack does not verify, keeping the current

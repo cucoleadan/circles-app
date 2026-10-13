@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { normalizeOutboundProfileFeed, syncOwnedPostsPage } from "../src/history.js"
+import { normalizeOutboundProfileFeed, syncOwnedPostsPage, syncRecentOutboundActions } from "../src/history.js"
 
 const ownerId = "44242110"
 
@@ -173,5 +173,39 @@ describe("owned post history", () => {
     expect(result).toMatchObject({ items: 1, nextCursor: "4", complete: false })
     expect(queries.some((sql) => sql.includes("insert into owned_content"))).toBe(true)
     expect(queries.some((sql) => sql.includes("insert into thread_snapshots"))).toBe(false)
+  })
+})
+
+describe("recent outbound replies", () => {
+  const context = { userId: "user-1", connectionId: "connection-1", ownerId, ownerHandle: "owner", source: "sdk" as const }
+  const client: any = { query: async () => ({ rows: [] }) }
+  const oldReply = {
+    context: { type: "note", source: "db-note", timestamp: "2026-09-01T10:00:00Z" },
+    comment: { id: 404, user_id: Number(ownerId), body: "Old reply", ancestor_path: "302" },
+    parentComments: [{ id: 302, user_id: 9005, handle: "erin", name: "Erin", type: "feed" }],
+  }
+
+  test("follows the cursor because Substack returns ~12 replies per page", async () => {
+    const cursors: Array<string | undefined> = []
+    const sdk: any = {
+      getProfileReplies: async (_id: string, options: { cursor?: string }) => {
+        cursors.push(options.cursor)
+        return { items: Array.from({ length: 12 }, () => ({})), nextCursor: `c${cursors.length}` }
+      },
+    }
+    await syncRecentOutboundActions(client, sdk, context, 20, "replies")
+    expect(cursors).toEqual([undefined, "c1"])
+  }, 10_000)
+
+  test("stops paging once a reply is older than the cutoff", async () => {
+    let calls = 0
+    const sdk: any = {
+      getProfileReplies: async () => {
+        calls++
+        return { items: [oldReply], nextCursor: "more" }
+      },
+    }
+    await syncRecentOutboundActions(client, sdk, context, 40, "replies", new Date("2026-10-01T00:00:00Z"))
+    expect(calls).toBe(1)
   })
 })
