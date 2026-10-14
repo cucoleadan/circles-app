@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
+import { Hono } from "hono"
+import { auth } from "../src/auth.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createMcpHandler } from "@modelcontextprotocol/server"
@@ -13,6 +15,28 @@ import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
 const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set() }
 
 describe("Circles MCP protocol and tool boundaries", () => {
+  test("OAuth diagnostics preserve callbacks and omit credentials", async () => {
+    const callback = "https://client.test/callback?code=secret-code&state=secret-state"
+    const log = spyOn(console, "info").mockImplementation(() => {})
+    const handler = spyOn(auth, "handler").mockImplementation(async () => Response.json({ url: callback }))
+    const app = new Hono().route("/", oauthProtocolRoutes)
+    app.post("/api/auth/oauth2/consent", (c) => auth.handler(c.req.raw))
+    try {
+      const response = await app.request("/api/auth/oauth2/consent", { method: "POST" })
+      expect(await response.json()).toEqual({ url: callback })
+      expect(JSON.parse(String(log.mock.calls[0]?.[1]))).toEqual({ endpoint: "consent", status: 200,
+        callback: { codePresent: true, statePresent: true, errorPresent: false } })
+      handler.mockImplementation(async () => Response.json({ access_token: "secret-token", refresh_token: "secret-refresh" }))
+      await app.request("/api/auth/oauth2/token", { method: "POST" })
+      expect(JSON.parse(String(log.mock.calls[1]?.[1]))).toEqual({ endpoint: "token", status: 200, accessTokenPresent: true })
+      handler.mockImplementation(async () => Response.json({ error: "invalid_grant", error_description: "secret-description" }, { status: 400 }))
+      await app.request("/api/auth/oauth2/token", { method: "POST" })
+      expect(JSON.parse(String(log.mock.calls[2]?.[1])).error).toBe("invalid_grant")
+      expect(JSON.stringify(log.mock.calls)).not.toContain("secret-")
+      expect(JSON.stringify(log.mock.calls)).not.toContain("client.test")
+    } finally { handler.mockRestore(); log.mockRestore() }
+  })
+
   test("OAuth protocol preflights work without opening cookie login or consent", async () => {
     const headers = { origin: "https://dash.cloudflare.com", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type,dpop" }
     for (const endpoint of ["oauth2/token", "oauth2/register", "oauth2/revoke", "oauth2/introspect", "jwks"]) {

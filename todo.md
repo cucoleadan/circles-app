@@ -3,7 +3,7 @@
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
 Update this file as work completes. Last updated: 2026-10-14.
 
-## 2026-10-14 MCP implementation (deployed; browser OAuth fix pending)
+## 2026-10-14 MCP implementation (deployed; callback investigation pending)
 
 - [x] Repository-grounded implementation plan in `plans/circles-mcp.md`: shared
       Better Auth sign-in with Cloudflare Access OIDC integration, remote MCP
@@ -37,10 +37,15 @@ Update this file as work completes. Last updated: 2026-10-14.
       OAuth; discovery works on the API but the tunnel sends it to a web 404.
 - [x] Web discovery forwarding deployed; public MCP metadata now returns 200.
       Forwarding regression coverage is added; runtime tests remain restricted.
-- [ ] Deploy OAuth protocol CORS and the Cloudflare dashboard MCP origin fix.
-      Live inspection confirms a Cloudflare grant/token was issued, but token
+- [x] Deploy OAuth protocol CORS and the Cloudflare dashboard MCP origin fix.
+      Live inspection confirms Cloudflare consent and refresh-token records, but token
       responses/discovery lacked CORS and the dashboard MCP preflight was rejected.
       Added preflight isolation checks and a token-exchange CORS assertion.
+- [ ] Resolve ChatGPT's “Missing OAuth callback data” error. Latest source adds
+      credential-free OAuth response diagnostics (status, standard error code,
+      callback code/state presence and token presence) to distinguish a malformed
+      callback from a lost client handoff. Diagnostics need deployment and a fresh
+      connection attempt; no root cause or successful end-to-end flow is confirmed.
 
 No agent-run build, deployment, push or extension rebuild. `npm run check` does not exist;
 the repository typecheck includes the web's `astro check`.
