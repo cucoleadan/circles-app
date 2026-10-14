@@ -12,6 +12,50 @@ import { sdkScopes, type McpPrincipal } from "../src/mcp/sdk-tools.js"
 const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set() }
 
 describe("Circles MCP protocol and tool boundaries", () => {
+  test("web discovery forwarding preserves API responses without browser credentials", async () => {
+    const { onRequest } = await import(new URL("../../web/src/middleware.ts", import.meta.url).href)
+    const originalFetch = globalThis.fetch
+    const internalUrl = process.env.API_INTERNAL_URL
+    const requests: Request[] = []
+    let nextCalls = 0
+    const next = () => { nextCalls++; return new Response("web") }
+    const invoke = (path: string, method = "GET") => {
+      const url = new URL(path, "https://circles.example.test")
+      return onRequest({ url, request: new Request(url, { method, headers: { cookie: "private-session", authorization: "Bearer private" } }) }, next)
+    }
+    try {
+      process.env.API_INTERNAL_URL = "http://api:3000"
+      globalThis.fetch = (async (input, init) => {
+        requests.push(new Request(input, init))
+        return Response.json({ resource: "https://circles.example.test/api/mcp" }, { headers: { "access-control-allow-origin": "*" } })
+      }) as typeof fetch
+      for (const path of ["/.well-known/oauth-protected-resource/api/mcp", "/.well-known/oauth-authorization-server/api/auth"]) {
+        const response = await invoke(path)
+        expect(response.status).toBe(200)
+        expect(response.headers.get("access-control-allow-origin")).toBe("*")
+        expect((await response.json()).resource).toBe("https://circles.example.test/api/mcp")
+        const forwarded = requests.at(-1)!
+        expect(forwarded.url).toBe(`http://api:3000${path}`)
+        expect(forwarded.headers.get("cookie")).toBeNull()
+        expect(forwarded.headers.get("authorization")).toBeNull()
+        expect(forwarded.redirect).toBe("manual")
+      }
+      await invoke("/.well-known/oauth-protected-resource/api/mcp", "HEAD")
+      expect(requests.at(-1)!.method).toBe("HEAD")
+      await invoke("/mcp")
+      await invoke("/.well-known/oauth-protected-resource/api/mcp", "POST")
+      expect(nextCalls).toBe(2)
+      globalThis.fetch = (async () => { throw new Error("Internal connection failed") }) as typeof fetch
+      const failed = await invoke("/.well-known/oauth-protected-resource/api/mcp")
+      expect(failed.status).toBe(502)
+      expect(await failed.text()).not.toContain("Internal connection failed")
+    } finally {
+      globalThis.fetch = originalFetch
+      if (internalUrl === undefined) delete process.env.API_INTERNAL_URL
+      else process.env.API_INTERNAL_URL = internalUrl
+    }
+  })
+
   test("parallel SDK fetches serialize the whole operation and recover after failure", async () => {
     const { serializeFetch } = await import(new URL("../../worker/src/mcp.ts", import.meta.url).href)
     let release!: () => void

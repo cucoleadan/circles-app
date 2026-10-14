@@ -102,6 +102,9 @@ ingress:
 `api`/`web` ports on the host.
 
 MCP discovery needs the `/.well-known/*` rule above as well as `/api/mcp`.
+The web middleware also forwards GET/HEAD `/.well-known/*` to
+`API_INTERNAL_URL`, so discovery works when an existing tunnel sends those
+paths to the web service. It forwards public metadata without browser cookies.
 See `docs/mcp.md` for OAuth, Cloudflare portal, scoped tools, and optional Access
 SSO configuration. API and worker both need the same canonical `APP_URL`.
 

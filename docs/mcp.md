@@ -2,7 +2,8 @@
 
 The source provides `${APP_URL}/api/mcp`, a stateless remote MCP endpoint for
 Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
-It is not yet deployed or verified against the live Cloudflare gateway.
+The MCP is deployed. A web forwarding fix for public OAuth discovery is pending
+deployment; authenticated Cloudflare gateway verification remains outstanding.
 
 ## Tools and data sources
 
@@ -88,6 +89,8 @@ After normal migration-gated deployment:
 
 1. Route both `/api/*` and `/.well-known/*` to the API via the existing Tunnel.
    Other paths, including `/login`, `/mcp`, and `/mcp/consent`, go to the web app.
+   The web middleware also forwards public discovery to `API_INTERNAL_URL` if
+   the existing tunnel sends `/.well-known/*` to the web service.
 2. Add `${APP_URL}/api/mcp` as an OAuth-protected upstream server in the
    Cloudflare MCP server portal; configure Code Mode there.
 3. Sign into the portal and authorize the upstream Circles account. Portal

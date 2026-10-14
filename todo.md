@@ -3,7 +3,7 @@
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
 Update this file as work completes. Last updated: 2026-10-14.
 
-## 2026-10-14 MCP implementation (not deployed)
+## 2026-10-14 MCP implementation (deployed; discovery fix pending)
 
 - [x] Repository-grounded implementation plan in `plans/circles-mcp.md`: shared
       Better Auth sign-in with Cloudflare Access OIDC integration, remote MCP
@@ -32,9 +32,14 @@ Update this file as work completes. Last updated: 2026-10-14.
       authorized. User subsequently requested only typecheck/check; runtime
       tests were stopped and the temporary database tunnel closed.
 - [ ] Verify modern-client/gateway integration and actual Cloudflare SSO linking.
-- [ ] Deploy migrations and update production `/.well-known/*` routing.
+- [x] Confirmed deployment on `home-remote`: matching MCP source, healthy API,
+      running web/worker and successful migration service. Public MCP requires
+      OAuth; discovery works on the API but the tunnel sends it to a web 404.
+- [ ] Deploy the web middleware forwarding public `/.well-known/*` metadata
+      to the API, then retry Cloudflare registration. Forwarding regression
+      coverage is added; verification remains restricted to typecheck/check.
 
-No build, deployment, push or extension rebuild. `npm run check` does not exist;
+No agent-run build, deployment, push or extension rebuild. `npm run check` does not exist;
 the repository typecheck includes the web's `astro check`.
 
 ## 2026-10-12 Unified comments
