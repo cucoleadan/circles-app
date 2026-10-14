@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
@@ -494,6 +495,8 @@ export async function claimAndRunJob(
             [JSON.stringify({ ...payload, ...result.cursor })],
           )
         }
+      } else if (job.type === "mcp:substack") {
+        jobResult = await processMcpTool(client, userId, payload.runId)
       } else {
         throw new Error(`Unknown job type: ${job.type}`)
       }

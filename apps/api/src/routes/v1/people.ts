@@ -31,7 +31,7 @@ const optionalText = z
   .nullable()
   .transform((val) => (val && val.length > 0 ? val : null))
 
-const personInput = z.object({
+export const personInput = z.object({
   name: z.string().trim().min(1).max(120),
   handle: z
     .string()

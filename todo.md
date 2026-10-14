@@ -1,7 +1,41 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-10-12.
+Update this file as work completes. Last updated: 2026-10-14.
+
+## 2026-10-14 MCP implementation (not deployed)
+
+- [x] Repository-grounded implementation plan in `plans/circles-mcp.md`: shared
+      Better Auth sign-in with Cloudflare Access OIDC integration, remote MCP
+      client compatibility, daily briefing, and phased full app operations.
+- [x] Expanded the plan to include the SDK MCP's complete toolset; local
+      network-free discovery confirms 18 read capabilities and 36 registered
+      names/aliases. Plan covers reuse, live-read pacing, and sensitive-data grants.
+- [x] Implemented stateless `/api/mcp`, all 36 SDK names/aliases and 57 Circles
+      tools, typed schemas and per-tool permissions. REST delegation reuses
+      existing Note/CRM validation and queue behavior.
+- [x] Added shared Better Auth OAuth login, signed consent, token/DPoP checks,
+      browser grant revocation, `/mcp` management and optional explicitly linked
+      Cloudflare Access OIDC. Better Auth is pinned to 1.7.7.
+- [x] Added forward-only migrations `033`/`034`, private SDK run storage/RLS,
+      worker queue integration, pacing, raw-record gates and credential redaction.
+- [x] Added daily briefing, DST-aware day boundaries, SDK schema/alias parity,
+      permission, OAuth, tenant and worker tests.
+- [x] Fixed audit findings: serialize/drain SDK requests before releasing the
+      database client, compare Note times numerically, and lock SDK admission
+      by tenant. Added regression cases for serialization, offset ranges,
+      concurrent clients, refresh rotation and DPoP replay/key rejection.
+- [x] Before the user's verification restriction: protocol/schema checks passed;
+      fresh/test DB migrations `033`/`034` applied; shared-session PKCE/revocation
+      and tenant-safe MCP writes passed. No production schema was changed.
+- [ ] Run the new audit regression cases, corrected SDK worker fixture and full regression suite when
+      authorized. User subsequently requested only typecheck/check; runtime
+      tests were stopped and the temporary database tunnel closed.
+- [ ] Verify modern-client/gateway integration and actual Cloudflare SSO linking.
+- [ ] Deploy migrations and update production `/.well-known/*` routing.
+
+No build, deployment, push or extension rebuild. `npm run check` does not exist;
+the repository typecheck includes the web's `astro check`.
 
 ## 2026-10-12 Unified comments
 

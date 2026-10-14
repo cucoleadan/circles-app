@@ -51,6 +51,15 @@ Authentication is Better Auth with same-origin cookies. Clerk is retired and
 must not be reintroduced. `app_users` is the CRM tenant identity linked to the
 Better Auth user.
 
+The source also implements `/api/mcp`: Better Auth 1.7.7 OAuth/MCP authorization
+uses the same user/tenant, scoped grants and revocation; the stateless HTTP
+transport accepts modern and 2025-era clients. It composes all SDK MCP tools
+with `circles_*` app operations. SDK reads enter `mcp:substack` jobs and keep
+private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
+management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
+to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
+This feature has not been deployed or verified through the live gateway.
+
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a
 revoked or different Substack account from being delivered into the current
@@ -77,8 +86,10 @@ schema, or assume application code starts before its migration succeeds.
 Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
-Current latest migration at the time of writing is
-`031_replay_post_previews.sql`, which re-queues the evidence replay so outbound
+Current latest source migration is `034_mcp_tool_runs.sql` (private SDK runs,
+grant revocation and tenant RLS); `033_mcp_oauth.sql` adds the Better Auth
+OAuth/JWK schema. Migration `032_comment_triage.sql` adds received-comment triage.
+Migration `031_replay_post_previews.sql` re-queues the evidence replay so outbound
 post Likes/restacks gain `metadata.targetImage`/`targetPublication` for timeline
 preview cards. Migration `030_note_tags.sql` adds the Circles-only `note_tags`
 catalog and `scheduled_note_tags` edges. Migration `029_scheduled_notes.sql`

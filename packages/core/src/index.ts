@@ -1,4 +1,5 @@
 export * from "./substack.js"
+export * from "./substack-mcp.js"
 export * from "./ingestion.js"
 export * from "./audience.js"
 export * from "./http.js"

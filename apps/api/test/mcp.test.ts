@@ -1,0 +1,123 @@
+import { describe, expect, test } from "bun:test"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { createMcpHandler } from "@modelcontextprotocol/server"
+import { discoverSubstackTools, redactMcpResult } from "@workspace/core"
+import { createCirclesMcp, mcpRoutes } from "../src/mcp/server.js"
+import { circlesTools, operationRequest } from "../src/mcp/circles-tools.js"
+import { localDayRange } from "../src/mcp/day.js"
+import { requireScopes } from "../src/mcp/scopes.js"
+import { sdkScopes, type McpPrincipal } from "../src/mcp/sdk-tools.js"
+
+const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set() }
+
+describe("Circles MCP protocol and tool boundaries", () => {
+  test("parallel SDK fetches serialize the whole operation and recover after failure", async () => {
+    const { serializeFetch } = await import(new URL("../../worker/src/mcp.ts", import.meta.url).href)
+    let release!: () => void
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    let releaseSecond!: () => void
+    const secondGate = new Promise<void>((resolve) => { releaseSecond = resolve })
+    const events: string[] = []
+    const queued = serializeFetch(async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input)
+      events.push(url)
+      if (url.endsWith("first")) { await gate; throw new Error("Upstream failed") }
+      await secondGate
+      return Response.json({ ok: true })
+    })
+    const first = queued("https://example.test/first")
+    const failed = expect(first).rejects.toThrow("Upstream failed")
+    const second = queued("https://example.test/second")
+    await Promise.resolve()
+    expect(events).toEqual(["https://example.test/first"])
+    release()
+    await failed
+    let drained = false
+    const drain = queued.drain().then(() => { drained = true })
+    await Promise.resolve()
+    expect(drained).toBe(false)
+    releaseSecond()
+    await drain
+    expect((await second).ok).toBe(true)
+    expect(events).toEqual(["https://example.test/first", "https://example.test/second"])
+  })
+
+  test("SDK names, aliases and input schemas survive the HTTP composition", async () => {
+    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
+    const client = new Client({ name: "mcp-test", version: "1" })
+    const transport = new StreamableHTTPClientTransport(new URL("http://localhost:4321/api/mcp"), {
+      fetch: (input, init) => handler.fetch(new Request(input, init)),
+    })
+    try {
+      await client.connect(transport)
+      const listed = (await client.listTools()).tools
+      const original = await discoverSubstackTools()
+      expect(original).toHaveLength(36)
+      expect(listed.length).toBeGreaterThan(80)
+      expect(new Set(listed.map((tool) => tool.name)).size).toBe(listed.length)
+      for (const upstream of original) {
+        const forwarded = listed.find((tool) => tool.name === upstream.name)!
+        expect(forwarded).toBeDefined()
+        expect(forwarded.inputSchema.properties).toEqual(upstream.inputSchema.properties)
+        expect(forwarded.inputSchema.required ?? []).toEqual(upstream.inputSchema.required ?? [])
+        expect(forwarded.annotations?.readOnlyHint).toBe(true)
+      }
+      const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Test" } })
+      expect(denied.isError).toBe(true)
+      expect(JSON.stringify(denied)).toContain("circles:organize")
+      const sdkDenied = await client.callTool({ name: "get_authenticated_profile", arguments: {} })
+      expect(sdkDenied.isError).toBe(true)
+      expect(JSON.stringify(sdkDenied)).toContain("substack:read")
+    } finally { await client.close(); await handler.close() }
+  })
+
+  test("unauthenticated calls and forged identities get OAuth discovery challenges", async () => {
+    for (const headers of [{}, { "x-circles-user-id": "tenant-a", "cf-access-authenticated-user-email": "owner@example.test" }]) {
+      const response = await mcpRoutes.request("/", { method: "POST", headers, body: "{}" })
+      expect(response.status).toBe(401)
+      expect(response.headers.get("www-authenticate")).toContain("oauth-protected-resource/api/mcp")
+    }
+    const forbidden = await mcpRoutes.request("/", { method: "POST", headers: { origin: "https://evil.test" }, body: "{}" })
+    expect(forbidden.status).toBe(403)
+  })
+
+  test("permissions cannot be implied by raw options or draft input mode", () => {
+    expect(sdkScopes({ include_records: true })).toEqual(["substack:read", "substack:records"])
+    expect(sdkScopes({ include_raw: true })).toContain("substack:records")
+    expect(sdkScopes({ include_rows: true })).toContain("substack:records")
+    expect(sdkScopes({})).toEqual(["substack:read"])
+    expect(() => requireScopes(new Set(["circles:notes:write"]), ["circles:notes:publish"])).toThrow()
+    const draft = circlesTools.find((tool) => tool.name === "circles_create_note_draft")!
+    expect(draft.inputSchema.safeParse({ clientRequestId: "request-123", bodyJson: {}, mode: "schedule" }).success).toBe(false)
+  })
+
+  test("REST delegation binds paths and preserves body versus query fields", async () => {
+    const member = circlesTools.find((tool) => tool.name === "circles_add_list_member")!
+    const request = operationRequest(member, { listId: "list-a", personId: "person-a" })
+    expect(new URL(request.url).pathname).toBe("/lists/list-a/members")
+    expect(await request.json()).toEqual({ personId: "person-a" })
+    expect(circlesTools.find((tool) => tool.name === "circles_get_person")!.inputSchema.safeParse({ personId: "../connection" }).success).toBe(false)
+    const refresh = circlesTools.find((tool) => tool.name === "circles_refresh_notes")!
+    expect(new URL(operationRequest(refresh, { force: "1" }).url).searchParams.get("force")).toBe("1")
+  })
+
+  test("credentials are removed from structured data and mirrored text", () => {
+    const input = { content: [{ type: "text", text: JSON.stringify({ sessionToken: "private-token", body: "private-token in content", count: 3 }) }], structuredContent: { authorization: "Bearer x", count: 3 } }
+    const safe = redactMcpResult(input, "private-token")
+    expect(JSON.stringify(safe)).not.toContain("private-token")
+    expect(JSON.stringify(safe)).not.toContain("sessionToken")
+    expect(JSON.stringify(safe)).not.toContain("Bearer x")
+    expect(JSON.stringify(safe)).toContain("count")
+  })
+})
+
+test("daily briefing calendar boundaries account for DST and invalid dates", () => {
+  expect(localDayRange("2026-10-14", "Europe/Bucharest")).toEqual({ from: "2026-10-13T21:00:00.000Z", to: "2026-10-14T21:00:00.000Z" })
+  const spring = localDayRange("2026-03-29", "Europe/Bucharest")
+  const autumn = localDayRange("2026-10-25", "Europe/Bucharest")
+  expect(Date.parse(spring.to) - Date.parse(spring.from)).toBe(23 * 3600000)
+  expect(Date.parse(autumn.to) - Date.parse(autumn.from)).toBe(25 * 3600000)
+  expect(() => localDayRange("2026-02-30", "Europe/Bucharest")).toThrow()
+  expect(() => localDayRange("2026-10-14", "not-a-timezone")).toThrow()
+})

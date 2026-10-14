@@ -90,7 +90,7 @@ The tunnel must route a single public hostname to both services:
 ```yaml
 ingress:
   - hostname: circles.example.com
-    path: ^/api/.*
+    path: ^/(api/.*|\.well-known/.*)$
     service: http://api:3000
   - hostname: circles.example.com
     service: http://web:4321
@@ -100,6 +100,10 @@ ingress:
 `cloudflared` must be attached to the same Docker network as the application
 (`dokploy-network`) so the container names resolve. Do not publish the
 `api`/`web` ports on the host.
+
+MCP discovery needs the `/.well-known/*` rule above as well as `/api/mcp`.
+See `docs/mcp.md` for OAuth, Cloudflare portal, scoped tools, and optional Access
+SSO configuration. API and worker both need the same canonical `APP_URL`.
 
 ## Admin password reset (no email provider)
 

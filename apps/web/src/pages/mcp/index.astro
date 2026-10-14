@@ -1,0 +1,57 @@
+---
+import "@workspace/ui/globals.css"
+const apiUrl = process.env.API_INTERNAL_URL ?? "http://localhost:3000"
+const headers = { cookie: Astro.request.headers.get("cookie") ?? "" }
+const [response, configResponse] = await Promise.all([
+  fetch(`${apiUrl}/api/mcp/agents`, { headers }), fetch(`${apiUrl}/api/mcp/config`),
+])
+if (response.status === 401) return Astro.redirect("/login")
+const data = response.ok ? await response.json() as { resource: string; agents: Array<{ clientId: string; name: string | null; scopes: string[] }> } : null
+const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: boolean } : null
+---
+<!doctype html>
+<html lang="en">
+  <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /><title>Connected agents · Circles</title></head>
+  <body class="bg-background text-foreground">
+    <main class="mx-auto max-w-2xl space-y-6 px-6 py-12">
+      <a href="/" class="underline">Back to Circles</a>
+      <h1 class="text-2xl font-semibold">Connected agents</h1>
+      {data ? <>
+        <p>Use this server URL in your MCP client or Cloudflare portal:</p>
+        <code class="block break-all rounded-md border p-3">{data.resource}</code>
+        <p class="text-sm text-muted-foreground">Sign in with your Circles account and grant the permissions you want. Cloudflare Code Mode can use the same typed tools.</p>
+        {data.agents.length ? data.agents.map((agent) => <article class="space-y-3 rounded-lg border p-4">
+          <h2 class="font-semibold">{agent.name ?? "MCP client"}</h2>
+          <p class="break-all text-sm text-muted-foreground">{agent.clientId}</p>
+          <p class="text-sm">{agent.scopes.join(", ")}</p>
+          <button class="rounded-md border px-3 py-2" data-revoke={agent.clientId}>Revoke access</button>
+        </article>) : <p>No agents are connected.</p>}
+      </> : <p role="alert">Agent connections could not be loaded.</p>}
+      {config?.ssoEnabled && <button id="link-sso" class="rounded-md border px-4 py-2">Link Cloudflare SSO to this account</button>}
+      <p id="status" role="status"></p>
+    </main>
+    <script>
+      const status = document.querySelector("#status")
+      document.querySelectorAll<HTMLButtonElement>("[data-revoke]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          button.disabled = true
+          const response = await fetch("/api/mcp/agents/revoke", {
+            method: "POST", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ clientId: button.dataset.revoke }),
+          })
+          if (response.ok) location.reload()
+          else { button.disabled = false; if (status) status.textContent = "Access could not be revoked." }
+        })
+      })
+      document.querySelector("#link-sso")?.addEventListener("click", async () => {
+        const response = await fetch("/api/auth/link-social", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider: "cloudflare-access", callbackURL: "/mcp" }),
+        })
+        const data = await response.json().catch(() => null)
+        if (response.ok && typeof data?.url === "string") location.assign(data.url)
+        else if (status) status.textContent = "Cloudflare SSO could not be linked."
+      })
+    </script>
+  </body>
+</html>

@@ -57,6 +57,9 @@ export function SettingsConnectionTab({
 }) {
   return (
     <div className="space-y-3">
+      <Button variant="outline" size="sm" asChild>
+        <a href="/mcp">Connected AI agents</a>
+      </Button>
       {/* Current Status Card */}
       <div className="rounded border border-stone-200/80 bg-white p-3.5 shadow-none dark:border-stone-800 dark:bg-stone-900 space-y-2.5">
         <div className="flex items-center justify-between">

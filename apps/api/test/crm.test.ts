@@ -42,6 +42,14 @@ import { ext } from "../src/routes/ext.js"
 import { v1 } from "../src/routes/v1.js"
 import { sniffImageType } from "../src/routes/v1/notes.js"
 import type { InteractionInput } from "../src/db/repositories.js"
+import { auth, mcpResource } from "../src/auth.js"
+import { createCirclesMcp, principalFor } from "../src/mcp/server.js"
+import { mcpBrowserRoutes } from "../src/mcp/browser.js"
+import { enqueueSdkTool, getSdkRun, type McpPrincipal } from "../src/mcp/sdk-tools.js"
+import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
+import { createMcpHandler } from "@modelcontextprotocol/server"
+import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto"
 
 let admin: Pool
 let migrate: Pool
@@ -90,7 +98,7 @@ beforeAll(async () => {
   )
   userA = "tenant-a"
   userB = "tenant-b"
-})
+}, 60_000)
 
 afterAll(async () => {
   await db.end()
@@ -2037,5 +2045,195 @@ describe("note scheduling", () => {
     expect(sniffImageType(new Uint8Array([0xff, 0xd8, 0xff, 0xe0]))).toBe("image/jpeg")
     expect(sniffImageType(new TextEncoder().encode("RIFF1234WEBPVP8 "))).toBe("image/webp")
     expect(sniffImageType(new TextEncoder().encode("<svg></svg>"))).toBeNull()
+  })
+})
+
+describe("MCP OAuth and tenant operations", () => {
+  let cookieA = ""
+  let cookieB = ""
+  beforeAll(async () => {
+    const { makeSignature } = await import("better-auth/crypto")
+    for (const [authId, token, setCookie] of [
+      [authA, "mcp-session-a", (value: string) => (cookieA = value)],
+      [authB, "mcp-session-b", (value: string) => (cookieB = value)],
+    ] as const) {
+      const signature = await makeSignature(token, process.env.BETTER_AUTH_SECRET!)
+      setCookie(`better-auth.session_token=${encodeURIComponent(token)}.${signature}`)
+      await migrate.query(`insert into session(id,"userId",token,"expiresAt","createdAt","updatedAt")
+        values ($1,$2,$3,now()+interval '1 day',now(),now()) on conflict(id) do nothing`, [`mcp-${authId}`,authId,token])
+    }
+  })
+
+  function dpopSigner() {
+    const { publicKey, privateKey } = generateKeyPairSync("ec", { namedCurve: "P-256" })
+    return (url: string, accessToken?: string) => {
+      const header = Buffer.from(JSON.stringify({ typ: "dpop+jwt", alg: "ES256", jwk: publicKey.export({ format: "jwk" }) })).toString("base64url")
+      const payload = Buffer.from(JSON.stringify({
+        jti: randomUUID(), htm: accessToken ? "GET" : "POST", htu: url, iat: Math.floor(Date.now() / 1000),
+        ...(accessToken && { ath: createHash("sha256").update(accessToken).digest("base64url") }),
+      })).toString("base64url")
+      const input = `${header}.${payload}`
+      return `${input}.${sign("sha256", Buffer.from(input), { key: privateKey, dsaEncoding: "ieee-p1363" }).toString("base64url")}`
+    }
+  }
+
+  async function connectSubstack() {
+    await migrate.query(`insert into substack_connections (id,user_id,envelope_version,key_id,wrapped_key,iv,ciphertext,status,profile_handle)
+      values ('mcp-connection',$1,1,'plain','','','synthetic-private-session','active','tester')`, [userA])
+  }
+
+  async function authorize(cookie: string, scopes = "circles:read substack:read offline_access", proof?: ReturnType<typeof dpopSigner>) {
+    const headers = new Headers({ cookie })
+    const client = await auth.api.createOAuthClient({ headers, body: {
+      client_name: "Circles test agent", redirect_uris: ["https://client.test/callback"],
+      token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], scope: scopes,
+      ...(proof && { dpop_bound_access_tokens: true }),
+    } })
+    const verifier = "v".repeat(43)
+    const challenge = createHash("sha256").update(verifier).digest("base64url")
+    const query = new URLSearchParams({ client_id: client.client_id, redirect_uri: "https://client.test/callback",
+      response_type: "code", scope: scopes, resource: mcpResource, state: "test-state", code_challenge: challenge, code_challenge_method: "S256" })
+    const response = await auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/authorize?${query}`, { headers }))
+    expect(response.status).toBe(302)
+    const consentUrl = new URL(response.headers.get("location")!, mcpResource)
+    expect(consentUrl.pathname).toBe("/mcp/consent")
+    const consentQuery = consentUrl.search.slice(1)
+    const preview = await mcpBrowserRoutes.request(`/consent?oauth_query=${encodeURIComponent(consentQuery)}`, { headers })
+    expect(preview.status).toBe(200)
+    const consentResponse = await auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/consent`, {
+      method: "POST", headers: { cookie, "content-type": "application/json" },
+      body: JSON.stringify({ accept: true, scope: scopes, oauth_query: consentQuery }),
+    }))
+    expect(consentResponse.status).toBe(200)
+    const consent = await consentResponse.json() as { url: string }
+    const callback = new URL(consent.url)
+    expect(callback.searchParams.get("state")).toBe("test-state")
+    const tokenUrl = `${new URL(mcpResource).origin}/api/auth/oauth2/token`
+    const token = await auth.handler(new Request(tokenUrl, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(proof && { DPoP: proof(tokenUrl) }) },
+      body: new URLSearchParams({ client_id: client.client_id, grant_type: "authorization_code", code: callback.searchParams.get("code")!,
+        redirect_uri: "https://client.test/callback", code_verifier: verifier, resource: mcpResource }),
+    }))
+    expect(token.status).toBe(200)
+    const payload = await token.json() as { access_token: string; refresh_token: string; token_type: string }
+    expect(typeof payload.access_token).toBe("string")
+    if (proof) expect(payload.token_type).toBe("DPoP")
+    const principal = await principalFor(new Request(mcpResource, { headers: {
+      authorization: `${proof ? "DPoP" : "Bearer"} ${payload.access_token}`,
+      ...(proof && { DPoP: proof(mcpResource, payload.access_token) }),
+    } }))
+    return { clientId: client.client_id, principal, ...payload, code: callback.searchParams.get("code")!, verifier }
+  }
+
+  test("refresh rotates tokens, rejects replay and preserves the tenant", async () => {
+    const grant = await authorize(cookieA)
+    const renew = (refreshToken: string) => auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/token`, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: grant.clientId, grant_type: "refresh_token", refresh_token: refreshToken, resource: mcpResource }),
+    }))
+    const response = await renew(grant.refresh_token)
+    expect(response.status).toBe(200)
+    const renewed = await response.json() as { access_token: string; refresh_token: string }
+    expect(renewed.refresh_token).not.toBe(grant.refresh_token)
+    expect((await principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${renewed.access_token}` } }))).appUserId).toBe(userA)
+    expect((await renew(grant.refresh_token)).status).toBe(400)
+    expect((await renew(renewed.refresh_token)).status).toBe(400)
+  }, 15000)
+
+  test("DPoP requires the bound key and rejects a reused proof", async () => {
+    const proof = dpopSigner()
+    const grant = await authorize(cookieA, undefined, proof)
+    await expect(principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).rejects.toThrow()
+    const headers = { authorization: `DPoP ${grant.access_token}`, DPoP: proof(mcpResource, grant.access_token) }
+    expect((await principalFor(new Request(mcpResource, { headers }))).appUserId).toBe(userA)
+    await expect(principalFor(new Request(mcpResource, { headers }))).rejects.toThrow()
+    await expect(principalFor(new Request(mcpResource, { headers: {
+      authorization: headers.authorization, DPoP: dpopSigner()(mcpResource, grant.access_token),
+    } }))).rejects.toThrow()
+  }, 15000)
+
+  test("shared-session PKCE authorization preserves tenant and revocation is immediate", async () => {
+    const grant = await authorize(cookieA)
+    expect(grant.principal.appUserId).toBe(userA)
+    expect(grant.principal.authUserId).toBe(authA)
+    expect(grant.principal.scopes.has("circles:read")).toBe(true)
+    const forged = await mcpBrowserRoutes.request("/consent?oauth_query=" + encodeURIComponent("client_id=bad&scope=circles:delete"), { headers: { cookie: cookieA } })
+    expect(forged.status).toBe(400)
+    await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ clientId: grant.clientId }) })
+    expect((await principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).appUserId).toBe(userA)
+    const revoked = await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId: grant.clientId }) })
+    expect(revoked.status).toBe(200)
+    await expect(principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).rejects.toThrow()
+  }, 15000)
+
+  test("MCP operations reuse RLS, preserve response shapes and enforce write scopes", async () => {
+    const scopes = new Set(["circles:read", "circles:organize"])
+    const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes }
+    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
+    const client = new McpClient({ name: "circles-test", version: "1" })
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handler.fetch(new Request(input, init)) }))
+      const created = await client.callTool({ name: "circles_create_person", arguments: { name: "MCP contact", notes: "Private CRM context" } })
+      expect(created.isError).not.toBe(true)
+      expect((await withTenant({ appUserId: userA }, (db) => listPeople(db))).map((p) => p.name)).toEqual(["MCP contact"])
+      expect(await withTenant({ appUserId: userB }, (db) => listPeople(db))).toHaveLength(0)
+      const listed = await client.callTool({ name: "circles_list_people", arguments: { limit: 1 } })
+      expect((listed.structuredContent as any).data.nextOffset).toBe(1)
+      const denied = await client.callTool({ name: "circles_post_note_now", arguments: { clientRequestId: "test-request-1", bodyJson: { type: "doc", content: [] } } })
+      expect(denied.isError).toBe(true)
+      expect(JSON.stringify(denied)).toContain("circles:notes:publish")
+    } finally { await client.close(); await handler.close() }
+  })
+
+  test("SDK reads run through the worker, deduplicate and isolate their results", async () => {
+    const grant = await authorize(cookieA)
+    await connectSubstack()
+    const one = await enqueueSdkTool(grant.principal, "get_authenticated_profile", {}, ["substack:read"])
+    const two = await enqueueSdkTool(grant.principal, "get_authenticated_profile", {}, ["substack:read"])
+    expect(one.runId).toBe(two.runId)
+    const other = { ...grant.principal, appUserId: userB, authUserId: authB }
+    await expect(getSdkRun(other, one.runId)).rejects.toThrow("not found")
+    const { claimAndRunJob } = await import(new URL("../../worker/src/jobs.ts", import.meta.url).href)
+    await withStubbedSubstackProfile(() => claimAndRunJob(db, "test-mcp-worker"))
+    const run = await getSdkRun(grant.principal, one.runId)
+    expect(run.status).toBe("done")
+    expect(run.result.isError).not.toBe(true)
+    expect(JSON.stringify(run.result)).toContain("Tester")
+    expect(JSON.stringify(run.result)).not.toContain("synthetic-private-session")
+  }, 15000)
+
+  test("two agent clients cannot race past the account's ten-job limit", async () => {
+    const first = await authorize(cookieA)
+    const second = await authorize(cookieA)
+    await connectSubstack()
+    for (let index = 0; index < 9; index++)
+      await enqueueSdkTool(first.principal, "get_notes", { cursor: `seed-${index}` }, ["substack:read"])
+    const results = await Promise.allSettled([
+      enqueueSdkTool(first.principal, "get_notes", { cursor: "first-client" }, ["substack:read"]),
+      enqueueSdkTool(second.principal, "get_notes", { cursor: "second-client" }, ["substack:read"]),
+    ])
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1)
+    const rejected = results.find((result) => result.status === "rejected")
+    expect(rejected?.status === "rejected" && rejected.reason.message).toContain("Ten SDK reads")
+    const count = await withTenant({ appUserId: userA }, async (client) => (await client.query("select count(*)::int as total from mcp_tool_runs")).rows[0].total)
+    expect(count).toBe(10)
+  }, 30000)
+
+  test("Note time filters accept offsets and exclude the upper boundary", async () => {
+    await connectSubstack()
+    await migrate.query(`insert into scheduled_notes (id,user_id,connection_id,substack_draft_id,status,trigger_at)
+      values ('inside',$1,'mcp-connection','1','scheduled','2026-10-14T08:00:00Z'),
+             ('end',$1,'mcp-connection','2','scheduled','2026-10-14T09:00:00Z')`, [userA])
+    const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes: new Set(["circles:read"]) }
+    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
+    const client = new McpClient({ name: "note-range-test", version: "1" })
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handler.fetch(new Request(input, init)) }))
+      const result = await client.callTool({ name: "circles_list_notes", arguments: {
+        status: "scheduled", from: "2026-10-14T10:00:00+03:00", to: "2026-10-14T12:00:00+03:00",
+      } })
+      expect(result.isError).not.toBe(true)
+      expect((result.structuredContent as any).data.notes.map((note: { id: string }) => note.id)).toEqual(["inside"])
+    } finally { await client.close(); await handler.close() }
   })
 })

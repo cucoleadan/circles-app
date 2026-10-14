@@ -80,12 +80,12 @@ const content = {
 
 const tagIds = z.array(z.string().min(1).max(100)).max(20)
 
-const createInput = z.object({
+export const createInput = z.object({
   clientRequestId: z.string().trim().min(8).max(100),
   ...content,
   tagIds: tagIds.default([]),
 })
-const updateInput = z.object({
+export const updateInput = z.object({
   bodyJson: content.bodyJson.optional(),
   attachments: z.array(attachment).max(6).optional(),
   replyMinimumRole: z.enum(NOTE_REPLY_ROLES).optional(),
@@ -208,6 +208,9 @@ notesRoutes.post("/notes", noteBodyLimit, async (c) => {
   const parsed = createInput.safeParse(await c.req.json().catch(() => null))
   if (!parsed.success) return c.json({ error: "Invalid Note" }, 400)
   const input = parsed.data
+  const scopes = c.get("mcpScopes")
+  if (scopes && input.mode !== "draft" && !scopes.has("circles:notes:publish"))
+    return c.json({ error: "Additional permission required: circles:notes:publish" }, 403)
   try {
     const bodyJson = buildBody(input.bodyJson, input.attachments.length > 0)
     const triggerAt = resolveTrigger(input.mode, input.triggerAt)
@@ -277,6 +280,11 @@ notesRoutes.patch("/notes/:id", noteBodyLimit, async (c) => {
   const input = parsed.data
   try {
     const { row, conn } = await openNote(appUser, c.req.param("id"))
+    if (c.get("mcpDraftOnly") && row.status !== "draft")
+      return c.json({ error: "Use circles_unschedule_note for a scheduled Note" }, 409)
+    const scopes = c.get("mcpScopes")
+    if (scopes && (parsed.data.mode !== "draft" || row.status === "scheduled") && !scopes.has("circles:notes:publish"))
+      return c.json({ error: "Additional permission required: circles:notes:publish" }, 403)
     const triggerAt = resolveTrigger(input.mode, input.triggerAt)
 
     const current = new Set(keptAttachmentIds(row))
@@ -351,6 +359,9 @@ notesRoutes.delete("/notes/:id", async (c) => {
   const appUser = c.get("appUser")
   try {
     const { row, conn } = await openNote(appUser, c.req.param("id"))
+    const scopes = c.get("mcpScopes")
+    if (scopes && row.status === "scheduled" && !scopes.has("circles:notes:publish"))
+      return c.json({ error: "Additional permission required: circles:notes:publish" }, 403)
     try {
       await substackFor(conn).deleteNote(row.substackDraftId!)
     } catch (error) {

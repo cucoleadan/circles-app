@@ -15,6 +15,8 @@ import {
 import { withTenant } from "./db/tenant.js"
 import { ext } from "./routes/ext.js"
 import { v1 } from "./routes/v1.js"
+import { mcpRoutes } from "./mcp/server.js"
+import { mcpBrowserRoutes } from "./mcp/browser.js"
 
 installFetchTimeout()
 
@@ -32,7 +34,7 @@ const writeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
 app.use("*", async (c, next) => {
   if (
     writeMethods.has(c.req.method) &&
-    !c.req.path.startsWith("/api/auth")
+    !c.req.path.startsWith("/api/auth") && c.req.path !== "/api/mcp"
   ) {
     const origin = c.req.header("origin")
     const isExtension =
@@ -52,6 +54,12 @@ app.get("/api/ready", async (c) => {
 })
 
 app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+app.on(["GET", "HEAD"], "/.well-known/*", async (c) => {
+  c.header("Access-Control-Allow-Origin", "*")
+  return auth.handler(c.req.raw)
+})
+app.route("/api/mcp", mcpRoutes)
+app.route("/api/mcp", mcpBrowserRoutes)
 
 app.route("/api/v1", v1)
 app.route("/api/ext", ext)

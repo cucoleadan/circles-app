@@ -14,6 +14,7 @@ import "@workspace/ui/globals.css"
           <button class="rounded-md bg-primary px-4 py-2 text-primary-foreground" type="submit" data-action="sign-in">Sign in</button>
           <button class="rounded-md border px-4 py-2" type="submit" data-action="sign-up">Create initial account</button>
         </div>
+        <button id="sso" class="hidden w-full rounded-md border px-4 py-2" type="button">Sign in with Cloudflare SSO</button>
         <p id="status" class="text-sm text-muted-foreground"></p>
       </form>
     </main>
@@ -23,6 +24,32 @@ import "@workspace/ui/globals.css"
       if (!(form instanceof HTMLFormElement) || !(status instanceof HTMLParagraphElement)) {
         throw new Error("The authentication form could not be initialized.")
       }
+      async function continueLogin() {
+        if (!location.search) { location.href = "/"; return }
+        const response = await fetch("/api/auth/oauth2/continue", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ postLogin: true, oauth_query: location.search.slice(1) }),
+        })
+        const data = await response.json().catch(() => null)
+        if (response.ok && typeof data?.url === "string") location.assign(data.url)
+        else if (status) status.textContent = "The agent authorization request expired. Connect again from your MCP client."
+      }
+      const ssoButton = document.querySelector<HTMLButtonElement>("#sso")
+      fetch("/api/mcp/config").then((response) => response.json()).then((config) => {
+        if (config.ssoEnabled) ssoButton?.classList.remove("hidden")
+      }).catch(() => {})
+      ssoButton?.addEventListener("click", async () => {
+        const response = await fetch("/api/auth/sign-in/social", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ provider: "cloudflare-access", callbackURL: `/login${location.search}` }),
+        })
+        const data = await response.json().catch(() => null)
+        if (response.ok && typeof data?.url === "string") location.assign(data.url)
+        else if (status) status.textContent = "Cloudflare sign-in failed. Link SSO from your existing Circles account first."
+      })
+      if (location.search) fetch("/api/auth/get-session").then((response) => response.json()).then((session) => {
+        if (session?.user) void continueLogin()
+      }).catch(() => {})
       form.addEventListener("submit", async (event) => {
         event.preventDefault()
         const submitter = event.submitter
@@ -36,7 +63,7 @@ import "@workspace/ui/globals.css"
           // Better Auth requires a name; the CRM shows the Substack profile name instead.
           body: JSON.stringify({ name: "", ...Object.fromEntries(new FormData(form)) }),
         })
-        if (response.ok) location.href = "/"
+        if (response.ok) await continueLogin()
         else status.textContent = action === "sign-up" ? "Account creation is closed or invalid." : "Invalid email or password."
       })
     </script>

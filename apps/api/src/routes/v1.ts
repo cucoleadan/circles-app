@@ -23,13 +23,31 @@ v1.use("*", async (c, next) => {
   await next()
 })
 
-v1.route("/", settingsRoutes)
-v1.route("/", peopleRoutes)
-v1.route("/", commentsRoutes)
-v1.route("/", listsRoutes)
-v1.route("/", tagsRoutes)
-v1.route("/", overviewRoutes)
-v1.route("/", connectionRoutes)
-v1.route("/", syncRoutes)
-v1.route("/", importsRoutes)
-v1.route("/", notesRoutes)
+const operations = new Hono<V1Env>()
+operations.route("/", settingsRoutes)
+operations.route("/", peopleRoutes)
+operations.route("/", commentsRoutes)
+operations.route("/", listsRoutes)
+operations.route("/", tagsRoutes)
+operations.route("/", overviewRoutes)
+operations.route("/", connectionRoutes)
+operations.route("/", syncRoutes)
+operations.route("/", importsRoutes)
+operations.route("/", notesRoutes)
+v1.route("/", operations)
+
+/** In-process operations for an already authenticated caller; never mounted publicly. */
+export function tenantOperations(appUser: string, mcpScopes?: ReadonlySet<string>, draftOnly = false) {
+  const scoped = new Hono<V1Env>()
+  scoped.use("*", async (c, next) => {
+    c.set("appUser", appUser)
+    c.set("mcpScopes", mcpScopes)
+    c.set("mcpDraftOnly", draftOnly)
+    await next()
+  })
+  scoped.onError(() => new Response(JSON.stringify({ error: "The operation failed" }), {
+    status: 500, headers: { "content-type": "application/json" },
+  }))
+  scoped.route("/", operations)
+  return scoped
+}
