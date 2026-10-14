@@ -43,7 +43,7 @@ import { v1 } from "../src/routes/v1.js"
 import { sniffImageType } from "../src/routes/v1/notes.js"
 import type { InteractionInput } from "../src/db/repositories.js"
 import { auth, mcpResource } from "../src/auth.js"
-import { createCirclesMcp, principalFor } from "../src/mcp/server.js"
+import { createCirclesMcp, mcpJwksUrl, principalFor } from "../src/mcp/server.js"
 import { mcpBrowserRoutes } from "../src/mcp/browser.js"
 import { enqueueSdkTool, getSdkRun, type McpPrincipal } from "../src/mcp/sdk-tools.js"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
@@ -2052,7 +2052,13 @@ describe("note scheduling", () => {
 describe("MCP OAuth and tenant operations", () => {
   let cookieA = ""
   let cookieB = ""
+  const originalFetch = globalThis.fetch
+  afterAll(() => { globalThis.fetch = originalFetch })
   beforeAll(async () => {
+    // No server listens in tests; answer the token verifier's JWKS fetch in-process.
+    globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: RequestInit) => String(input instanceof Request ? input.url : input) === mcpJwksUrl
+      ? auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/jwks`, init))
+      : originalFetch(input, init)) as typeof fetch
     const { makeSignature } = await import("better-auth/crypto")
     for (const [authId, token, setCookie] of [
       [authA, "mcp-session-a", (value: string) => (cookieA = value)],

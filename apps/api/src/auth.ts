@@ -1,12 +1,9 @@
 import { betterAuth } from "better-auth"
-import { createAuthEndpoint, APIError } from "better-auth/api"
 import { genericOAuth, jwt } from "better-auth/plugins"
 import { mcp } from "@better-auth/mcp"
 import { cimd } from "@better-auth/cimd"
 import { fetchClientMetadataResource } from "@better-auth/cimd/node"
-import { getOAuthProviderApi, type OAuthOptions } from "@better-auth/oauth-provider"
-import { z } from "zod"
-import { createDpopReplayStore, enforceDpopBinding, parseAccessTokenAuthorization } from "better-auth/oauth2"
+import type { OAuthOptions } from "@better-auth/oauth-provider"
 
 import { db } from "./db.js"
 import { MCP_SCOPES } from "./mcp/scopes.js"
@@ -57,30 +54,6 @@ function createAuth() { return betterAuth({
       scopes: ["openid", "email", "profile"],
       disableSignUp: true,
     }] })] : []),
-    {
-      id: "circles-mcp-access",
-      endpoints: {
-        verifyMcpAccess: createAuthEndpoint("/mcp/verify", {
-          method: "POST",
-          metadata: { SERVER_ONLY: true },
-          body: z.object({
-            authorization: z.string().min(1).max(16384), proof: z.string().max(16384).optional(),
-            method: z.enum(["POST", "GET", "DELETE"]),
-          }),
-        }, async (ctx) => {
-          const authorization = parseAccessTokenAuthorization(ctx.body.authorization)
-          if (!authorization) throw new APIError("UNAUTHORIZED", { message: "Invalid MCP authorization" })
-          const claims = await getOAuthProviderApi(ctx, oauthOptions)
-            .requireActiveAccessToken(authorization.token)
-          const audience = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
-          if (!claims.sub || !audience.includes(mcpResource))
-            throw new APIError("UNAUTHORIZED", { message: "Invalid MCP access token" })
-          await enforceDpopBinding({ payload: claims, authorization, proofJwt: ctx.body.proof,
-            method: ctx.body.method, url: mcpResource, replayStore: createDpopReplayStore(ctx.context.internalAdapter) })
-          return ctx.json(claims)
-        }),
-      },
-    },
   ],
   session: {
     expiresIn: 60 * 60 * 24 * 30,

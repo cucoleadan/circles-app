@@ -1,3 +1,4 @@
+import { requireMcpAuth } from "@better-auth/mcp"
 import { McpServer, createMcpHandler } from "@modelcontextprotocol/server"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
@@ -21,16 +22,11 @@ export const toolResult = (data: unknown) => ({
 const resultSchema = z.object({ data: z.unknown() })
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-export async function principalFor(request: Request): Promise<McpPrincipal> {
-  const authorization = request.headers.get("authorization") ?? ""
-  const match = /^(Bearer|DPoP) ([^\s]+)$/i.exec(authorization)
-  if (!match) throw new Error("Unauthorized")
-  const claims = await auth.api.verifyMcpAccess({ body: {
-    authorization, proof: request.headers.get("dpop") ?? undefined,
-    method: request.method as "POST" | "GET" | "DELETE",
-  } })
-  if (typeof claims.sub !== "string" || typeof claims.client_id !== "string" || typeof claims.iat !== "number")
-    throw new Error("Unauthorized")
+const challenge = `Bearer resource_metadata="${new URL(mcpResource).origin}/.well-known/oauth-protected-resource/api/mcp", scope="${MCP_READ_SCOPES.join(" ")}"`
+
+// Better Auth verifies the token; the consent row makes revocation immediate.
+async function grantPrincipal(claims: Parameters<Parameters<typeof requireMcpAuth>[1]>[1]): Promise<McpPrincipal | null> {
+  if (typeof claims.sub !== "string" || typeof claims.client_id !== "string" || typeof claims.iat !== "number") return null
   const appUserId = await getOrCreateAppUser(claims.sub)
   const grant = await withTenant({ appUserId }, async (client) => (await client.query(
     `select g.scopes from "oauthConsent" g where g."clientId" = $1 and g."userId" = $3
@@ -39,9 +35,24 @@ export async function principalFor(request: Request): Promise<McpPrincipal> {
        ) limit 1`,
     [claims.client_id, claims.iat, claims.sub, JSON.stringify([mcpResource])],
   )).rows[0])
-  if (!grant || !Array.isArray(grant.scopes)) throw new Error("Unauthorized")
+  if (!grant || !Array.isArray(grant.scopes)) return null
   return { appUserId, authUserId: claims.sub, clientId: claims.client_id, issuedAt: claims.iat,
     scopes: new Set((typeof claims.scope === "string" ? claims.scope.split(" ") : []).filter((scope) => grant.scopes.includes(scope))) }
+}
+
+// Fetch signing keys from this process, not back through the public tunnel.
+export const mcpJwksUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/api/auth/jwks`
+
+export async function principalFor(request: Request): Promise<McpPrincipal> {
+  let principal = null as McpPrincipal | null
+  // DPoP proofs are signed for the public URL; behind the tunnel the request arrives as http.
+  const response = await requireMcpAuth(auth, async (_request, claims) => {
+    principal = await grantPrincipal(claims)
+    return new Response(null, { status: principal ? 204 : 401 })
+  }, { resource: mcpResource, jwksUrl: mcpJwksUrl })(new Request(mcpResource, { method: request.method, headers: request.headers }))
+  if (principal) return principal
+  console.warn("[MCP] rejected", JSON.stringify({ status: response.status, challenge: response.headers.get("www-authenticate") }))
+  throw new Error("Unauthorized")
 }
 
 /** Exported for transport/schema tests; the HTTP entry always supplies a verified principal. */
@@ -172,7 +183,10 @@ export const mcpRoutes = new Hono()
 const origins = new Set([new URL(mcpResource).origin, "https://dash.cloudflare.com", ...(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean)])
 mcpRoutes.use("*", async (c, next) => {
   const origin = c.req.header("origin")
-  if (origin && !origins.has(origin)) return c.json({ error: "Forbidden origin" }, 403)
+  if (origin && !origins.has(origin)) {
+    console.warn("[MCP] forbidden origin", JSON.stringify({ origin }))
+    return c.json({ error: "Forbidden origin" }, 403)
+  }
   if (origin) {
     c.header("Access-Control-Allow-Origin", origin)
     c.header("Vary", "Origin")
@@ -190,7 +204,7 @@ mcpRoutes.on(["POST", "GET", "DELETE"], "/", async (c) => {
   let principal: McpPrincipal
   try { principal = await principalFor(c.req.raw) }
   catch {
-    c.header("WWW-Authenticate", `Bearer resource_metadata="${new URL(mcpResource).origin}/.well-known/oauth-protected-resource/api/mcp", scope="${MCP_READ_SCOPES.join(" ")}"`)
+    c.header("WWW-Authenticate", challenge)
     return c.json({ error: "Unauthorized" }, 401)
   }
   const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
