@@ -207,7 +207,19 @@ mcpRoutes.on(["POST", "GET", "DELETE"], "/", async (c) => {
     c.header("WWW-Authenticate", challenge)
     return c.json({ error: "Unauthorized" }, 401)
   }
-  const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
-  try { return await handler.fetch(c.req.raw) }
+  const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json",
+    onerror: (error) => console.error("[MCP] handler error", error) })
+  // ponytail: per-request diagnostics while client compatibility is being proven; drop once stable.
+  const rpc = await c.req.raw.clone().json().catch(() => null) as { method?: string } | { method?: string }[] | null
+  try {
+    const response = await handler.fetch(c.req.raw)
+    const body = await response.clone().text()
+    console.info("[MCP] request", JSON.stringify({
+      method: Array.isArray(rpc) ? rpc.map((item) => item.method) : rpc?.method ?? null,
+      version: c.req.header("mcp-protocol-version") ?? null, accept: c.req.header("accept") ?? null,
+      status: response.status, bytes: body.length, error: /"error":\{[^}]*\}/.exec(body)?.[0] ?? null,
+    }))
+    return response
+  }
   finally { await handler.close() }
 })
