@@ -50,6 +50,7 @@ import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { createMcpHandler } from "@modelcontextprotocol/server"
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto"
+import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
 
 let admin: Pool
 let migrate: Pool
@@ -2109,12 +2110,13 @@ describe("MCP OAuth and tenant operations", () => {
     const callback = new URL(consent.url)
     expect(callback.searchParams.get("state")).toBe("test-state")
     const tokenUrl = `${new URL(mcpResource).origin}/api/auth/oauth2/token`
-    const token = await auth.handler(new Request(tokenUrl, {
-      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", ...(proof && { DPoP: proof(tokenUrl) }) },
+    const token = await oauthProtocolRoutes.fetch(new Request(tokenUrl, {
+      method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://dash.cloudflare.com", ...(proof && { DPoP: proof(tokenUrl) }) },
       body: new URLSearchParams({ client_id: client.client_id, grant_type: "authorization_code", code: callback.searchParams.get("code")!,
         redirect_uri: "https://client.test/callback", code_verifier: verifier, resource: mcpResource }),
     }))
     expect(token.status).toBe(200)
+    expect(token.headers.get("access-control-allow-origin")).toBe("*")
     const payload = await token.json() as { access_token: string; refresh_token: string; token_type: string }
     expect(typeof payload.access_token).toBe("string")
     if (proof) expect(payload.token_type).toBe("DPoP")

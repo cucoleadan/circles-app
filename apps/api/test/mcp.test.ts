@@ -8,10 +8,34 @@ import { circlesTools, operationRequest } from "../src/mcp/circles-tools.js"
 import { localDayRange } from "../src/mcp/day.js"
 import { requireScopes } from "../src/mcp/scopes.js"
 import { sdkScopes, type McpPrincipal } from "../src/mcp/sdk-tools.js"
+import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
 
 const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set() }
 
 describe("Circles MCP protocol and tool boundaries", () => {
+  test("OAuth protocol preflights work without opening cookie login or consent", async () => {
+    const headers = { origin: "https://dash.cloudflare.com", "access-control-request-method": "POST", "access-control-request-headers": "authorization,content-type,dpop" }
+    for (const endpoint of ["oauth2/token", "oauth2/register", "oauth2/revoke", "oauth2/introspect", "jwks"]) {
+      const response = await oauthProtocolRoutes.request(`/api/auth/${endpoint}`, { method: "OPTIONS", headers })
+      expect(response.status).toBe(204)
+      expect(response.headers.get("access-control-allow-origin")).toBe("*")
+      expect(response.headers.get("access-control-allow-headers")).toContain("Authorization")
+      expect(response.headers.get("access-control-allow-credentials")).toBeNull()
+    }
+    for (const endpoint of ["sign-in/email", "get-session", "oauth2/consent"]) {
+      const response = await oauthProtocolRoutes.request(`/api/auth/${endpoint}`, { method: "OPTIONS", headers })
+      expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    }
+    for (const path of ["/.well-known/oauth-protected-resource/api/mcp", "/.well-known/oauth-authorization-server/api/auth"]) {
+      const response = await oauthProtocolRoutes.request(path, { method: "OPTIONS", headers: { ...headers, "access-control-request-method": "GET" } })
+      expect(response.status).toBe(204)
+      expect(response.headers.get("access-control-allow-origin")).toBe("*")
+    }
+    const mcp = await mcpRoutes.request("/", { method: "OPTIONS", headers })
+    expect(mcp.status).toBe(204)
+    expect(mcp.headers.get("access-control-allow-origin")).toBe("https://dash.cloudflare.com")
+  })
+
   test("web discovery forwarding preserves API responses without browser credentials", async () => {
     const { onRequest } = await import(new URL("../../web/src/middleware.ts", import.meta.url).href)
     const originalFetch = globalThis.fetch

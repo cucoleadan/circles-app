@@ -169,7 +169,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
 }
 
 export const mcpRoutes = new Hono()
-const origins = new Set([new URL(mcpResource).origin, ...(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean)])
+const origins = new Set([new URL(mcpResource).origin, "https://dash.cloudflare.com", ...(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean)])
 mcpRoutes.use("*", async (c, next) => {
   const origin = c.req.header("origin")
   if (origin && !origins.has(origin)) return c.json({ error: "Forbidden origin" }, 403)

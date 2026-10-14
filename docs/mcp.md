@@ -2,8 +2,8 @@
 
 The source provides `${APP_URL}/api/mcp`, a stateless remote MCP endpoint for
 Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
-The MCP is deployed. A web forwarding fix for public OAuth discovery is pending
-deployment; authenticated Cloudflare gateway verification remains outstanding.
+The MCP and discovery forwarding are deployed. Browser OAuth/MCP CORS fixes are
+pending deployment; authenticated Cloudflare gateway verification is outstanding.
 
 ## Tools and data sources
 
@@ -119,6 +119,9 @@ For a trusted browser MCP client/inspector, set `MCP_ALLOWED_ORIGINS` to an
 explicit comma-separated origin list. Server-to-server portal calls need no
 browser origin allowance. Development proxies `/.well-known` and `/api` to
 the API. Do not expose session/database/OIDC secrets to agents or frontend code.
+The Cloudflare dashboard origin is allowed on the bearer-protected MCP endpoint.
+Public OAuth token/registration/revocation/introspection and JWKS endpoints
+support CORS without cookies; browser login/session/consent routes stay restricted.
 
 ## Deployment and verification status
 

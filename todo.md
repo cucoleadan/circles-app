@@ -3,7 +3,7 @@
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
 Update this file as work completes. Last updated: 2026-10-14.
 
-## 2026-10-14 MCP implementation (deployed; discovery fix pending)
+## 2026-10-14 MCP implementation (deployed; browser OAuth fix pending)
 
 - [x] Repository-grounded implementation plan in `plans/circles-mcp.md`: shared
       Better Auth sign-in with Cloudflare Access OIDC integration, remote MCP
@@ -35,9 +35,12 @@ Update this file as work completes. Last updated: 2026-10-14.
 - [x] Confirmed deployment on `home-remote`: matching MCP source, healthy API,
       running web/worker and successful migration service. Public MCP requires
       OAuth; discovery works on the API but the tunnel sends it to a web 404.
-- [ ] Deploy the web middleware forwarding public `/.well-known/*` metadata
-      to the API, then retry Cloudflare registration. Forwarding regression
-      coverage is added; verification remains restricted to typecheck/check.
+- [x] Web discovery forwarding deployed; public MCP metadata now returns 200.
+      Forwarding regression coverage is added; runtime tests remain restricted.
+- [ ] Deploy OAuth protocol CORS and the Cloudflare dashboard MCP origin fix.
+      Live inspection confirms a Cloudflare grant/token was issued, but token
+      responses/discovery lacked CORS and the dashboard MCP preflight was rejected.
+      Added preflight isolation checks and a token-exchange CORS assertion.
 
 No agent-run build, deployment, push or extension rebuild. `npm run check` does not exist;
 the repository typecheck includes the web's `astro check`.
