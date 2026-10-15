@@ -3,7 +3,19 @@
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
 Update this file as work completes. Last updated: 2026-10-15.
 
-## 2026-10-15 MCP transport and token revision (local; release pending)
+## 2026-10-15 MCP tool deduplication (local; release pending)
+
+- [x] User confirmed MCP works after the transport/authentication revision.
+- [x] Remove the SDK's 18 duplicate camelCase aliases from registration, keeping
+      18 canonical snake_case SDK reads and all 57 distinct Circles operations:
+      75 tools total. Existing queued alias calls remain executable by the worker.
+- [x] Update protocol and HTTP catalog expectations and document that clients
+      should refresh their cached tool list after deployment.
+- [x] All 11 focused protocol tests and root typecheck pass; discovery/schema
+      checks cover both protocol generations. Database tests were not re-run.
+- [ ] User-pushed deployment. No push, deployment, migration or extension rebuild.
+
+## 2026-10-15 MCP transport and token revision (user confirmed working)
 
 - [x] Verified public OAuth/PKCE exchange, Bearer authentication, SDK tool discovery
       and a harmless sync-status read over SSH. Production returned 75 tools;
@@ -23,8 +35,8 @@ Update this file as work completes. Last updated: 2026-10-15.
       registration, login-resume and consent-callback regression also passed.
       Root build passed; it also regenerated ignored extension build output,
       without a version change or new installable archive.
-- [ ] User-pushed deployment and reconnection from the affected clients. No
-      deployment, push, production migration or extension release performed.
+- [x] User confirmed MCP works after handoff. No agent deployment, push,
+      production migration or extension release was performed.
 
 ## 2026-10-14 MCP implementation (deployed; callback investigation pending)
 

@@ -12,7 +12,11 @@ export interface McpPrincipal {
   scopes: ReadonlySet<string>
 }
 
-export const substackTools = await discoverSubstackTools()
+const sdkTools = await discoverSubstackTools()
+export const substackTools = sdkTools.filter((tool) => {
+  const canonical = tool.name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+  return tool.name === canonical || !sdkTools.some((other) => other.name === canonical)
+})
 
 export function sdkScopes(args: Record<string, unknown>): McpScope[] {
   const raw = ["include_records", "includeRecords", "include_rows", "includeRows", "include_raw", "includeRaw", "include_raw_pages", "includeRawPages"]

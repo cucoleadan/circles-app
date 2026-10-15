@@ -58,10 +58,11 @@ with `circles_*` app operations. SDK reads enter `mcp:substack` jobs and keep
 private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
-The original endpoint is deployed; an October 15 revision uses local signing-key
-verification, finite JSON transport responses and all 93 tool names/aliases.
-That revision awaits release. Direct public OAuth/tool reads have been verified;
-the reported gateway/ChatGPT connection failure has not been reproduced.
+The user confirmed the October 15 revision works: it uses local signing-key
+verification and finite JSON transport responses. A subsequent alias deduplication
+awaits release: discovery lists 75 tools (18 canonical SDK reads plus 57 Circles
+operations), omitting duplicate camelCase SDK names. Previously queued aliases
+remain executable through the unchanged worker SDK bridge.
 
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a

@@ -2159,7 +2159,7 @@ describe("MCP OAuth and tenant operations", () => {
       await client.connect(new StreamableHTTPClientTransport(new URL("/api/mcp", server.url), {
         requestInit: { headers: { authorization: `Bearer ${grant.access_token}` } },
       }))
-      expect((await client.listTools()).tools).toHaveLength(93)
+      expect((await client.listTools()).tools).toHaveLength(75)
       const result = await client.callTool({ name: "circles_list_people", arguments: {} })
       expect(result.isError).not.toBe(true)
       const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })

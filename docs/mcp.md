@@ -2,14 +2,14 @@
 
 The source provides `${APP_URL}/api/mcp`, a stateless remote MCP endpoint for
 Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
-The MCP, discovery forwarding and OAuth CORS routes are deployed. The October 15
-transport/authentication revision is local and awaits the normal user-pushed release.
-Authenticated Cloudflare gateway and ChatGPT reconnection remain to be verified.
+The user confirmed the October 15 transport/authentication revision works.
+The subsequent tool-alias deduplication awaits the normal user-pushed release.
 
 ## Tools and data sources
 
-There are 93 registered tools: the SDK's 18 read capabilities under 36 original
-names/aliases, plus 57 `circles_*` tools. The SDK factory supplies its schemas
+There are 75 registered tools: the SDK's 18 read capabilities under their
+snake_case names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase
+aliases are omitted from registration. The SDK factory supplies its schemas
 and handlers; Circles uses the public in-memory MCP bridge rather than copying
 analytics calculations. All tools have typed inputs, structured results and
 read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
@@ -62,7 +62,9 @@ request. Auth/database failures return 503; invalid or expired credentials retur
 
 Both 2025 and 2026 MCP requests use the official SDK and return finite JSON
 responses. SDK input schemas are passed directly to its JSON Schema validator;
-all original snake_case and camelCase tool names remain available.
+all canonical snake_case tool names remain available. Clients that cached
+camelCase aliases need to refresh their tool list after deployment. Previously
+queued calls using aliases still execute through the unchanged SDK bridge.
 
 The consent page defaults to read permissions and offline access. Client
 registration can declare all capabilities, but it grants no user permissions.
@@ -146,7 +148,7 @@ is used for local development/tests and is outside the production MCP request
 path. `/mcp` is the browser management page; clients use the HTTPS `/api/mcp` URL.
 These checks did not reproduce the reported client failure or establish its cause.
 
-The local revision restores all 93 tool names/aliases and passes protocol/schema
+The transport revision restored all 93 tool names/aliases and passed protocol/schema
 tests, including modern discovery, plus database-backed OAuth/HTTP, refresh retry/
 late replay, DPoP, revocation, expired session, disabled client and tenant checks.
 API test typechecking now includes the test folder, which its inherited exclusion
@@ -155,5 +157,8 @@ tunnel-backed database cases), followed by an additional fresh-client OAuth
 registration/login-resume/callback test. Typecheck and root build passed; the
 root build also regenerated ignored extension output without changing its version
 or packaging a release. No new dependency or database migration is required.
-Actual gateway/ChatGPT reconnection and Cloudflare SSO remain release gates.
+The user subsequently confirmed MCP works. The alias deduplication reduces new
+tool discovery to 75 names without removing distinct operations; its protocol
+regressions verify the reduced catalog in both protocol generations.
+Cloudflare SSO has not been verified.
 No deployment, push, production migration or extension release was done.

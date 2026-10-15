@@ -136,7 +136,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
     expect(events).toEqual(["https://example.test/first", "https://example.test/second"])
   })
 
-  test("SDK names, aliases and input schemas survive the HTTP composition", async () => {
+  test("SDK aliases are deduplicated while canonical tools retain their input schemas", async () => {
     const client = new Client({ name: "mcp-test", version: "1" })
     const transport = new StreamableHTTPClientTransport(new URL("http://localhost:4321/api/mcp"), {
       fetch: async (input, init) => {
@@ -150,10 +150,13 @@ describe("Circles MCP protocol and tool boundaries", () => {
       const listed = (await client.listTools()).tools
       const original = await discoverSubstackTools()
       expect(original).toHaveLength(36)
-      expect(listed.length).toBeGreaterThan(80)
+      expect(listed).toHaveLength(75)
+      expect(listed.filter((tool) => tool.name.startsWith("circles_"))).toHaveLength(57)
       expect(new Set(listed.map((tool) => tool.name)).size).toBe(listed.length)
       for (const upstream of original) {
-        const forwarded = listed.find((tool) => tool.name === upstream.name)!
+        const canonical = upstream.name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
+        const forwarded = listed.find((tool) => tool.name === canonical)!
+        if (canonical !== upstream.name) expect(listed.some((tool) => tool.name === upstream.name)).toBe(false)
         expect(forwarded).toBeDefined()
         expect(forwarded.inputSchema).toEqual(upstream.inputSchema)
         expect(forwarded.annotations?.readOnlyHint).toBe(true)
@@ -177,7 +180,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
     }), principal)
     expect(legacy.headers.get("content-type")).toContain("application/json")
     expect(legacy.headers.get("mcp-session-id")).toBeNull()
-    expect((await legacy.json()).result.tools).toHaveLength(93)
+    expect((await legacy.json()).result.tools).toHaveLength(75)
     const modern = await handleMcpRequest(new Request("http://localhost/api/mcp", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json", "mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: {
@@ -196,7 +199,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       } } }),
     }), principal)
     expect(modernTools.status).toBe(200)
-    expect((await modernTools.json()).result.tools).toHaveLength(93)
+    expect((await modernTools.json()).result.tools).toHaveLength(75)
     expect((await handleMcpRequest(new Request("http://localhost/api/mcp"), principal)).status).toBe(405)
   })
 
