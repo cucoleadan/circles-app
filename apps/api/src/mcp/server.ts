@@ -1,10 +1,9 @@
-import { requireMcpAuth } from "@better-auth/mcp"
-import { McpServer, createMcpHandler } from "@modelcontextprotocol/server"
+import { McpServer, createMcpHandler, fromJsonSchema, isLegacyRequest, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { z } from "zod"
-import { auth, mcpResource } from "../auth.js"
-import { audit, getOrCreateAppUser, listPeople } from "../db/repositories.js"
+import { mcpResource } from "../auth.js"
+import { audit, listPeople } from "../db/repositories.js"
 import { withTenant } from "../db/tenant.js"
 import { getNoteRow, listNotes, noteView } from "../db/scheduled-notes.js"
 import { listComments } from "../db/comments.js"
@@ -13,6 +12,8 @@ import { circlesTools, entityId, operationRequest } from "./circles-tools.js"
 import { localDayRange } from "./day.js"
 import { MCP_READ_SCOPES, requireScopes } from "./scopes.js"
 import { enqueueSdkTool, getSdkRun, sdkScopes, substackTools, type McpPrincipal } from "./sdk-tools.js"
+import { McpUnauthorized, principalFor } from "./auth.js"
+export { principalFor } from "./auth.js"
 
 export const toolResult = (data: unknown) => ({
   content: [{ type: "text" as const, text: JSON.stringify(data) }],
@@ -23,37 +24,6 @@ const resultSchema = z.object({ data: z.unknown() })
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
 const challenge = `Bearer resource_metadata="${new URL(mcpResource).origin}/.well-known/oauth-protected-resource/api/mcp", scope="${MCP_READ_SCOPES.join(" ")}"`
-
-// Better Auth verifies the token; the consent row makes revocation immediate.
-async function grantPrincipal(claims: Parameters<Parameters<typeof requireMcpAuth>[1]>[1]): Promise<McpPrincipal | null> {
-  if (typeof claims.sub !== "string" || typeof claims.client_id !== "string" || typeof claims.iat !== "number") return null
-  const appUserId = await getOrCreateAppUser(claims.sub)
-  const grant = await withTenant({ appUserId }, async (client) => (await client.query(
-    `select g.scopes from "oauthConsent" g where g."clientId" = $1 and g."userId" = $3
-       and g.resources @> $4::jsonb and not exists (
-         select 1 from mcp_grant_revocations where client_id = $1 and extract(epoch from revoked_at) >= $2
-       ) limit 1`,
-    [claims.client_id, claims.iat, claims.sub, JSON.stringify([mcpResource])],
-  )).rows[0])
-  if (!grant || !Array.isArray(grant.scopes)) return null
-  return { appUserId, authUserId: claims.sub, clientId: claims.client_id, issuedAt: claims.iat,
-    scopes: new Set((typeof claims.scope === "string" ? claims.scope.split(" ") : []).filter((scope) => grant.scopes.includes(scope))) }
-}
-
-// Fetch signing keys from this process, not back through the public tunnel.
-export const mcpJwksUrl = `http://127.0.0.1:${process.env.PORT ?? 3000}/api/auth/jwks`
-
-export async function principalFor(request: Request): Promise<McpPrincipal> {
-  let principal = null as McpPrincipal | null
-  // DPoP proofs are signed for the public URL; behind the tunnel the request arrives as http.
-  const response = await requireMcpAuth(auth, async (_request, claims) => {
-    principal = await grantPrincipal(claims)
-    return new Response(null, { status: principal ? 204 : 401 })
-  }, { resource: mcpResource, jwksUrl: mcpJwksUrl })(new Request(mcpResource, { method: request.method, headers: request.headers }))
-  if (principal) return principal
-  console.warn("[MCP] rejected", JSON.stringify({ status: response.status, challenge: response.headers.get("www-authenticate") }))
-  throw new Error("Unauthorized")
-}
 
 /** Exported for transport/schema tests; the HTTP entry always supplies a verified principal. */
 export function createCirclesMcp(principal: McpPrincipal) {
@@ -85,8 +55,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
 
   for (const tool of substackTools) server.registerTool(tool.name, {
     title: tool.title, description: `${tool.description ?? tool.name} Live Substack read, queued and paced. Returns a runId; poll circles_get_tool_run for the SDK result. Requires substack:read; raw/record opt-ins also require substack:records.`,
-    inputSchema: z.fromJSONSchema(tool.inputSchema as Parameters<typeof z.fromJSONSchema>[0])
-      .pipe(z.record(z.string(), z.unknown())), outputSchema: resultSchema,
+    inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema), outputSchema: resultSchema,
     annotations: tool.annotations,
   }, (args) => call(async () => {
     const scopes = sdkScopes(args)
@@ -179,6 +148,26 @@ export function createCirclesMcp(principal: McpPrincipal) {
   return server
 }
 
+/** Both protocol generations use the SDK and return finite JSON responses. */
+export async function handleMcpRequest(request: Request, principal: McpPrincipal): Promise<Response> {
+  if (request.method !== "POST") return new Response(null, { status: 405, headers: { Allow: "POST" } })
+  if (await isLegacyRequest(request, undefined, { maxRequestBodySize: 24 * 1024 * 1024 })) {
+    const server = createCirclesMcp(principal)
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, enableJsonResponse: true, maxRequestBodySize: 24 * 1024 * 1024,
+    })
+    try {
+      await server.connect(transport)
+      return await transport.handleRequest(request)
+    } finally { await server.close() }
+  }
+  const handler = createMcpHandler(() => createCirclesMcp(principal), {
+    legacy: "reject", responseMode: "json", maxRequestBodySize: 24 * 1024 * 1024,
+  })
+  try { return await handler.fetch(request) }
+  finally { await handler.close() }
+}
+
 export const mcpRoutes = new Hono()
 const origins = new Set([new URL(mcpResource).origin, "https://dash.cloudflare.com", ...(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((origin) => origin.trim()).filter(Boolean)])
 mcpRoutes.use("*", async (c, next) => {
@@ -196,30 +185,20 @@ mcpRoutes.use("*", async (c, next) => {
 })
 mcpRoutes.options("/", (c) => {
   c.header("Access-Control-Allow-Methods", "POST, GET, DELETE, OPTIONS")
-  c.header("Access-Control-Allow-Headers", "Authorization, DPoP, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id")
+  c.header("Access-Control-Allow-Headers", "Authorization, DPoP, Content-Type, Accept, MCP-Protocol-Version, MCP-Session-Id, MCP-Method, MCP-Name")
   return c.body(null, 204)
 })
 mcpRoutes.use("/", bodyLimit({ maxSize: 24 * 1024 * 1024 }))
 mcpRoutes.on(["POST", "GET", "DELETE"], "/", async (c) => {
   let principal: McpPrincipal
   try { principal = await principalFor(c.req.raw) }
-  catch {
+  catch (error) {
+    if (!(error instanceof McpUnauthorized)) {
+      console.error("[MCP] authentication unavailable", { name: error instanceof Error ? error.name : "Unknown" })
+      return c.json({ error: "Authentication is temporarily unavailable" }, 503)
+    }
     c.header("WWW-Authenticate", challenge)
-    return c.json({ error: "Unauthorized" }, 401)
+    return c.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Unauthorized" } }, 401)
   }
-  const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json",
-    onerror: (error) => console.error("[MCP] handler error", error) })
-  // ponytail: per-request diagnostics while client compatibility is being proven; drop once stable.
-  const rpc = await c.req.raw.clone().json().catch(() => null) as { method?: string } | { method?: string }[] | null
-  try {
-    const response = await handler.fetch(c.req.raw)
-    const body = await response.clone().text()
-    console.info("[MCP] request", JSON.stringify({
-      method: Array.isArray(rpc) ? rpc.map((item) => item.method) : rpc?.method ?? null,
-      version: c.req.header("mcp-protocol-version") ?? null, accept: c.req.header("accept") ?? null,
-      status: response.status, bytes: body.length, error: /"error":\{[^}]*\}/.exec(body)?.[0] ?? null,
-    }))
-    return response
-  }
-  finally { await handler.close() }
+  return handleMcpRequest(c.req.raw, principal)
 })

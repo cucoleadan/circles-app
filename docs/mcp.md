@@ -2,8 +2,9 @@
 
 The source provides `${APP_URL}/api/mcp`, a stateless remote MCP endpoint for
 Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
-The MCP and discovery forwarding are deployed. Browser OAuth/MCP CORS fixes are
-pending deployment; authenticated Cloudflare gateway verification is outstanding.
+The MCP, discovery forwarding and OAuth CORS routes are deployed. The October 15
+transport/authentication revision is local and awaits the normal user-pushed release.
+Authenticated Cloudflare gateway and ChatGPT reconnection remain to be verified.
 
 ## Tools and data sources
 
@@ -54,6 +55,14 @@ bound OAuth tokens. Tokens are checked for issuer, audience, expiry, active
 client/session, current consent and per-tool scopes. DPoP tokens require a proof
 bound to the canonical resource URL/method with database-backed replay storage.
 Arbitrary Cloudflare email/user headers do not establish a CRM identity.
+Signing keys are loaded through Better Auth's local API, without a loopback HTTP
+request. Auth/database failures return 503; invalid or expired credentials return
+401 with OAuth discovery metadata. Refresh rotation permits the library's
+30-second retry window, then rejects replay and revokes the token family.
+
+Both 2025 and 2026 MCP requests use the official SDK and return finite JSON
+responses. SDK input schemas are passed directly to its JSON Schema validator;
+all original snake_case and camelCase tool names remain available.
 
 The consent page defaults to read permissions and offline access. Client
 registration can declare all capabilities, but it grants no user permissions.
@@ -130,14 +139,21 @@ Better Auth and the OAuth/MCP/CIMD packages are pinned to 1.7.7. Existing user
 IDs and CRM tenants remain unchanged. Use the normal migration service; never
 run a separate auth migration against production.
 
-Before the user's request to restrict verification, network-free SDK schema/
-alias and permission tests passed; migrations applied on the test database;
-PKCE/consent/revocation and MCP tenant-safe writes passed. A queued SDK fixture
-had missing required connection fields, which are corrected but not re-run.
-Final verification is restricted to typecheck/ASTRO checks. Live gateway,
-Cloudflare SSO and a complete runtime regression pass remain release gates.
-The audit fixes serialize and drain SDK requests, enforce the tenant-wide queue
-limit under one lock, and compare Note range timestamps numerically. Regression
-cases also cover refresh rotation and DPoP replay/key rejection; these new tests
-are typechecked but have not been run under the current verification restriction.
-No build, deployment, push, production migration or extension rebuild was done.
+On October 15, SSH diagnostics verified the deployed public endpoint through
+authorization-code/PKCE exchange, a Bearer token, SDK initialize, discovery of
+75 then-exposed tools, and a harmless sync-status read. The SSH database tunnel
+is used for local development/tests and is outside the production MCP request
+path. `/mcp` is the browser management page; clients use the HTTPS `/api/mcp` URL.
+These checks did not reproduce the reported client failure or establish its cause.
+
+The local revision restores all 93 tool names/aliases and passes protocol/schema
+tests, including modern discovery, plus database-backed OAuth/HTTP, refresh retry/
+late replay, DPoP, revocation, expired session, disabled client and tenant checks.
+API test typechecking now includes the test folder, which its inherited exclusion
+previously skipped. Full regression passed (127 tests, 15-second timeout for
+tunnel-backed database cases), followed by an additional fresh-client OAuth
+registration/login-resume/callback test. Typecheck and root build passed; the
+root build also regenerated ignored extension output without changing its version
+or packaging a release. No new dependency or database migration is required.
+Actual gateway/ChatGPT reconnection and Cloudflare SSO remain release gates.
+No deployment, push, production migration or extension release was done.

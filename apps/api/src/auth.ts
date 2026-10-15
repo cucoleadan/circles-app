@@ -17,7 +17,7 @@ export const oauthOptions = {
   grantTypes: ["authorization_code", "refresh_token"],
   accessTokenExpiresIn: 15 * 60,
   refreshTokenExpiresIn: 30 * 24 * 60 * 60,
-  refreshTokenReuseInterval: 0,
+  refreshTokenReuseInterval: 30,
   allowDynamicClientRegistration: true,
   allowUnauthenticatedClientRegistration: true,
   // Client capability is broad; the consent UI defaults to read permissions only.

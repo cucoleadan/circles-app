@@ -1,7 +1,30 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-10-14.
+Update this file as work completes. Last updated: 2026-10-15.
+
+## 2026-10-15 MCP transport and token revision (local; release pending)
+
+- [x] Verified public OAuth/PKCE exchange, Bearer authentication, SDK tool discovery
+      and a harmless sync-status read over SSH. Production returned 75 tools;
+      these diagnostics did not reproduce the reported client failure.
+- [x] Use the official SDK's JSON transport for both protocol generations and
+      native JSON Schema validation; restore all 93 original tool names/aliases.
+- [x] Verify signatures using Better Auth's local signing-key API; remove the
+      loopback HTTP dependency. Check active clients/sessions and current consent;
+      distinguish invalid credentials (401) from auth service failures (503).
+- [x] Restore the library's 30-second refresh retry window with late replay
+      rejection; allow modern MCP method/name headers in browser preflights.
+- [x] Protocol tests and ten database-backed MCP cases pass, including an actual
+      HTTP token-to-discovery/read flow, revocation, expiry, DPoP and tenant checks.
+      Root typecheck passes and now includes previously excluded API test files.
+- [x] Full core/API/worker regression: 127 tests passed with a 15-second timeout
+      for tunnel-backed database tests. An additional fresh-client discovery,
+      registration, login-resume and consent-callback regression also passed.
+      Root build passed; it also regenerated ignored extension build output,
+      without a version change or new installable archive.
+- [ ] User-pushed deployment and reconnection from the affected clients. No
+      deployment, push, production migration or extension release performed.
 
 ## 2026-10-14 MCP implementation (deployed; callback investigation pending)
 

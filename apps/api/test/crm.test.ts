@@ -43,12 +43,14 @@ import { v1 } from "../src/routes/v1.js"
 import { sniffImageType } from "../src/routes/v1/notes.js"
 import type { InteractionInput } from "../src/db/repositories.js"
 import { auth, mcpResource } from "../src/auth.js"
-import { createCirclesMcp, mcpJwksUrl, principalFor } from "../src/mcp/server.js"
+import { handleMcpRequest, mcpRoutes, principalFor } from "../src/mcp/server.js"
+import { Hono } from "hono"
 import { mcpBrowserRoutes } from "../src/mcp/browser.js"
 import { enqueueSdkTool, getSdkRun, type McpPrincipal } from "../src/mcp/sdk-tools.js"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createMcpHandler } from "@modelcontextprotocol/server"
+import { auth as clientAuth, type OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js"
+import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto"
 import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
 
@@ -126,7 +128,7 @@ beforeEach(async () => {
 
 
 /** Answers the Substack SDK's authenticated-profile lookup without network access. */
-async function withStubbedSubstackProfile<T>(fn: () => Promise<T>): Promise<T> {
+async function withStubbedSubstackProfile<T>(fn: () => T | Promise<T>): Promise<T> {
   const originalFetch = globalThis.fetch
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
     const url = String(input instanceof Request ? input.url : input)
@@ -2055,10 +2057,6 @@ describe("MCP OAuth and tenant operations", () => {
   const originalFetch = globalThis.fetch
   afterAll(() => { globalThis.fetch = originalFetch })
   beforeAll(async () => {
-    // No server listens in tests; answer the token verifier's JWKS fetch in-process.
-    globalThis.fetch = ((input: Parameters<typeof fetch>[0], init?: RequestInit) => String(input instanceof Request ? input.url : input) === mcpJwksUrl
-      ? auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/jwks`, init))
-      : originalFetch(input, init)) as typeof fetch
     const { makeSignature } = await import("better-auth/crypto")
     for (const [authId, token, setCookie] of [
       [authA, "mcp-session-a", (value: string) => (cookieA = value)],
@@ -2133,7 +2131,7 @@ describe("MCP OAuth and tenant operations", () => {
     return { clientId: client.client_id, principal, ...payload, code: callback.searchParams.get("code")!, verifier }
   }
 
-  test("refresh rotates tokens, rejects replay and preserves the tenant", async () => {
+  test("refresh rotates tokens, tolerates a lost response, and rejects late replay", async () => {
     const grant = await authorize(cookieA)
     const renew = (refreshToken: string) => auth.handler(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/token`, {
       method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -2144,8 +2142,92 @@ describe("MCP OAuth and tenant operations", () => {
     const renewed = await response.json() as { access_token: string; refresh_token: string }
     expect(renewed.refresh_token).not.toBe(grant.refresh_token)
     expect((await principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${renewed.access_token}` } }))).appUserId).toBe(userA)
+    const retried = await renew(grant.refresh_token)
+    expect(retried.status).toBe(200)
+    expect(await retried.json()).toEqual(renewed)
+    await migrate.query(`update "oauthRefreshToken" set "rotationReplayExpiresAt" = now() - interval '1 second' where "clientId" = $1 and "rotatedAt" is not null`, [grant.clientId])
     expect((await renew(grant.refresh_token)).status).toBe(400)
     expect((await renew(renewed.refresh_token)).status).toBe(400)
+  }, 15000)
+
+  test("OAuth tokens discover and call tools over HTTP without a JWKS self-request", async () => {
+    const grant = await authorize(cookieA)
+    const app = new Hono().route("/api/mcp", mcpRoutes)
+    const server = Bun.serve({ port: 0, fetch: app.fetch })
+    const client = new McpClient({ name: "oauth-http-test", version: "1" })
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL("/api/mcp", server.url), {
+        requestInit: { headers: { authorization: `Bearer ${grant.access_token}` } },
+      }))
+      expect((await client.listTools()).tools).toHaveLength(93)
+      const result = await client.callTool({ name: "circles_list_people", arguments: {} })
+      expect(result.isError).not.toBe(true)
+      const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })
+      expect(denied.isError).toBe(true)
+      await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId: grant.clientId }) })
+      const revoked = await fetch(new URL("/api/mcp", server.url), { headers: { authorization: `Bearer ${grant.access_token}` } })
+      expect(revoked.status).toBe(401)
+      expect(revoked.headers.get("www-authenticate")).toContain("resource_metadata")
+    } finally { await client.close(); await server.stop(true) }
+  }, 15000)
+
+  test("an MCP client discovers OAuth, registers, signs in, consents and exchanges its callback", async () => {
+    const app = new Hono().route("/", oauthProtocolRoutes).route("/api/mcp", mcpRoutes)
+    app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
+    let registered: OAuthClientInformationMixed | undefined
+    let tokens: OAuthTokens | undefined
+    let verifier = ""
+    let authorizationUrl = new URL(mcpResource)
+    const state = "callback+state/with=reserved&characters"
+    const provider: OAuthClientProvider = {
+      redirectUrl: "https://client.test/callback",
+      clientMetadata: { client_name: "Discovery test", redirect_uris: ["https://client.test/callback"],
+        token_endpoint_auth_method: "none", grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], scope: "circles:read offline_access" },
+      state: () => state, clientInformation: () => registered, saveClientInformation: (value) => { registered = value },
+      tokens: () => tokens, saveTokens: (value) => { tokens = value },
+      redirectToAuthorization: (url) => { authorizationUrl = url },
+      saveCodeVerifier: (value) => { verifier = value }, codeVerifier: () => verifier,
+    }
+    const fetchFn = async (input: string | URL | Request, init?: RequestInit) => app.fetch(new Request(input, init))
+    const options = { serverUrl: mcpResource, scope: "circles:read offline_access", fetchFn }
+    expect(await clientAuth(provider, options)).toBe("REDIRECT")
+    const login = await app.fetch(new Request(authorizationUrl))
+    const loginUrl = new URL(login.headers.get("location")!, mcpResource)
+    expect(loginUrl.pathname).toBe("/login")
+    const resumed = await app.fetch(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/continue`, {
+      method: "POST", headers: { cookie: cookieA, "content-type": "application/json" },
+      body: JSON.stringify({ postLogin: true, oauth_query: loginUrl.search.slice(1) }),
+    }))
+    expect(resumed.status).toBe(200)
+    const consentUrl = new URL((await resumed.json()).url, mcpResource)
+    expect(consentUrl.pathname).toBe("/mcp/consent")
+    const accepted = await app.fetch(new Request(`${new URL(mcpResource).origin}/api/auth/oauth2/consent`, {
+      method: "POST", headers: { cookie: cookieA, "content-type": "application/json" },
+      body: JSON.stringify({ accept: true, scope: "circles:read offline_access", oauth_query: consentUrl.search.slice(1) }),
+    }))
+    expect(accepted.status).toBe(200)
+    const callback = new URL((await accepted.json()).url)
+    expect(callback.searchParams.get("state")).toBe(state)
+    expect(await clientAuth(provider, { ...options, authorizationCode: callback.searchParams.get("code")! })).toBe("AUTHORIZED")
+    expect(tokens?.refresh_token).toBeDefined()
+    expect((await principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${tokens!.access_token}` } }))).appUserId).toBe(userA)
+  }, 15000)
+
+  test("expired tokens, wrong audiences, disabled clients and expired sessions are rejected", async () => {
+    const grant = await authorize(cookieA)
+    const claims = JSON.parse(Buffer.from(grant.access_token.split(".")[1]!, "base64url").toString())
+    for (const payload of [ { ...claims, exp: Math.floor(Date.now() / 1000) - 60 }, { ...claims, aud: "https://wrong.test/mcp" } ]) {
+      const { token } = await auth.api.signJWT({ body: { payload } })
+      const rejected = await mcpRoutes.request("/", { headers: { authorization: `Bearer ${token}` } })
+      expect(rejected.status).toBe(401)
+    }
+    await migrate.query(`update "oauthClient" set disabled = true where "clientId" = $1`, [grant.clientId])
+    await expect(principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).rejects.toThrow()
+    await migrate.query(`update "oauthClient" set disabled = false where "clientId" = $1`, [grant.clientId])
+    await migrate.query(`update session set "expiresAt" = now() - interval '1 second' where id = $1`, [claims.sid])
+    try {
+      await expect(principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).rejects.toThrow()
+    } finally { await migrate.query(`update session set "expiresAt" = now() + interval '1 day' where id = $1`, [claims.sid]) }
   }, 15000)
 
   test("DPoP requires the bound key and rejects a reused proof", async () => {
@@ -2177,10 +2259,9 @@ describe("MCP OAuth and tenant operations", () => {
   test("MCP operations reuse RLS, preserve response shapes and enforce write scopes", async () => {
     const scopes = new Set(["circles:read", "circles:organize"])
     const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes }
-    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
     const client = new McpClient({ name: "circles-test", version: "1" })
     try {
-      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handler.fetch(new Request(input, init)) }))
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handleMcpRequest(new Request(input, init), principal) }))
       const created = await client.callTool({ name: "circles_create_person", arguments: { name: "MCP contact", notes: "Private CRM context" } })
       expect(created.isError).not.toBe(true)
       expect((await withTenant({ appUserId: userA }, (db) => listPeople(db))).map((p) => p.name)).toEqual(["MCP contact"])
@@ -2190,7 +2271,7 @@ describe("MCP OAuth and tenant operations", () => {
       const denied = await client.callTool({ name: "circles_post_note_now", arguments: { clientRequestId: "test-request-1", bodyJson: { type: "doc", content: [] } } })
       expect(denied.isError).toBe(true)
       expect(JSON.stringify(denied)).toContain("circles:notes:publish")
-    } finally { await client.close(); await handler.close() }
+    } finally { await client.close() }
   })
 
   test("SDK reads run through the worker, deduplicate and isolate their results", async () => {
@@ -2233,15 +2314,14 @@ describe("MCP OAuth and tenant operations", () => {
       values ('inside',$1,'mcp-connection','1','scheduled','2026-10-14T08:00:00Z'),
              ('end',$1,'mcp-connection','2','scheduled','2026-10-14T09:00:00Z')`, [userA])
     const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes: new Set(["circles:read"]) }
-    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
     const client = new McpClient({ name: "note-range-test", version: "1" })
     try {
-      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handler.fetch(new Request(input, init)) }))
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handleMcpRequest(new Request(input, init), principal) }))
       const result = await client.callTool({ name: "circles_list_notes", arguments: {
         status: "scheduled", from: "2026-10-14T10:00:00+03:00", to: "2026-10-14T12:00:00+03:00",
       } })
       expect(result.isError).not.toBe(true)
       expect((result.structuredContent as any).data.notes.map((note: { id: string }) => note.id)).toEqual(["inside"])
-    } finally { await client.close(); await handler.close() }
+    } finally { await client.close() }
   })
 })

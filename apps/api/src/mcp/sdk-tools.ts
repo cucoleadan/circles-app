@@ -12,10 +12,7 @@ export interface McpPrincipal {
   scopes: ReadonlySet<string>
 }
 
-// The SDK registers each tool twice (get_notes and getNotes); expose only the snake_case name.
-const snakeCase = (name: string) => name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
-export const substackTools = (await discoverSubstackTools()).filter((tool, _, all) =>
-  tool.name === snakeCase(tool.name) || !all.some((other) => other.name === snakeCase(tool.name)))
+export const substackTools = await discoverSubstackTools()
 
 export function sdkScopes(args: Record<string, unknown>): McpScope[] {
   const raw = ["include_records", "includeRecords", "include_rows", "includeRows", "include_raw", "includeRaw", "include_raw_pages", "includeRawPages"]

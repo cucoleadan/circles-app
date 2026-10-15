@@ -3,9 +3,8 @@ import { Hono } from "hono"
 import { auth } from "../src/auth.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
-import { createMcpHandler } from "@modelcontextprotocol/server"
 import { discoverSubstackTools, redactMcpResult } from "@workspace/core"
-import { createCirclesMcp, mcpRoutes } from "../src/mcp/server.js"
+import { handleMcpRequest, mcpRoutes } from "../src/mcp/server.js"
 import { circlesTools, operationRequest } from "../src/mcp/circles-tools.js"
 import { localDayRange } from "../src/mcp/day.js"
 import { requireScopes } from "../src/mcp/scopes.js"
@@ -93,7 +92,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       await invoke("/mcp")
       await invoke("/.well-known/oauth-protected-resource/api/mcp", "POST")
       expect(nextCalls).toBe(2)
-      globalThis.fetch = (async () => { throw new Error("Internal connection failed") }) as typeof fetch
+      globalThis.fetch = Object.assign(async () => { throw new Error("Internal connection failed") }, originalFetch)
       const failed = await invoke("/.well-known/oauth-protected-resource/api/mcp")
       expect(failed.status).toBe(502)
       expect(await failed.text()).not.toContain("Internal connection failed")
@@ -119,7 +118,9 @@ describe("Circles MCP protocol and tool boundaries", () => {
       return Response.json({ ok: true })
     })
     const first = queued("https://example.test/first")
-    const failed = expect(first).rejects.toThrow("Upstream failed")
+    const failed = first.then(() => { throw new Error("Expected the first fetch to fail") }, (error: Error) => {
+      expect(error.message).toBe("Upstream failed")
+    })
     const second = queued("https://example.test/second")
     await Promise.resolve()
     expect(events).toEqual(["https://example.test/first"])
@@ -136,10 +137,13 @@ describe("Circles MCP protocol and tool boundaries", () => {
   })
 
   test("SDK names, aliases and input schemas survive the HTTP composition", async () => {
-    const handler = createMcpHandler(() => createCirclesMcp(principal), { legacy: "stateless", responseMode: "json" })
     const client = new Client({ name: "mcp-test", version: "1" })
     const transport = new StreamableHTTPClientTransport(new URL("http://localhost:4321/api/mcp"), {
-      fetch: (input, init) => handler.fetch(new Request(input, init)),
+      fetch: async (input, init) => {
+        const response = await handleMcpRequest(new Request(input, init), principal)
+        if (response.status === 200) expect(response.headers.get("content-type")).toContain("application/json")
+        return response
+      },
     })
     try {
       await client.connect(transport)
@@ -151,8 +155,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       for (const upstream of original) {
         const forwarded = listed.find((tool) => tool.name === upstream.name)!
         expect(forwarded).toBeDefined()
-        expect(forwarded.inputSchema.properties).toEqual(upstream.inputSchema.properties)
-        expect(forwarded.inputSchema.required ?? []).toEqual(upstream.inputSchema.required ?? [])
+        expect(forwarded.inputSchema).toEqual(upstream.inputSchema)
         expect(forwarded.annotations?.readOnlyHint).toBe(true)
       }
       const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Test" } })
@@ -161,11 +164,44 @@ describe("Circles MCP protocol and tool boundaries", () => {
       const sdkDenied = await client.callTool({ name: "get_authenticated_profile", arguments: {} })
       expect(sdkDenied.isError).toBe(true)
       expect(JSON.stringify(sdkDenied)).toContain("substack:read")
-    } finally { await client.close(); await handler.close() }
+      const invalid = await client.callTool({ name: "get_notes", arguments: { limit: "invalid" } })
+      expect(invalid.isError).toBe(true)
+      expect(JSON.stringify(invalid)).not.toContain("substack:read")
+    } finally { await client.close() }
+  })
+
+  test("legacy and modern discovery both return JSON without a session", async () => {
+    const legacy = await handleMcpRequest(new Request("http://localhost/api/mcp", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    }), principal)
+    expect(legacy.headers.get("content-type")).toContain("application/json")
+    expect(legacy.headers.get("mcp-session-id")).toBeNull()
+    expect((await legacy.json()).result.tools).toHaveLength(93)
+    const modern = await handleMcpRequest(new Request("http://localhost/api/mcp", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json", "mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {},
+        "io.modelcontextprotocol/clientInfo": { name: "modern-test", version: "1" },
+      } } }),
+    }), principal)
+    expect(modern.status).toBe(200)
+    expect(modern.headers.get("content-type")).toContain("application/json")
+    expect((await modern.json()).error).toBeUndefined()
+    const modernTools = await handleMcpRequest(new Request("http://localhost/api/mcp", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json", "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/list" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "tools/list", params: { _meta: {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28", "io.modelcontextprotocol/clientCapabilities": {},
+        "io.modelcontextprotocol/clientInfo": { name: "modern-test", version: "1" },
+      } } }),
+    }), principal)
+    expect(modernTools.status).toBe(200)
+    expect((await modernTools.json()).result.tools).toHaveLength(93)
+    expect((await handleMcpRequest(new Request("http://localhost/api/mcp"), principal)).status).toBe(405)
   })
 
   test("unauthenticated calls and forged identities get OAuth discovery challenges", async () => {
-    for (const headers of [{}, { "x-circles-user-id": "tenant-a", "cf-access-authenticated-user-email": "owner@example.test" }]) {
+    for (const headers of [new Headers(), new Headers({ "x-circles-user-id": "tenant-a", "cf-access-authenticated-user-email": "owner@example.test" })]) {
       const response = await mcpRoutes.request("/", { method: "POST", headers, body: "{}" })
       expect(response.status).toBe(401)
       expect(response.headers.get("www-authenticate")).toContain("oauth-protected-resource/api/mcp")

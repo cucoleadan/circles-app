@@ -58,7 +58,10 @@ with `circles_*` app operations. SDK reads enter `mcp:substack` jobs and keep
 private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
-This feature has not been deployed or verified through the live gateway.
+The original endpoint is deployed; an October 15 revision uses local signing-key
+verification, finite JSON transport responses and all 93 tool names/aliases.
+That revision awaits release. Direct public OAuth/tool reads have been verified;
+the reported gateway/ChatGPT connection failure has not been reproduced.
 
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a
