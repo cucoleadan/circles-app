@@ -53,6 +53,8 @@ import { auth as clientAuth, type OAuthClientProvider } from "@modelcontextproto
 import type { OAuthClientInformationMixed, OAuthTokens } from "@modelcontextprotocol/sdk/shared/auth.js"
 import { createHash, generateKeyPairSync, randomUUID, sign } from "node:crypto"
 import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
+import { circlesTools } from "../src/mcp/circles-tools.js"
+import { MCP_SCOPES } from "../src/mcp/scopes.js"
 
 let admin: Pool
 let migrate: Pool
@@ -1740,6 +1742,10 @@ class FakeSubstack {
     if (request.method === "POST" && path === "/comment/attachment") {
       return Response.json({ id: `att-${this.nextId++}`, type: body.type })
     }
+    if (request.method === "POST" && path === "/image") {
+      return Response.json({ id: this.nextId++, url: "https://substack-post-media.s3.amazonaws.com/public/images/test.png",
+        contentType: "image/png", bytes: 16, imageWidth: 1, imageHeight: 1 })
+    }
     return new Response("unexpected request in test", { status: 500 })
   }
 }
@@ -2159,11 +2165,11 @@ describe("MCP OAuth and tenant operations", () => {
       await client.connect(new StreamableHTTPClientTransport(new URL("/api/mcp", server.url), {
         requestInit: { headers: { authorization: `Bearer ${grant.access_token}` } },
       }))
-      expect((await client.listTools()).tools).toHaveLength(75)
+      // A read grant lists 19 circles_* reads plus the 18 SDK reads.
+      expect((await client.listTools()).tools).toHaveLength(37)
       const result = await client.callTool({ name: "circles_list_people", arguments: {} })
       expect(result.isError).not.toBe(true)
-      const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })
-      expect(denied.isError).toBe(true)
+      await expect(client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })).rejects.toThrow("not found")
       await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId: grant.clientId }) })
       const revoked = await fetch(new URL("/api/mcp", server.url), { headers: { authorization: `Bearer ${grant.access_token}` } })
       expect(revoked.status).toBe(401)
@@ -2268,11 +2274,105 @@ describe("MCP OAuth and tenant operations", () => {
       expect(await withTenant({ appUserId: userB }, (db) => listPeople(db))).toHaveLength(0)
       const listed = await client.callTool({ name: "circles_list_people", arguments: { limit: 1 } })
       expect((listed.structuredContent as any).data.nextOffset).toBe(1)
-      const denied = await client.callTool({ name: "circles_post_note_now", arguments: { clientRequestId: "test-request-1", bodyJson: { type: "doc", content: [] } } })
-      expect(denied.isError).toBe(true)
-      expect(JSON.stringify(denied)).toContain("circles:notes:publish")
+      await expect(client.callTool({ name: "circles_post_note_now", arguments: { clientRequestId: "test-request-1", bodyJson: { type: "doc", content: [] } } }))
+        .rejects.toThrow("not found")
     } finally { await client.close() }
   })
+
+  test("every MCP write tool runs end to end against a fake Substack", async () => {
+    await migrate.query(`insert into substack_connections
+        (id,user_id,generation,status,envelope_version,key_id,wrapped_key,iv,ciphertext,profile_id,profile_handle)
+      values ('mcp-write-conn',$1,1,'active',1,'plain','plain','plain','session-a','4242','tester')`, [userA])
+    await migrate.query(`insert into owned_content (id,user_id,connection_id,kind,external_id)
+      values ('mcp-owned-note',$1,'mcp-write-conn','note','900')`, [userA])
+    const substack = new FakeSubstack()
+    globalThis.fetch = substack.handle as typeof fetch
+    const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes: new Set(MCP_SCOPES) }
+    const client = new McpClient({ name: "write-tools-test", version: "1" })
+    const called = new Set<string>()
+    const run = async (name: string, args: Record<string, unknown> = {}) => {
+      called.add(name)
+      const result = await client.callTool({ name, arguments: args })
+      if (result.isError) throw new Error(`${name}: ${JSON.stringify(result.content)}`)
+      return (result.structuredContent as any).data
+    }
+    const doc = (text: string) => ({ type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text }] }] })
+    const later = (days: number) => new Date(Date.now() + days * 86400000).toISOString()
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handleMcpRequest(new Request(input, init), principal) }))
+
+      // CRM organize/delete: Circles-only rows.
+      const { settings } = await run("circles_get_settings")
+      await run("circles_update_settings", { priorityQueue: settings.priorityQueue })
+      const { person } = await run("circles_create_person", { name: "MCP write test", handle: "mcp-write-test" })
+      await run("circles_update_person", { personId: person.id, notes: "edited by MCP" })
+      const { list } = await run("circles_create_list", { name: "MCP list" })
+      await run("circles_update_list", { listId: list.id, name: "MCP list renamed" })
+      await run("circles_add_list_member", { listId: list.id, personId: person.id })
+      await run("circles_remove_list_member", { listId: list.id, personId: person.id })
+      await run("circles_delete_list", { listId: list.id })
+      const { tag } = await run("circles_create_contact_tag", { name: "MCP tag" })
+      await run("circles_update_contact_tag", { tagId: tag.id, name: "MCP tag renamed", color: "#2563eb" })
+      await run("circles_attach_contact_tag", { tagId: tag.id, personId: person.id })
+      await run("circles_detach_contact_tag", { tagId: tag.id, personId: person.id })
+      await run("circles_delete_contact_tag", { tagId: tag.id })
+      await withTenant({ appUserId: userA }, (db) => recordInteraction(db, userA, {
+        externalId: "mcp-comment", personId: person.id, connectionId: "mcp-write-conn", direction: "inbound",
+        actionType: "comment", targetType: "note", targetId: "900", threadKind: "note", threadRootId: "900",
+        occurredAt: new Date(Date.now() - 60000).toISOString(), body: "hello",
+      }))
+      const [comment] = (await run("circles_list_comments")).comments
+      await run("circles_set_comment_not_interested", { id: comment.id, notInterested: true })
+      await run("circles_set_comment_not_interested", { id: comment.id, notInterested: false })
+
+      // Sync/import: queue jobs only; the worker is not run here.
+      await run("circles_request_sync")
+      await run("circles_sync_subscribers")
+      await run("circles_sync_followers")
+      await run("circles_refetch_person", { personId: person.id })
+      const started = await run("circles_start_import", { streams: ["owned_notes"], days: 7 })
+      await run("circles_pause_import", { id: started.importRunId })
+      await run("circles_resume_import", { id: started.importRunId })
+      await run("circles_cancel_import", { id: started.importRunId })
+      await run("circles_archive_person", { personId: person.id })
+
+      // Notes: every draft, schedule, publish, abort and delete path.
+      const { image } = await run("circles_upload_note_image", {
+        base64: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64") })
+      const { tag: noteTag } = await run("circles_create_note_tag", { name: "MCP note tag" })
+      await run("circles_update_note_tag", { tagId: noteTag.id, color: "#16a34a" })
+      const { note: draft } = await run("circles_create_note_draft", {
+        clientRequestId: "mcp-write-draft", bodyJson: doc("draft"), attachments: [{ type: "image", image }] })
+      expect(draft.status).toBe("draft")
+      await run("circles_update_note_draft", { id: draft.id, bodyJson: doc("draft edited") })
+      expect((await run("circles_set_note_tags", { id: draft.id, tagIds: [noteTag.id] })).note.tags).toHaveLength(1)
+      expect((await run("circles_reschedule_note", { id: draft.id, triggerAt: later(80) })).note.status).toBe("scheduled")
+      expect((await run("circles_unschedule_note", { id: draft.id })).note.status).toBe("draft")
+      expect((await run("circles_publish_existing_note", { id: draft.id })).note).toMatchObject({ status: "scheduled", postNow: true })
+      expect((await run("circles_abort_note", { id: draft.id })).note).toMatchObject({ status: "draft", postNow: false })
+      const { note: scheduled } = await run("circles_schedule_note", {
+        clientRequestId: "mcp-write-scheduled", bodyJson: doc("scheduled"), triggerAt: later(80) })
+      expect(scheduled.status).toBe("scheduled")
+      const { note: now } = await run("circles_post_note_now", { clientRequestId: "mcp-write-now", bodyJson: doc("now") })
+      expect(now).toMatchObject({ status: "scheduled", postNow: true })
+      await run("circles_abort_note", { id: now.id })
+      await run("circles_refresh_notes", { force: "1" })
+      for (const id of [draft.id, scheduled.id, now.id]) await run("circles_delete_note", { id })
+      await run("circles_delete_note_tag", { tagId: noteTag.id })
+
+      // Nothing is left on the fake Substack, and nothing was published directly.
+      expect(substack.drafts.size).toBe(0)
+      expect(substack.requests.some((request) => request.includes("/comment/feed"))).toBe(false)
+      const writes = [...circlesTools.filter((tool) => tool.method !== "GET").map((tool) => tool.name), "circles_upload_note_image"]
+      expect(writes.filter((name) => !called.has(name))).toEqual([])
+      const audited = await migrate.query("select action from audit_log where user_id = $1 and action like 'mcp.%'", [userA])
+      expect(audited.rows.some((row) => row.action.startsWith("mcp.failed"))).toBe(false)
+      expect(new Set(audited.rows.map((row) => row.action.replace("mcp.ok.", "")))).toEqual(new Set(writes.filter((name) => name !== "circles_upload_note_image")))
+    } finally {
+      await client.close()
+      globalThis.fetch = originalFetch
+    }
+  }, 30000)
 
   test("SDK reads run through the worker, deduplicate and isolate their results", async () => {
     const grant = await authorize(cookieA)

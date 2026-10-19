@@ -7,11 +7,20 @@ import { discoverSubstackTools, redactMcpResult } from "@workspace/core"
 import { handleMcpRequest, mcpRoutes } from "../src/mcp/server.js"
 import { circlesTools, operationRequest } from "../src/mcp/circles-tools.js"
 import { localDayRange } from "../src/mcp/day.js"
-import { requireScopes } from "../src/mcp/scopes.js"
+import { MCP_SCOPES, requireScopes } from "../src/mcp/scopes.js"
+import * as sdkTools from "../src/mcp/sdk-tools.js"
 import { sdkScopes, type McpPrincipal } from "../src/mcp/sdk-tools.js"
 import { oauthProtocolRoutes } from "../src/mcp/oauth-http.js"
 
-const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set() }
+const principal: McpPrincipal = { appUserId: "tenant-a", authUserId: "auth-a", clientId: "test-client", issuedAt: 1, scopes: new Set(MCP_SCOPES) }
+
+async function connect(as: McpPrincipal) {
+  const client = new Client({ name: "mcp-test", version: "1" })
+  await client.connect(new StreamableHTTPClientTransport(new URL("http://localhost:4321/api/mcp"), {
+    fetch: (input, init) => handleMcpRequest(new Request(input, init), as),
+  }))
+  return client
+}
 
 describe("Circles MCP protocol and tool boundaries", () => {
   test("OAuth diagnostics preserve callbacks and omit credentials", async () => {
@@ -161,16 +170,41 @@ describe("Circles MCP protocol and tool boundaries", () => {
         expect(forwarded.inputSchema).toEqual(upstream.inputSchema)
         expect(forwarded.annotations?.readOnlyHint).toBe(true)
       }
-      const denied = await client.callTool({ name: "circles_create_person", arguments: { name: "Test" } })
-      expect(denied.isError).toBe(true)
-      expect(JSON.stringify(denied)).toContain("circles:organize")
-      const sdkDenied = await client.callTool({ name: "get_authenticated_profile", arguments: {} })
-      expect(sdkDenied.isError).toBe(true)
-      expect(JSON.stringify(sdkDenied)).toContain("substack:read")
       const invalid = await client.callTool({ name: "get_notes", arguments: { limit: "invalid" } })
       expect(invalid.isError).toBe(true)
       expect(JSON.stringify(invalid)).not.toContain("substack:read")
     } finally { await client.close() }
+  })
+
+  test("discovery lists only the tools the grant's scopes allow", async () => {
+    const client = await connect({ ...principal, scopes: new Set(["circles:read"]) })
+    try {
+      const names = (await client.listTools()).tools.map((tool) => tool.name)
+      const reads = circlesTools.filter((tool) => tool.scopes.every((scope) => scope === "circles:read")).map((tool) => tool.name)
+      expect(names.sort()).toEqual([...reads, "circles_list_notes", "circles_get_note", "circles_get_day_brief"].sort())
+      await expect(client.callTool({ name: "circles_create_person", arguments: { name: "Test" } })).rejects.toThrow("not found")
+    } finally { await client.close() }
+    const sdkOnly = await connect({ ...principal, scopes: new Set(["substack:read"]) })
+    try {
+      const names = (await sdkOnly.listTools()).tools.map((tool) => tool.name)
+      expect(names).toHaveLength(19)
+      expect(names).toContain("circles_get_tool_run")
+      expect(names.some((name) => name.startsWith("circles_") && name !== "circles_get_tool_run")).toBe(false)
+    } finally { await sdkOnly.close() }
+  })
+
+  test("SDK reads return the finished result inline", async () => {
+    const enqueue = spyOn(sdkTools, "enqueueSdkTool").mockResolvedValue({ runId: "run-1", status: "pending", pollTool: "circles_get_tool_run" })
+    const finished = { content: [{ type: "text", text: "{\"data\":{\"id\":1}}" }], structuredContent: { data: { id: 1 } } }
+    const run = spyOn(sdkTools, "getSdkRun")
+      .mockResolvedValueOnce({ id: "run-1", status: "running", result: null })
+      .mockResolvedValue({ id: "run-1", status: "done", result: finished })
+    const client = await connect(principal)
+    try {
+      const result = await client.callTool({ name: "get_authenticated_profile", arguments: {} })
+      expect(result.structuredContent).toEqual({ data: { id: 1 } })
+      expect(run).toHaveBeenCalledTimes(2)
+    } finally { await client.close(); enqueue.mockRestore(); run.mockRestore() }
   })
 
   test("legacy and modern discovery both return JSON without a session", async () => {
@@ -208,6 +242,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       const response = await mcpRoutes.request("/", { method: "POST", headers, body: "{}" })
       expect(response.status).toBe(401)
       expect(response.headers.get("www-authenticate")).toContain("oauth-protected-resource/api/mcp")
+      expect(response.headers.get("www-authenticate")).toContain(`scope="offline_access ${MCP_SCOPES.join(" ")}"`)
     }
     const forbidden = await mcpRoutes.request("/", { method: "POST", headers: { origin: "https://evil.test" }, body: "{}" })
     expect(forbidden.status).toBe(403)

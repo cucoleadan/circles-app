@@ -7,9 +7,17 @@ The subsequent tool-alias deduplication awaits the normal user-pushed release.
 
 ## Tools and data sources
 
-There are 75 registered tools: the SDK's 18 read capabilities under their
-snake_case names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase
-aliases are omitted from registration. The SDK factory supplies its schemas
+There are 75 tools: the SDK's 18 read capabilities under their snake_case
+names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
+omitted from registration. Discovery lists only the tools the token's scopes
+allow: a `circles_*` tool needs all its listed scopes, and the SDK reads plus
+`circles_get_tool_run` need `substack:read`. The 401 challenge advertises every
+scope, so clients that copy it (Cursor) request write access too; the consent
+page still leaves write permissions unchecked until the user selects them. A
+client granted only read sees only the read tools. To add write access, re-run
+its authorization (e.g. Cursor: log out of the server and reconnect) and select
+the write permissions on the consent page. Handlers still check scopes, and
+raw/record opt-ins still require `substack:records` at call time. The SDK factory supplies its schemas
 and handlers; Circles uses the public in-memory MCP bridge rather than copying
 analytics calculations. All tools have typed inputs, structured results and
 read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
@@ -25,11 +33,14 @@ read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
   the caller's agent/scheduler does that.
 
 Tool results use `structuredContent.data`. Every SDK call queues a paced
-`mcp:substack` job and returns `{runId,status,pollTool}` in `data`. Poll
-`circles_get_tool_run({runId})`; on completion its `data.result` contains the
-SDK's original `content`, `structuredContent`, and optional `isError`, with
-credentials removed. Check `result.isError` even when the job status is `done`.
-Avoid tight polling; allow a few seconds between requests. Ten SDK jobs per
+`mcp:substack` job and the API waits up to 20 seconds, checking once a second.
+If the run finishes, the call returns the SDK's original `content`,
+`structuredContent` and optional `isError` directly, with credentials removed.
+Otherwise it returns `{runId,status,pollTool}` in `data`; poll
+`circles_get_tool_run({runId})`, whose `data.result` holds the same SDK result
+on completion. Check `isError` even when the job status is `done`. Observed
+runs finish in 5–25 seconds depending on queue depth. Avoid tight polling;
+allow a few seconds between requests. Ten SDK jobs per
 tenant may be queued/running; duplicate pending calls with the same client,
 connection, arguments and token issuance time reuse the same run.
 

@@ -11,7 +11,6 @@ export const MCP_PERMISSIONS = {
 
 export type McpScope = keyof typeof MCP_PERMISSIONS
 export const MCP_SCOPES = Object.keys(MCP_PERMISSIONS) as McpScope[]
-export const MCP_READ_SCOPES: McpScope[] = ["circles:read", "substack:read"]
 
 export function requireScopes(granted: ReadonlySet<string>, required: readonly McpScope[]) {
   const missing = required.filter((scope) => !granted.has(scope))

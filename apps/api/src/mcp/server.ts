@@ -1,3 +1,4 @@
+import { setTimeout as sleep } from "node:timers/promises"
 import { McpServer, createMcpHandler, fromJsonSchema, isLegacyRequest, WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
@@ -10,7 +11,7 @@ import { listComments } from "../db/comments.js"
 import { tenantOperations } from "../routes/v1.js"
 import { circlesTools, entityId, operationRequest } from "./circles-tools.js"
 import { localDayRange } from "./day.js"
-import { MCP_READ_SCOPES, requireScopes } from "./scopes.js"
+import { MCP_SCOPES, requireScopes } from "./scopes.js"
 import { enqueueSdkTool, getSdkRun, sdkScopes, substackTools, type McpPrincipal } from "./sdk-tools.js"
 import { McpUnauthorized, principalFor } from "./auth.js"
 export { principalFor } from "./auth.js"
@@ -21,9 +22,13 @@ export const toolResult = (data: unknown) => ({
 })
 
 const resultSchema = z.object({ data: z.unknown() })
+// ponytail: API-side DB poll per waiting call; LISTEN/NOTIFY if many agents wait at once.
+const SDK_WAIT_MS = 20_000
+const SDK_POLL_MS = 1_000
 const readAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
 
-const challenge = `Bearer resource_metadata="${new URL(mcpResource).origin}/.well-known/oauth-protected-resource/api/mcp", scope="${MCP_READ_SCOPES.join(" ")}"`
+// Clients such as Cursor request exactly these; consent still defaults to read-only.
+const challenge = `Bearer resource_metadata="${new URL(mcpResource).origin}/.well-known/oauth-protected-resource/api/mcp", scope="${["offline_access", ...MCP_SCOPES].join(" ")}"`
 
 /** Exported for transport/schema tests; the HTTP entry always supplies a verified principal. */
 export function createCirclesMcp(principal: McpPrincipal) {
@@ -35,7 +40,9 @@ export function createCirclesMcp(principal: McpPrincipal) {
       return { ...toolResult({ error: error instanceof Error ? error.message : "The operation failed" }), isError: true }
     }
   }
-  for (const tool of circlesTools) server.registerTool(tool.name, {
+  // List only what the grant can run; handlers still check scopes.
+  const granted = (scopes: readonly string[]) => scopes.every((scope) => principal.scopes.has(scope))
+  for (const tool of circlesTools) if (granted(tool.scopes)) server.registerTool(tool.name, {
     description: `${tool.description} Required permissions: ${tool.scopes.join(", ")}.`,
     inputSchema: tool.inputSchema, outputSchema: resultSchema,
     annotations: { ...readAnnotations, readOnlyHint: tool.method === "GET", destructiveHint: tool.method === "DELETE",
@@ -53,22 +60,37 @@ export function createCirclesMcp(principal: McpPrincipal) {
     return data
   }))
 
-  for (const tool of substackTools) server.registerTool(tool.name, {
-    title: tool.title, description: `${tool.description ?? tool.name} Live Substack read, queued and paced. Returns a runId; poll circles_get_tool_run for the SDK result. Requires substack:read; raw/record opt-ins also require substack:records.`,
-    inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema), outputSchema: resultSchema,
-    annotations: tool.annotations,
-  }, (args) => call(async () => {
-    const scopes = sdkScopes(args)
-    requireScopes(principal.scopes, scopes)
-    return enqueueSdkTool(principal, tool.name, args, scopes)
-  }))
+  if (granted(["substack:read"])) {
+    for (const tool of substackTools) server.registerTool(tool.name, {
+      title: tool.title, description: `${tool.description ?? tool.name} Live Substack read, queued and paced. Waits up to ${SDK_WAIT_MS / 1000}s and returns the SDK result inline; if still running, returns a runId to poll with circles_get_tool_run. Requires substack:read; raw/record opt-ins also require substack:records.`,
+      inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema), outputSchema: resultSchema,
+      annotations: tool.annotations,
+    }, async (args) => {
+      const queued = await call(async () => {
+        const scopes = sdkScopes(args)
+        requireScopes(principal.scopes, scopes)
+        return enqueueSdkTool(principal, tool.name, args, scopes)
+      })
+      if ("isError" in queued) return queued
+      const { runId } = queued.structuredContent.data as { runId: string }
+      for (const deadline = Date.now() + SDK_WAIT_MS; Date.now() < deadline;) {
+        await sleep(SDK_POLL_MS)
+        const run = await getSdkRun(principal, runId).catch(() => null)
+        // The worker stores the SDK's own content/structuredContent/isError.
+        if (run?.result) return run.result.structuredContent || run.result.isError ? run.result : toolResult(run.result)
+        if (run && run.status !== "pending" && run.status !== "running")
+          return { ...toolResult({ error: "The SDK read failed; check the Substack connection and try again", runId }), isError: true }
+      }
+      return queued
+    })
 
-  server.registerTool("circles_get_tool_run", {
-    description: "Poll a queued SDK MCP read. On completion, result contains the original SDK content/structuredContent; isError reports upstream failure.",
-    inputSchema: z.object({ runId: z.string().uuid() }), outputSchema: resultSchema, annotations: readAnnotations,
-  }, ({ runId }) => call(() => getSdkRun(principal, runId)))
+    server.registerTool("circles_get_tool_run", {
+      description: "Poll an SDK read that did not finish inline. On completion, result contains the original SDK content/structuredContent; isError reports upstream failure.",
+      inputSchema: z.object({ runId: z.string().uuid() }), outputSchema: resultSchema, annotations: readAnnotations,
+    }, ({ runId }) => call(() => getSdkRun(principal, runId)))
+  }
 
-  server.registerTool("circles_upload_note_image", {
+  if (granted(["circles:notes:write"])) server.registerTool("circles_upload_note_image", {
     description: "Upload PNG/JPEG/GIF/WebP bytes for a Note, up to 15 MB, through the app's existing image validation. Returns metadata to use in Note attachments.",
     inputSchema: z.object({ base64: z.string().min(1).max(20 * 1024 * 1024).regex(/^[A-Za-z0-9+/]+={0,2}$/) }),
     outputSchema: resultSchema, annotations: { ...readAnnotations, readOnlyHint: false, idempotentHint: false, openWorldHint: true },
@@ -82,7 +104,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
     return data
   }))
 
-  server.registerTool("circles_list_notes", {
+  if (granted(["circles:read"])) server.registerTool("circles_list_notes", {
     description: "Read the local draft/scheduled/published Note mirror. Filter by status or scheduled time. Published history uses the app's 500-row cap; get_notes/get_profile_notes provide live cursor history.",
     inputSchema: z.object({
       from: z.iso.datetime({ offset: true }).optional(), to: z.iso.datetime({ offset: true }).optional(),
@@ -103,7 +125,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
       nextOffset: notes.length > args.offset + args.limit ? args.offset + args.limit : null, publishedHistoryLimit: 500 }
   }))
 
-  server.registerTool("circles_get_note", {
+  if (granted(["circles:read"])) server.registerTool("circles_get_note", {
     description: "Read a mirrored Note with full editor content and attachment IDs, or published note:<id> content retained in Circles.",
     inputSchema: z.object({ id: entityId }), outputSchema: resultSchema, annotations: readAnnotations,
   }, ({ id }) => call(async () => {
@@ -124,7 +146,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
     return { note }
   }))
 
-  server.registerTool("circles_get_day_brief", {
+  if (granted(["circles:read"])) server.registerTool("circles_get_day_brief", {
     description: "Read a daily agenda from the local CRM: scheduled Notes for a local calendar day, draft summaries, recent pending comments and existing priority/needs-reply queues. Does not publish, send replies or refresh upstream.",
     inputSchema: z.object({ date: z.iso.date(), timeZone: z.string().max(100).default("Europe/Bucharest"), limit: z.number().int().min(1).max(50).default(10) }),
     outputSchema: resultSchema, annotations: readAnnotations,

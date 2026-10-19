@@ -1,7 +1,33 @@
 # Circles CRM rebuild — progress tracker
 
 Tracks implementation against `circles-crm-vps-rebuild.md` (phases in section 10).
-Update this file as work completes. Last updated: 2026-10-15.
+Update this file as work completes. Last updated: 2026-10-19.
+
+## 2026-10-19 MCP scope-filtered discovery and inline SDK results (local; release pending)
+
+- [x] Live probe through the production MCP: all 19 read-only `circles_*` tools
+      and 16 of 18 SDK reads return data. `get_following` fails upstream
+      ("Substack authentication failed") with and without `profileId`;
+      `get_subscriptions` without arguments returns Substack 400 (with
+      `handle` it returns an empty list).
+- [x] `createCirclesMcp` registers only the tools the grant's scopes allow, so
+      read-only grants no longer list write tools that fail with "Additional
+      permission required".
+- [x] SDK tools wait up to 20 s and return the SDK result inline, falling back
+      to the `runId`/`circles_get_tool_run` response.
+- [x] Added a DB-backed test that drives all 38 write tools (CRM organize and
+      delete, sync/import, Note draft/schedule/publish/abort/delete, image
+      upload) through MCP against `FakeSubstack`. It asserts every write tool ran
+      and was audited, none failed, and no Note was published directly.
+- [x] Root typecheck and the full root test suite (131 tests) pass.
+- [x] The 401 challenge now advertises every scope. Production consents showed
+      Cloudflare Portal, ChatGPT and Claude Code already hold full grants; only
+      Cursor, which copies the challenge's read-only scope, was limited. Consent
+      still defaults to read-only checkboxes. API tests (72) pass.
+- [ ] After deploy: re-authorize Cursor and select the write permissions.
+- [ ] Investigate `get_following` upstream auth failure and the
+      `get_subscriptions` no-argument 400.
+- [ ] User-pushed deployment. No push, deployment, migration or extension rebuild.
 
 ## 2026-10-15 MCP tool deduplication (local; release pending)
 

@@ -60,8 +60,10 @@ management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
 The user confirmed the October 15 revision works: it uses local signing-key
 verification and finite JSON transport responses. A subsequent alias deduplication
-awaits release: discovery lists 75 tools (18 canonical SDK reads plus 57 Circles
-operations), omitting duplicate camelCase SDK names. Previously queued aliases
+awaits release: discovery lists up to 75 tools (18 canonical SDK reads plus 57
+Circles operations), omitting duplicate camelCase SDK names and, since October
+19, any tool the grant's scopes do not allow. SDK reads wait up to 20 s and
+return the result inline before falling back to `circles_get_tool_run`. Previously queued aliases
 remain executable through the unchanged worker SDK bridge.
 
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
