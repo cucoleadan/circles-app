@@ -28,8 +28,9 @@ or status changes. Last updated: 2026-10-19.
 
 ## Release and configuration
 
-- [ ] Set `SESSION_TOKEN_KEY` on api and worker; the worker then encrypts
-      existing plain sessions on the next activity sync (no reconnect).
+- [ ] Optional: set `SESSION_TOKEN_KEY` on api and worker (worth it if backups
+      leave the server); the worker then encrypts existing plain sessions on
+      the next activity sync, no reconnect needed.
 - [ ] Set `TZ` on api (MCP day-brief default), and optionally `CONTACT_EMAIL`
       on web.
 - [ ] Publish companion 0.3.0 (server pairing) to the Chrome Web Store: package
