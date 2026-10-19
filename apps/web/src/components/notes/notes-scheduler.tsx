@@ -141,7 +141,7 @@ class NotesErrorBoundary extends Component<
     if (!this.state.error) return this.props.children
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#f7f5f1] p-6 dark:bg-stone-950">
-        <div className="max-w-md space-y-3 rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm dark:border-stone-800 dark:bg-stone-900">
+        <div className="max-w-md space-y-3 rounded-2xl border border-stone-200 bg-white p-5 text-sm dark:border-stone-800 dark:bg-stone-900">
           <p className="font-semibold">The Notes page hit an error.</p>
           <pre className="overflow-x-auto rounded-lg bg-stone-100 p-2 text-xs whitespace-pre-wrap dark:bg-stone-800">
             {this.state.error.message}
@@ -524,7 +524,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
                 asChild
                 variant="ghost"
                 size="sm"
-                className="hidden rounded-full text-xs sm:inline-flex"
+                className="hidden rounded text-xs sm:inline-flex"
               >
                 <a href="/">
                   <ArrowLeft /> Contacts
@@ -533,7 +533,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
               <Button
                 variant="outline"
                 size="sm"
-                className="rounded-full text-xs"
+                className="rounded text-xs"
                 onClick={() => void refresh(true)}
                 disabled={refreshing || !connectionReady}
                 title="Refresh from Substack"
@@ -559,7 +559,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
               asChild
               size="sm"
               variant="outline"
-              className="h-7 rounded-full bg-white text-xs dark:bg-stone-900"
+              className="h-7 rounded bg-white text-xs dark:bg-stone-900"
             >
               <a href="/?settings=connection">Open settings</a>
             </Button>
@@ -592,7 +592,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
                     <Button
                       size="sm"
                       variant="outline"
-                      className="h-7 shrink-0 rounded-full border-orange-300 bg-white text-xs text-orange-900 hover:bg-orange-100 dark:bg-stone-900"
+                      className="h-7 shrink-0 rounded border-orange-300 bg-white text-xs text-orange-900 hover:bg-orange-100 dark:bg-stone-900"
                       disabled={!canAbort || busyId === note.id}
                       onClick={() => void abort(note)}
                     >
@@ -653,7 +653,7 @@ function NotesSchedulerPage({ initial }: { initial: NotesResponse }) {
                       <Button
                         variant="outline"
                         size="sm"
-                        className={`h-7 rounded-full text-xs ${
+                        className={`h-7 rounded text-xs ${
                           tagFilter.length > 0
                             ? "border-[#f15a3a]/50 bg-orange-50 text-[#c2410c] dark:bg-orange-950/40"
                             : ""

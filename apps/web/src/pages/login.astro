@@ -6,7 +6,7 @@ import "@workspace/ui/globals.css"
   <head><meta charset="utf-8" /><meta name="viewport" content="width=device-width" /><title>Sign in · Circles</title></head>
   <body class="bg-background text-foreground">
     <main class="grid min-h-screen place-items-center px-6">
-      <form id="auth-form" class="w-full max-w-sm space-y-4 rounded-xl border p-6">
+      <form id="auth-form" method="post" class="w-full max-w-sm space-y-4 rounded-xl border p-6">
         <div><p class="text-sm text-muted-foreground">Circles CRM</p><h1 class="text-2xl font-semibold">Welcome</h1></div>
         <input class="w-full rounded-md border bg-transparent px-3 py-2" name="email" type="email" placeholder="Email" required />
         <input class="w-full rounded-md border bg-transparent px-3 py-2" name="password" type="password" placeholder="Password" required minlength="8" />
@@ -34,7 +34,8 @@ import "@workspace/ui/globals.css"
         if (response.ok && typeof data?.url === "string") location.assign(data.url)
         else if (status) status.textContent = "The agent authorization request expired. Connect again from your MCP client."
       }
-      const ssoButton = document.querySelector<HTMLButtonElement>("#sso")
+      // No TS generics here: the dev server can parse `querySelector<T>(…)` as comparisons.
+      const ssoButton = document.querySelector("#sso")
       fetch("/api/mcp/config").then((response) => response.json()).then((config) => {
         if (config.ssoEnabled) ssoButton?.classList.remove("hidden")
       }).catch(() => {})

@@ -30,7 +30,7 @@ export function SidebarTagsSection({
                 onListChange(null)
                 onTagChange(isActive ? null : t.id)
               }}
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-all border ${
+              className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-[11px] font-medium transition-all border ${
                 isActive
                   ? "ring-2 ring-stone-900 dark:ring-stone-100"
                   : "opacity-80 hover:opacity-100"

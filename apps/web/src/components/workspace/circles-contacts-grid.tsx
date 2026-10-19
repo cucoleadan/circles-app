@@ -39,7 +39,7 @@ export function CirclesContactsGrid({
             variant="outline"
             size="sm"
             onClick={onClearDateRange}
-            className="mt-3 text-xs h-8 rounded-full"
+            className="mt-3 text-xs h-8 rounded"
           >
             Show All Time
           </Button>
@@ -66,7 +66,7 @@ export function CirclesContactsGrid({
           <Button
             variant="outline"
             onClick={onLoadMore}
-            className="text-xs font-semibold rounded-full px-5 h-8 border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
+            className="text-xs font-semibold rounded px-5 h-8 border-stone-300 dark:border-stone-700 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
           >
             Load more ({visibleLimit} of {people.length})
           </Button>

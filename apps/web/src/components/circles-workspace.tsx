@@ -169,7 +169,13 @@ export function CirclesWorkspace({
   }
 
   async function logout() {
-    await fetch("/api/auth/sign-out", { method: "POST" })
+    // Leaving on a failed sign-out keeps the session and "logs back in" on reload.
+    const response = await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null)
+    if (!response?.ok) {
+      setNotice("Sign-out failed. Please try again.")
+      setTimeout(() => setNotice(null), 3000)
+      return
+    }
     window.location.href = "/login"
   }
 

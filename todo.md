@@ -26,19 +26,18 @@ or status changes. Last updated: 2026-10-19.
 - [ ] Optional live smoke of `circles_post_note_now` + `circles_abort_note` and
       `circles_publish_existing_note` (a failed abort publishes a real Note).
 
-## Release and configuration
+## Going public
 
-- [ ] Optional: set `SESSION_TOKEN_KEY` on api and worker (worth it if backups
-      leave the server); the worker then encrypts existing plain sessions on
-      the next activity sync, no reconnect needed.
-- [ ] Set `TZ` on api (MCP day-brief default), and optionally `CONTACT_EMAIL`
-      on web.
-- [ ] Publish companion 0.3.0 (server pairing) to the Chrome Web Store: package
-      with `bun run pack`, update the listing's
-      permission justifications (`scripting`, optional `https://*/*`), and
-      attach the zip to a GitHub Release.
-- [ ] Smoke test 0.3.0: a fresh install opens setup, pairs a server, connects
-      Substack and captures there; re-pairing a second server switches over.
+- [ ] Smoke test the live store build (0.3.0): a fresh install opens setup, pairs a server,
+      connects Substack and captures there; re-pairing a second server switches over.
+- [ ] Attach `extension/circles-companion-0.3.0.zip` to a GitHub Release
+      (`gh release create extension-v0.3.0 …`); none exists yet.
+- [ ] Add a real (privacy-blurred) screenshot to the README, and a GitHub repo
+      description and topics.
+- [ ] Run `gitleaks detect` over the full history before switching the repo to
+      public (manual pattern scans found only placeholders).
+- [ ] Live `TZ` on api is `UTC`; set `TZ=Europe/Bucharest` if the MCP day brief
+      should default to local time.
 
 ## Verify deployed fixes live (UI)
 

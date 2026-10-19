@@ -32,7 +32,8 @@ const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: 
     </main>
     <script>
       const status = document.querySelector("#status")
-      document.querySelectorAll<HTMLButtonElement>("[data-revoke]").forEach((button) => {
+      document.querySelectorAll("button[data-revoke]").forEach((element) => {
+        const button = element as HTMLButtonElement
         button.addEventListener("click", async () => {
           button.disabled = true
           const response = await fetch("/api/mcp/agents/revoke", {

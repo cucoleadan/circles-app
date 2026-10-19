@@ -1,0 +1,211 @@
+---
+import "@workspace/ui/globals.css"
+import {
+  ArrowRight,
+  Bot,
+  CalendarClock,
+  CircleDot,
+  Download,
+  History,
+  Inbox,
+  MessageCircleReply,
+  Puzzle,
+  Scale,
+  Server,
+  ShieldCheck,
+  Users,
+} from "lucide-react"
+import { Badge } from "@workspace/ui/components/badge"
+import { buttonVariants } from "@workspace/ui/components/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@workspace/ui/components/card"
+import { LandingFaq } from "../components/landing/landing-faq"
+
+const githubUrl = "https://github.com/cucoleadan/circles-app"
+const storeUrl = process.env.EXTENSION_STORE_URL ||
+  "https://chromewebstore.google.com/detail/circles-companion/bkflpfcomkiclmnllggooedkfcbmflnn"
+const githubPath =
+  "M12 .3a12 12 0 0 0-3.8 23.4c.6.1.8-.3.8-.6v-2c-3.3.7-4-1.6-4-1.6-.6-1.4-1.4-1.8-1.4-1.8-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-6 0-1.2.5-2.3 1.3-3.1-.2-.4-.6-1.6 0-3.2 0 0 1-.3 3.4 1.2a11.5 11.5 0 0 1 6 0c2.3-1.5 3.3-1.2 3.3-1.2.6 1.6.2 2.8 0 3.2.9.8 1.3 1.9 1.3 3.2 0 4.6-2.8 5.6-5.5 5.9.5.4.9 1 .9 2.2v3.3c0 .3.1.7.8.6A12 12 0 0 0 12 .3"
+
+const features = [
+  { icon: Users, title: "Contacts and timelines", body: "Every inbound and outbound interaction, linked to the Note or post it happened on and matched to each person's stable Substack profile." },
+  { icon: Scale, title: "Given vs. received", body: "Engagement you receive and engagement you give are scored separately, so one never inflates the other." },
+  { icon: Inbox, title: "Queues that matter", body: "See who's waiting on a reply, which relationships are drifting and who your priority contacts are. Triage comments, lists and tags." },
+  { icon: History, title: "Background sync and backfill", body: "A job queue polls your notifications, refreshes the reply threads on your recent Notes and posts, reconciles followers and subscribers, and resumes long imports." },
+  { icon: CalendarClock, title: "Note scheduling", body: "Write, schedule and tag Substack Notes. They're saved as Substack drafts, and Substack publishes them on time." },
+  { icon: Puzzle, title: "Chrome companion", body: "Connect your Substack session in one click and record your likes, restacks and replies as they happen." },
+  { icon: Bot, title: "MCP server for agents", body: "Let AI agents read and manage your CRM over OAuth, with permissions you choose and can revoke." },
+  { icon: ShieldCheck, title: "Private by design", body: "Self-hosted on PostgreSQL with row-level security, a restricted runtime role and an encrypted session token." },
+]
+
+const steps = [
+  { icon: Server, title: "Self-host it", body: "Run the Docker Compose stack next to PostgreSQL. Migrations apply automatically on every start." },
+  { icon: Download, title: "Install the companion", body: "Add Circles Companion from the Chrome Web Store and pair it with your Circles address." },
+  { icon: MessageCircleReply, title: "Work your circle", body: "Circles syncs in the background. Open it to see who to reply to, thank or reconnect with." },
+]
+
+const people = [
+  { initials: "AR", name: "Ada R.", meta: "Replied to your Note · 2h", received: 42, given: 18, tag: "Needs reply" },
+  { initials: "SK", name: "Sam K.", meta: "Restacked your post · 1d", received: 27, given: 31, tag: "Priority" },
+  { initials: "MJ", name: "Mira J.", meta: "Last touch · 5 weeks ago", received: 15, given: 4, tag: "Drifting" },
+]
+
+const container = "mx-auto max-w-6xl px-4 sm:px-6 lg:px-8"
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Circles: an open-source CRM for Substack</title>
+    <meta name="description" content="Circles is a private, self-hosted, open-source relationship CRM for Substack writers. See who engages with you, who you engage with and who's waiting on a reply." />
+    <meta property="og:title" content="Circles: an open-source CRM for Substack" />
+    <meta property="og:description" content="Turn your Substack activity into contacts, timelines and relationship scores, on your own server." />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  </head>
+  <body class="min-h-screen bg-[#f7f5f1] text-[#191817] antialiased">
+    <header class="sticky top-0 z-30 border-b border-stone-200/80 bg-white/80 backdrop-blur-md">
+      <div class={`${container} flex h-16 items-center justify-between gap-4`}>
+        <a href="/home" class="flex items-center gap-2 font-bold tracking-tight">
+          <span class="flex size-7 items-center justify-center rounded-lg bg-[#f15a3a] text-white shadow-xs">
+            <CircleDot className="size-4" />
+          </span>
+          Circles
+        </a>
+        <nav class="hidden items-center gap-6 text-sm text-stone-600 md:flex">
+          <a href="#features" class="hover:text-stone-900">Features</a>
+          <a href="#how" class="hover:text-stone-900">How it works</a>
+          <a href="#faq" class="hover:text-stone-900">FAQ</a>
+        </nav>
+        <div class="flex items-center gap-2">
+          <a href={githubUrl} class={buttonVariants({ variant: "ghost", size: "icon" })} aria-label="Circles on GitHub">
+            <svg viewBox="0 0 24 24" class="size-4 fill-current" aria-hidden="true"><path d={githubPath} /></svg>
+          </a>
+          <a href="/login" class={buttonVariants({ variant: "outline" })}>Sign in</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class={`${container} grid items-center gap-12 py-16 lg:grid-cols-2 lg:py-24`}>
+        <div class="space-y-6">
+          <Badge variant="outline" className="bg-white">Open source · MIT · Self-hosted</Badge>
+          <h1 class="text-4xl font-bold tracking-tight text-balance sm:text-5xl">
+            Know who's really in your <span class="text-[#f15a3a]">Substack</span> circle.
+          </h1>
+          <p class="max-w-xl text-lg text-stone-600 text-pretty">
+            Circles turns your Likes, restacks, comments, replies, follows and subscriptions into contacts,
+            timelines and relationship scores, so you can see who engages with you, who you engage with
+            and who's waiting on a reply.
+          </p>
+          <div class="flex flex-wrap gap-3">
+            <a href={storeUrl} class={buttonVariants({ size: "lg", className: "bg-[#f15a3a] text-white hover:bg-[#f15a3a]/90" })}>
+              <Puzzle /> Add to Chrome
+            </a>
+            <a href={githubUrl} class={buttonVariants({ variant: "outline", size: "lg", className: "bg-white" })}>
+              <svg viewBox="0 0 24 24" class="size-4 fill-current" aria-hidden="true"><path d={githubPath} /></svg>
+              View on GitHub
+            </a>
+          </div>
+          <p class="text-xs text-stone-500">Free and MIT-licensed. Unofficial and not affiliated with Substack.</p>
+        </div>
+
+        <Card className="shadow-sm" aria-label="Example Circles queue">
+          <CardHeader>
+            <CardTitle>Your circle this week</CardTitle>
+            <CardDescription>Received vs. given engagement, scored separately</CardDescription>
+          </CardHeader>
+          <CardContent className="divide-y">
+            {people.map((p) => (
+              <div class="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-stone-100 text-xs font-semibold text-stone-700">{p.initials}</span>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium">{p.name}</p>
+                  <p class="truncate text-xs text-muted-foreground">{p.meta}</p>
+                </div>
+                <div class="hidden text-right text-xs tabular-nums text-muted-foreground sm:block">
+                  <p><span class="font-semibold text-foreground">{p.received}</span> received</p>
+                  <p><span class="font-semibold text-foreground">{p.given}</span> given</p>
+                </div>
+                <Badge variant={p.tag === "Needs reply" ? "default" : "secondary"}>{p.tag}</Badge>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </section>
+
+      <section id="features" class="scroll-mt-20 border-y border-stone-200/80 bg-white py-16 lg:py-24">
+        <div class={container}>
+          <div class="mb-10 max-w-2xl space-y-3">
+            <h2 class="text-3xl font-bold tracking-tight">Everything you need to keep up with your readers</h2>
+            <p class="text-stone-600">A full relationship CRM that runs on your Substack data, on your server.</p>
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {features.map(({ icon: Icon, title, body }) => (
+              <Card size="sm">
+                <CardHeader>
+                  <span class="mb-2 flex size-8 items-center justify-center rounded-md bg-[#f15a3a]/10 text-[#f15a3a]"><Icon className="size-4" /></span>
+                  <CardTitle>{title}</CardTitle>
+                  <CardDescription>{body}</CardDescription>
+                </CardHeader>
+              </Card>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="how" class={`${container} scroll-mt-20 py-16 lg:py-24`}>
+        <h2 class="mb-10 text-3xl font-bold tracking-tight">Up and running in three steps</h2>
+        <ol class="grid gap-6 md:grid-cols-3">
+          {steps.map(({ icon: Icon, title, body }, i) => (
+            <li class="space-y-3">
+              <div class="flex items-center gap-3">
+                <span class="flex size-8 items-center justify-center rounded-full bg-[#191817] text-sm font-semibold text-white">{i + 1}</span>
+                <Icon className="size-5 text-stone-500" />
+              </div>
+              <h3 class="font-semibold">{title}</h3>
+              <p class="text-sm text-stone-600">{body}</p>
+            </li>
+          ))}
+        </ol>
+        <div class="mt-10 flex flex-wrap gap-3">
+          <a href={`${githubUrl}#self-hosting`} class={buttonVariants({ variant: "outline", className: "bg-white" })}>
+            Self-hosting guide <ArrowRight />
+          </a>
+          <a href={storeUrl} class={buttonVariants({ variant: "ghost" })}>Chrome Web Store <ArrowRight /></a>
+        </div>
+      </section>
+
+      <section id="faq" class="scroll-mt-20 border-t border-stone-200/80 bg-white py-16 lg:py-24">
+        <div class="mx-auto max-w-3xl px-4 sm:px-6">
+          <h2 class="mb-8 text-3xl font-bold tracking-tight">Questions</h2>
+          <LandingFaq client:visible />
+        </div>
+      </section>
+
+      <section class={`${container} py-16 text-center lg:py-24`}>
+        <h2 class="text-3xl font-bold tracking-tight text-balance">Your readers are already talking to you.</h2>
+        <p class="mx-auto mt-3 max-w-xl text-stone-600">Circles makes sure you never lose track of the conversation.</p>
+        <div class="mt-8 flex flex-wrap justify-center gap-3">
+          <a href={githubUrl} class={buttonVariants({ size: "lg" })}>
+            <svg viewBox="0 0 24 24" class="size-4 fill-current" aria-hidden="true"><path d={githubPath} /></svg>
+            Star on GitHub
+          </a>
+          <a href={storeUrl} class={buttonVariants({ variant: "outline", size: "lg", className: "bg-white" })}><Puzzle /> Add to Chrome</a>
+        </div>
+      </section>
+    </main>
+
+    <footer class="border-t border-stone-200/80 py-8 text-sm text-stone-500">
+      <div class={`${container} flex flex-col items-center justify-between gap-4 sm:flex-row`}>
+        <p>Circles is MIT-licensed open source. Not affiliated with Substack.</p>
+        <nav class="flex gap-5">
+          <a href={githubUrl} class="hover:text-stone-900">GitHub</a>
+          <a href={storeUrl} class="hover:text-stone-900">Chrome Web Store</a>
+          <a href="/privacy" class="hover:text-stone-900">Privacy</a>
+          <a href="/login" class="hover:text-stone-900">Sign in</a>
+        </nav>
+      </div>
+    </footer>
+  </body>
+</html>

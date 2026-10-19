@@ -2,7 +2,7 @@ import { serve } from "@hono/node-server"
 import { installFetchTimeout } from "@workspace/core"
 import { Hono } from "hono"
 
-import { auth } from "./auth.js"
+import { appOrigins, auth } from "./auth.js"
 import { db } from "./db.js"
 import { ext } from "./routes/ext.js"
 import { v1 } from "./routes/v1.js"
@@ -14,12 +14,7 @@ installFetchTimeout()
 
 const app = new Hono()
 
-const appUrl = process.env.APP_URL ?? "http://localhost:4321"
-const allowedOrigins = new Set([
-  appUrl,
-  "http://localhost:4321",
-  "http://127.0.0.1:4321",
-])
+const allowedOrigins = new Set(appOrigins)
 const writeMethods = new Set(["POST", "PUT", "PATCH", "DELETE"])
 
 app.use("*", async (c, next) => {

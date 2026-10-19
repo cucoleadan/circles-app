@@ -71,7 +71,7 @@ import { initials } from "../contact-card/contact-card-badges"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const CARD_CLASS =
-  "rounded-2xl border border-stone-200/80 bg-white p-4 shadow-sm dark:border-stone-800 dark:bg-stone-900"
+  "rounded-2xl border border-stone-200/80 bg-white p-4 dark:border-stone-800 dark:bg-stone-900"
 const ACCEPTED_IMAGES = "image/png,image/jpeg,image/gif,image/webp"
 
 function atTime(day: Date, time: string): Date {
@@ -422,7 +422,7 @@ export function NoteComposer({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-7 rounded-full px-2.5 text-xs font-semibold"
+                  className="h-7 rounded px-2.5 text-xs font-semibold"
                 >
                   Drafts
                   {drafts.length > 0 && (
@@ -499,7 +499,7 @@ export function NoteComposer({
                           prev.filter((other) => other.id !== item.id)
                         )
                       }
-                      className="self-start rounded-full p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
+                      className="self-start rounded p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
                     >
                       <X className="size-3" />
                     </button>
@@ -548,7 +548,7 @@ export function NoteComposer({
                     type="button"
                     aria-label="Remove link"
                     onClick={item.remove}
-                    className="rounded-full p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
+                    className="rounded p-1 text-stone-500 hover:bg-stone-200 dark:hover:bg-stone-800"
                   >
                     <X className="size-3" />
                   </button>
@@ -774,7 +774,7 @@ export function NoteComposer({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="h-8 rounded-full px-3"
+                className="h-8 rounded px-3"
                 disabled={submitting}
                 onClick={() => (onCancel ? onCancel() : clearComposer())}
               >
@@ -793,7 +793,7 @@ export function NoteComposer({
                 overLimit
               }
               title="Posts in 1 minute; you can abort until then"
-              className="h-8 rounded-full bg-[#f15a3a] px-4 font-semibold text-white hover:bg-[#d94a2c]"
+              className="h-8 rounded bg-[#f15a3a] px-4 font-semibold text-white hover:bg-[#d94a2c]"
             >
               {submitting && <LoaderCircle className="animate-spin" />}
               Post
@@ -885,7 +885,7 @@ export function NoteComposer({
                     setPickDay(startOfDay(slot.at))
                     setPickTime(timeOf(slot.at))
                   }}
-                  className={`h-8 rounded-full border px-3 text-xs font-medium whitespace-nowrap transition-colors ${
+                  className={`h-8 rounded border px-3 text-xs font-medium whitespace-nowrap transition-colors ${
                     active
                       ? "border-[#f15a3a]/60 bg-orange-50 text-[#c2410c] dark:bg-orange-950/40 dark:text-orange-300"
                       : "border-stone-200 text-stone-600 hover:border-stone-300 hover:bg-stone-50 dark:border-stone-700 dark:text-stone-300 dark:hover:bg-stone-800"
@@ -908,7 +908,7 @@ export function NoteComposer({
               overLimit
             }
             title={`Publishes ${formatWhen(scheduleAt)}`}
-            className="ml-auto h-8 shrink-0 rounded-full bg-[#191817] px-4 font-semibold text-white hover:bg-[#302e2c] dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
+            className="ml-auto h-8 shrink-0 rounded bg-[#191817] px-4 font-semibold text-white hover:bg-[#302e2c] dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-white"
           >
             {submitting ? (
               <LoaderCircle className="animate-spin" />

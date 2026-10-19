@@ -22,7 +22,7 @@ export function CirclesMobileStrip({
         variant="outline"
         size="sm"
         onClick={onOpenMobileNav}
-        className="h-8 rounded-full text-xs font-semibold shrink-0 bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700 shadow-2xs gap-1.5 text-stone-800 dark:text-stone-200"
+        className="h-8 rounded text-xs font-semibold shrink-0 bg-white dark:bg-stone-900 border-stone-300 dark:border-stone-700 shadow-2xs gap-1.5 text-stone-800 dark:text-stone-200"
       >
         <SlidersHorizontal className="size-3 text-[#f15a3a]" />
         <span>Views &amp; Lists</span>
@@ -38,7 +38,7 @@ export function CirclesMobileStrip({
             key={v.id}
             type="button"
             onClick={() => onViewChange(v.id)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold shrink-0 transition-all select-none ${
               isActive
                 ? "bg-[#191817] text-white shadow-xs"
                 : "bg-white text-stone-700 border border-stone-200/90 hover:bg-stone-100 dark:bg-stone-900 dark:text-stone-300 dark:border-stone-800"
@@ -53,7 +53,7 @@ export function CirclesMobileStrip({
       <button
         type="button"
         onClick={() => onViewChange("all")}
-        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 transition-all select-none ${
+        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-semibold shrink-0 transition-all select-none ${
           currentView === "all" && !selectedListId && !selectedTagId
             ? "bg-[#191817] text-white shadow-xs"
             : "bg-white text-stone-700 border border-stone-200/90 hover:bg-stone-100 dark:bg-stone-900 dark:text-stone-300 dark:border-stone-800"

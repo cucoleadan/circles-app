@@ -61,7 +61,7 @@ export function CirclesNavbar({
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder={searchPlaceholder}
                 aria-label={searchPlaceholder}
-                className="pl-9 h-8.5 sm:h-9 text-xs bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded-full"
+                className="pl-9 h-8.5 sm:h-9 text-xs bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
               />
             </div>
           </div>
@@ -75,7 +75,7 @@ export function CirclesNavbar({
               asChild
               variant="outline"
               size="sm"
-              className="h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3"
+              className="h-8 sm:h-8.5 rounded text-xs font-medium border-stone-200 px-2.5 sm:px-3"
               title="Write and schedule Notes"
             >
               <a href="/notes">
@@ -87,7 +87,7 @@ export function CirclesNavbar({
               variant="outline"
               size="sm"
               onClick={onOpenGuide}
-              className="hidden sm:inline-flex h-8.5 rounded-full text-xs font-medium border-stone-200"
+              className="hidden sm:inline-flex h-8.5 rounded text-xs font-medium border-stone-200"
               title="Badge & Scoring Guide"
             >
               <HelpCircle className="size-3.5 mr-1 text-stone-500" />
@@ -99,7 +99,7 @@ export function CirclesNavbar({
               size="sm"
               onClick={onSync}
               disabled={isSyncing}
-              className="h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3"
+              className="h-8 sm:h-8.5 rounded text-xs font-medium border-stone-200 px-2.5 sm:px-3"
               title="View Substack sync status"
             >
               <RefreshCw
@@ -112,7 +112,7 @@ export function CirclesNavbar({
               variant="outline"
               size="sm"
               onClick={() => onOpenSettings("connection")}
-              className={`h-8 sm:h-8.5 rounded-full text-xs font-medium border-stone-200 px-2.5 sm:px-3 relative ${
+              className={`h-8 sm:h-8.5 rounded text-xs font-medium border-stone-200 px-2.5 sm:px-3 relative ${
                 connectionStatus === "expired"
                   ? "border-rose-300 text-rose-700 bg-rose-50/70 dark:bg-rose-950/30 dark:border-rose-800"
                   : ""
@@ -133,7 +133,7 @@ export function CirclesNavbar({
             <Button
               size="sm"
               onClick={onOpenAdd}
-              className="h-8 sm:h-8.5 rounded-full bg-[#191817] hover:bg-[#302e2c] text-white text-xs font-semibold px-2.5 sm:px-3.5 shadow-xs"
+              className="h-8 sm:h-8.5 rounded bg-[#191817] hover:bg-[#302e2c] text-white text-xs font-semibold px-2.5 sm:px-3.5 shadow-xs"
               title="Add Person"
             >
               <Plus className="size-3.5 sm:mr-1" />
@@ -145,7 +145,7 @@ export function CirclesNavbar({
               size="icon"
               onClick={onLogout}
               aria-label="Sign out"
-              className="size-8 sm:size-8.5 rounded-full text-stone-500 hover:text-stone-800"
+              className="size-8 sm:size-8.5 rounded text-stone-500 hover:text-stone-800"
             >
               <LogOut className="size-4" />
             </Button>
@@ -166,7 +166,7 @@ export function CirclesNavbar({
             size="sm"
             variant="outline"
             onClick={() => onOpenSettings("connection")}
-            className="h-7 text-xs border-rose-300 bg-white hover:bg-rose-50 text-rose-800 dark:bg-stone-900 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50 rounded-full font-medium shadow-2xs"
+            className="h-7 text-xs border-rose-300 bg-white hover:bg-rose-50 text-rose-800 dark:bg-stone-900 dark:border-rose-800 dark:text-rose-300 dark:hover:bg-rose-950/50 rounded font-medium shadow-2xs"
           >
             Update Cookie
           </Button>

@@ -9,6 +9,9 @@ import { db } from "./db.js"
 import { MCP_SCOPES } from "./mcp/scopes.js"
 
 const publicUrl = process.env.APP_URL ?? "http://localhost:4321"
+// Browser origins allowed to send cookie-bearing writes (API CSRF guard and
+// Better Auth, whose sign-out otherwise 403s from the local dev server).
+export const appOrigins = [publicUrl.replace(/\/$/, ""), "http://localhost:4321", "http://127.0.0.1:4321"]
 export const mcpResource = `${publicUrl.replace(/\/$/, "")}/api/mcp`
 export const oauthOptions = {
   loginPage: "/login",
@@ -39,11 +42,13 @@ function createAuth() { return betterAuth({
   basePath: "/api/auth",
   secret: process.env.BETTER_AUTH_SECRET,
   database: db,
-  trustedOrigins: [publicUrl],
+  trustedOrigins: appOrigins,
   disabledPaths: ["/token"],
   account: { accountLinking: { enabled: true, disableImplicitLinking: true } },
   plugins: [
-    jwt(),
+    // Nothing reads the set-auth-jwt header; skipping it keeps session lookups
+    // working when a dev secret cannot decrypt the shared JWKS key.
+    jwt({ disableSettingJwtHeader: true }),
     mcp({ ...oauthOptions, resource: mcpResource }),
     cimd({ fetchClientMetadataResource, metadataProfile: "mcp-2026-07-28" }),
     ...(discoveryUrl && accessClientId && accessClientSecret ? [genericOAuth({ config: [{

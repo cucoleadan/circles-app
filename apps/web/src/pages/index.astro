@@ -14,7 +14,7 @@ const [peopleRes, listsRes, tagsRes, overviewRes] = await Promise.all([
 ])
 
 if (peopleRes.status === 401 || listsRes.status === 401) {
-  return Astro.redirect("/login")
+  return Astro.redirect("/home")
 }
 
 if (!peopleRes.ok) {

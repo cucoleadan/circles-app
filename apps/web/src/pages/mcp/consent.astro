@@ -35,10 +35,10 @@ const details = response.ok ? await response.json() as {
       <p id="status" role="status"></p>
     </main>
     <script>
-      const form = document.querySelector<HTMLFormElement>("#consent")
+      const form = document.querySelector("#consent")
       const status = document.querySelector("#status")
       async function consent(accept: boolean) {
-        if (!form || !status) return
+        if (!(form instanceof HTMLFormElement) || !status) return
         const scope = new FormData(form).getAll("scope").join(" ")
         if (accept && !scope) { status.textContent = "Select at least one permission or choose Deny."; return }
         const response = await fetch("/api/auth/oauth2/consent", {
