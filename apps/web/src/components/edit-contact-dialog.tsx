@@ -31,15 +31,8 @@ import {
 } from "@workspace/ui/components/select"
 import type { Person } from "../lib/types"
 import { profileUrlForPerson } from "../lib/profile-url"
+import { initials } from "./contact-card/contact-card-badges"
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .map((p) => p[0])
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
 
 export function EditContactDialog({
   open,

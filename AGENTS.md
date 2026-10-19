@@ -1,9 +1,8 @@
 # Circles CRM — agent project scope
 
 This is the durable technical briefing for AI/coding agents working in this
-repository. Read `todo.md` for current progress and `circles-crm-vps-rebuild.md`
-for the original rebuild plan. Keep this file accurate when architecture or
-operations materially change.
+repository. Read `todo.md` for open work and `README.md` for setup. Keep this
+file accurate when architecture or operations materially change.
 
 ## Product purpose
 
@@ -58,13 +57,12 @@ with `circles_*` app operations. SDK reads enter `mcp:substack` jobs and keep
 private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
-The user confirmed the October 15 revision works: it uses local signing-key
-verification and finite JSON transport responses. A subsequent alias deduplication
-awaits release: discovery lists up to 75 tools (18 canonical SDK reads plus 57
-Circles operations), omitting duplicate camelCase SDK names and, since October
-19, any tool the grant's scopes do not allow. SDK reads wait up to 20 s and
-return the result inline before falling back to `circles_get_tool_run`. Previously queued aliases
-remain executable through the unchanged worker SDK bridge.
+It uses local signing-key verification and finite JSON transport responses.
+Discovery lists up to 75 tools (18 canonical SDK reads plus 57 Circles
+operations), omitting duplicate camelCase SDK names and any tool the grant's
+scopes do not allow. SDK reads wait up to 20 s and return the result inline
+before falling back to `circles_get_tool_run`. Previously queued aliases remain
+executable through the unchanged worker SDK bridge.
 
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a
@@ -92,48 +90,12 @@ schema, or assume application code starts before its migration succeeds.
 Migrations may also enqueue repair jobs when a data-model/parser change needs
 to reprocess retained evidence.
 
-Current latest source migration is `034_mcp_tool_runs.sql` (private SDK runs,
-grant revocation and tenant RLS); `033_mcp_oauth.sql` adds the Better Auth
-OAuth/JWK schema. Migration `032_comment_triage.sql` adds received-comment triage.
-Migration `031_replay_post_previews.sql` re-queues the evidence replay so outbound
-post Likes/restacks gain `metadata.targetImage`/`targetPublication` for timeline
-preview cards. Migration `030_note_tags.sql` adds the Circles-only `note_tags`
-catalog and `scheduled_note_tags` edges. Migration `029_scheduled_notes.sql`
-adds the `scheduled_notes` mirror of the
-account's Substack Note drafts and `substack_connections.drafts_reconciled_at`.
-Migration `028_retry_evidence_replay.sql` re-queues the evidence replay after
-ingestion stopped restoring soft-removed duplicate Likes/restacks beside their
-active row. Migration `027` adds the
-`seed_missing_activity_syncs()` `SECURITY DEFINER` function the worker calls
-every 5 minutes to restart the recurring sync for any active connection that
-lost its job chain, and queues an evidence replay that recovers activity the old
-3-hour `created_at` filter discarded. Migration `026` stores safe per-job sync counters
-for the tenant-scoped `/api/v1/sync/progress` panel; activity jobs link their
-scheduled child jobs for progress tracking. Migration `025` fills missing public
-profile links for contacts with valid stored handles, without fetching or
-merging identities. Migration `024` allows
-follow interactions and resumes activity sync for active connections stranded
-by the check constraint. Migration `023_import_current_following.sql`
-queues a following sweep that imports missing outbound profiles. Migration
-`022_repair_missing_handles.sql`
-queues a paced stable-ID handle repair pass for active connections. Migration
-`021_resume_scheduled_sync.sql`
-seeds a due activity job for active connections stranded by the recurring
-scheduler bug. Migration `020_relationship_directions_and_handle_backfill.sql`
-separates outbound following/subscriptions and adds stable-ID handle repair.
-Migration `019_audience_import_streams.sql`
-adds subscriber and follower sweeps to selectable, resumable import runs.
-Migration `018_subscriber_sync_progress.sql` adds authoritative subscriber-sweep
-progress so completed refreshes can clear stale memberships safely. Migration
-`017_audience_sync_progress.sql` separates
-follower-check progress from the false follower state so audience sweeps can
-cover every eligible contact without repeatedly selecting the same people.
-Migration `011_interaction_target_context.sql` preserves the content acted on by
-Likes/restacks, repairs it from retained evidence, and soft-removes proven
-duplicate active actions. Migration `010_substack_request_pacing.sql` spaces
-authenticated Substack work and repairs imports stranded by the old 429 policy.
-Migration `009_merge_proven_profile_duplicates.sql` performs evidence-backed
-handle/profile-ID contact reconciliation and never merges by display name.
+Each migration starts with a comment explaining why it exists; read the latest
+few before adding one. Data-repair migrations (for example `009`, `011`,
+`027`, `028`, `031`) queue jobs that replay retained evidence instead of
+refetching, and `027` adds the `seed_missing_activity_syncs()` `SECURITY
+DEFINER` function the worker calls every 5 minutes to restart the recurring
+sync for any active connection that lost its job chain.
 
 Database roles:
 
@@ -146,11 +108,11 @@ Tenant isolation uses PostgreSQL RLS and transaction-local
 `withTenant`. A direct query through `APP_DATABASE_URL` without tenant context
 correctly returns no tenant rows. Do not disable RLS to work around this.
 
-Local `.env` normally points `DATABASE_URL`/`APP_DATABASE_URL` at an SSH tunnel
-on `127.0.0.1:5433`. If it returns `ECONNREFUSED`, the tunnel is down; do not
-retry repeatedly. `bun run dev` opens the tunnel and starts the local services,
-while `bun run dev:check` only checks connectivity. Never print credentials or
-connection strings containing passwords.
+`bun run dev` uses `DATABASE_URL` directly, or, when `CIRCLES_SSH_HOST` and
+`CIRCLES_SSH_DB_ENV_FILE` are set, opens an SSH tunnel to a remote database on
+`127.0.0.1:5433` first; `bun run dev:check` only checks connectivity. If the
+database returns `ECONNREFUSED`, it (or the tunnel) is down; do not retry
+repeatedly. Never print credentials or connection strings containing passwords.
 
 ## Data model and ingestion invariants
 
@@ -207,6 +169,7 @@ it for any active connection without one, and connecting schedules it at once.
 Connecting rejects a session Substack does not verify, keeping the current
 connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
 set; always read them through `openSessionToken`, never `ciphertext` directly.
+The activity sync re-seals a legacy `plain` session once the key is configured.
 Subscriber and follower audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
 Scheduled audience sweeps (subscribers, followers, following) run at most once
@@ -234,8 +197,9 @@ Be precise about upstream limits:
 
 The CRM exposes recovered/captured outbound data through the Outbound Touches
 view, “given” totals on contact cards, outbound timestamps, and per-contact
-timelines. A global grouped per-action analytics view is still pending; consult
-`todo.md` before claiming otherwise.
+timelines. `GET /api/v1/circles` returns `actions` (active interactions grouped
+by direction and action type with all-time, 7-day and 30-day counts), shown as
+the given/received strip under the overview metrics.
 
 ## Note scheduling
 
@@ -257,25 +221,25 @@ contact tags; tagging a published Note listed from `owned_content`
 
 ## Extension workflow
 
-The extension version must match in all four files:
-
-- `extension/manifest.json`
-- `extension/package.json`
-- `extension/package-lock.json`
-- `extension/version.json`
-
-Build with:
+The extension version must match in `extension/manifest.json` and
+`extension/package.json`. Users pair any Circles server from the popup: `lib/app-origin.ts` validates it
+(https, or http only for localhost), requests that single origin from
+`optional_host_permissions`, stores it, and registers `content.js` there with
+`chrome.scripting`. The background re-registers on install/update and also
+pairs on `permissions.onAdded` because the popup can close during the prompt.
+Every install starts unpaired (the popup opens as a setup page); the only
+required host permission is Substack. Package with:
 
 ```powershell
 cd extension
-bun run build
+bun run pack
 ```
 
-Build output is `extension/dist`. The installable archive convention is
-`extension/circles-companion-<version>.zip`, containing the contents of `dist`
-at the archive root. Rebuild/repackage after extension source changes and verify
-the version in `dist/manifest.json`. Do not bump or rebuild the extension for a
-web/API-only change unless requested or required for compatibility.
+That writes `extension/circles-companion-<version>.zip` (git-ignored; publish
+it as a GitHub Release) with the contents of `dist` at the archive root, and
+refuses a production build without an https origin. Do not bump or rebuild the
+extension for a web/API-only change unless requested or required for
+compatibility.
 
 The passive page observer must not introduce extra Substack reads merely to
 capture normal browsing. Mutation capture may resolve a missing target author
@@ -290,7 +254,7 @@ Common commands from the repository root:
 ```powershell
 bun run typecheck
 bun run build
-bun --env-file=.env test --concurrent-test-files=1 packages/core apps/worker apps/api
+bun run test
 ```
 
 Useful focused commands:
@@ -301,11 +265,11 @@ bun test extension/tests/outbound-action.test.ts
 bun --env-file=.env apps/api/src/migrate.ts
 ```
 
-API/database tests need the PostgreSQL tunnel and create/apply the schema in a
-test database. Extension's older Vitest-oriented tests are not part of the root
-test command; do not interpret Bun/Vitest harness incompatibility as a product
-failure. Add new focused tests in the existing harness style and always run
-typecheck after cross-package interface changes.
+API/database tests need a reachable PostgreSQL (`DATABASE_URL` admin plus the
+role passwords) and create/apply the schema in a `circles_test` database. The
+root test command also runs the extension and web lib tests under `bun:test`.
+Add new focused tests in the existing harness style and always run typecheck
+after cross-package interface changes.
 
 Before handing off a change:
 

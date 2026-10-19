@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { openSessionToken, sealSessionToken, SESSION_TOKEN_KEY_ID } from "../src/session-token.js"
+import { openSessionToken, resealSessionToken, sealSessionToken, SESSION_TOKEN_KEY_ID } from "../src/session-token.js"
 
 const originalKey = process.env.SESSION_TOKEN_KEY
 
@@ -32,5 +32,14 @@ describe("Substack session token storage", () => {
     expect(() => openSessionToken({ key_id: sealed.keyId, iv: sealed.iv, ciphertext: sealed.ciphertext })).toThrow(
       "SESSION_TOKEN_KEY is required",
     )
+  })
+
+  test("reseals legacy plain rows only once a key is configured", () => {
+    delete process.env.SESSION_TOKEN_KEY
+    expect(resealSessionToken({ key_id: "plain", iv: "plain", ciphertext: "legacy" })).toBeNull()
+    process.env.SESSION_TOKEN_KEY = Buffer.alloc(32, 7).toString("base64")
+    const resealed = resealSessionToken({ key_id: "plain", iv: "plain", ciphertext: "legacy" })!
+    expect(openSessionToken({ key_id: resealed.keyId, iv: resealed.iv, ciphertext: resealed.ciphertext })).toBe("legacy")
+    expect(resealSessionToken({ key_id: resealed.keyId, iv: resealed.iv, ciphertext: resealed.ciphertext })).toBeNull()
   })
 })

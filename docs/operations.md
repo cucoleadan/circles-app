@@ -41,9 +41,13 @@ Optional:
 - `SESSION_TOKEN_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`).
   When set on both `api` and `worker`, Substack session tokens saved from then
   on are encrypted at rest (AES-256-GCM, `key_id = 'env-v1'`). Existing
-  `plain` rows keep working and become encrypted on the next reconnect. Once
+  `plain` rows keep working and are re-encrypted by the worker on the
+  connection's next activity sync (no reconnect needed). Once
   any connection is encrypted the key must stay configured and unchanged, or
   that connection can no longer sync until it is reconnected.
+- `EXTENSION_STORE_URL` (web) — overrides the public Circles Companion
+  Chrome Web Store link shown in Settings.
+- `CONTACT_EMAIL` (web) — contact address shown on `/privacy`.
 
 Queue self-healing: every 5 minutes the worker calls
 `seed_missing_activity_syncs()` (migration `027`, `SECURITY DEFINER` owned by
@@ -55,33 +59,7 @@ Row level security: every tenant table is protected by a policy comparing
 `user_id` with `app_tenant_id()` (`current_setting('app.user_id')`). The API
 sets that value transaction-locally (`withTenant` in `apps/api/src/db/tenant.ts`)
 so context never leaks between requests. `circles_migrate` owns the tables and
-bypasses RLS, which the D1 import relies on; only migration tooling may use it.
-
-## D1 import (Phase 2 converter)
-
-From the `stackedhq-app` checkout with `wrangler` authenticated:
-
-```bash
-DATABASE=stackedhq-app-db OUT=../circles-app/scripts/migration/exports \
-  ../circles-app/scripts/migration/d1-export.sh
-```
-
-Then, from `circles-app` with the dev tunnel up:
-
-```bash
-bun --env-file=.env scripts/migration/d1-convert.ts --dir=scripts/migration/exports
-```
-
-The converter imports in dependency order as `circles_migrate`, writes
-`exports/report.json` (per-table source/imported/quarantined/flagged counts)
-and `exports/quarantine.json` (rows that cannot be converted losslessly, with
-reasons). Invalid required timestamps quarantine the row; invalid JSON
-metadata is imported empty and flagged. `community_engagements` land in a
-separate `legacy_engagements` table with provenance — never merged into
-`interactions` without proven identity. Import runs land as `import_runs`
-with leases cleared and `running` mapped to `paused`.
-For a dry run against a throwaway database, add `--database=circles_test`.
-Fixture files under `scripts/migration/fixtures/` demo the quarantine paths.
+bypasses RLS; only migration tooling may use it.
 
 ## Cloudflare Tunnel routing
 
@@ -144,15 +122,15 @@ private channel; rotate them after first sign-in when practical.
    - Circles overview SSR-loads contacts (SSR→API cookie forwarding works).
    - `/api/ready` returns `{"status":"ready"}` and responses carry
      `Cache-Control: no-store`.
-   - A cross-origin `POST /api/contacts` with a foreign `Origin` header is
+   - A cross-origin `POST /api/v1/people` with a foreign `Origin` header is
      rejected with 403.
    - PostgreSQL is reachable only from the private network (no public
      port/host binding).
 3. Restart the stack (`docker compose restart`) and confirm data persists and
-   services come back healthy (Phase 1 gate: fresh setup and restart work).
+   services come back healthy.
 
 ## Backups
 
 Dokploy's scheduled PostgreSQL backups are the interim mechanism; the full
-off-site encrypted backup/restore policy with tested restores is a Phase 6
-deliverable. Until then, treat backups as unproven.
+off-site encrypted backup/restore policy with tested restores is still open
+(see `todo.md`). Until then, treat backups as unproven.

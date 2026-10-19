@@ -1,17 +1,21 @@
 import { connect } from "node:net"
 
-const sshHost = process.env.CIRCLES_SSH_HOST ?? "home-remote"
+// Without CIRCLES_SSH_HOST, development uses DATABASE_URL directly (e.g. a local
+// Postgres). With it, the database is reached through an SSH tunnel to a
+// `circles-dev-db-proxy` container listening on the remote host's port 15432,
+// and the remote DATABASE_URL is read from CIRCLES_SSH_DB_ENV_FILE there.
+const sshHost = process.env.CIRCLES_SSH_HOST
 const localDatabasePort = Number(process.env.CIRCLES_DB_PORT ?? 5433)
 const remoteDatabasePort = 15432
 const databaseProxy = "circles-dev-db-proxy"
-const databaseEnvFile = "/home/dan/.config/dokploy/circles-db.env"
+const databaseEnvFile = process.env.CIRCLES_SSH_DB_ENV_FILE
 
 let tunnel: Bun.Subprocess | undefined
 let apps: Bun.Subprocess[] = []
 let stopping = false
 
 async function remote(command: string) {
-  const process = Bun.spawn(["ssh", sshHost, command], {
+  const process = Bun.spawn(["ssh", sshHost!, command], {
     stdout: "pipe",
     stderr: "pipe",
     windowsHide: true,
@@ -90,14 +94,16 @@ function stop(exitCode: number) {
 process.on("SIGINT", () => stop(130))
 process.on("SIGTERM", () => stop(143))
 
-try {
+async function tunnelDatabaseUrl(host: string) {
+  if (!databaseEnvFile)
+    throw new Error("Set CIRCLES_SSH_DB_ENV_FILE to the remote file holding DATABASE_URL.")
   if (await portIsOpen(localDatabasePort)) {
     throw new Error(
       `Port ${localDatabasePort} is already in use. Close the old tunnel and try again.`
     )
   }
 
-  console.log("Connecting to the private Circles database…")
+  console.log(`Connecting to the Circles database through ${host}…`)
   await remote(`docker start ${databaseProxy}`)
 
   const remoteDatabaseUrl = (
@@ -115,13 +121,22 @@ try {
       "-N",
       "-L",
       `${localDatabasePort}:127.0.0.1:${remoteDatabasePort}`,
-      sshHost,
+      host,
     ],
     { stdin: "ignore", stdout: "inherit", stderr: "inherit", windowsHide: true }
   )
   await waitForTunnel()
-  await verifyDatabase(databaseUrl.toString())
   console.log(`Database tunnel ready on localhost:${localDatabasePort}.`)
+  return databaseUrl
+}
+
+try {
+  const databaseUrl = sshHost
+    ? await tunnelDatabaseUrl(sshHost)
+    : process.env.DATABASE_URL
+  if (!databaseUrl)
+    throw new Error("Set DATABASE_URL (or CIRCLES_SSH_HOST for a remote database).")
+  await verifyDatabase(databaseUrl.toString())
 
   if (process.argv.includes("--check")) {
     console.log("Development connection check passed.")

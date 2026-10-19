@@ -2,8 +2,6 @@
 
 The source provides `${APP_URL}/api/mcp`, a stateless remote MCP endpoint for
 Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
-The user confirmed the October 15 transport/authentication revision works.
-The subsequent tool-alias deduplication awaits the normal user-pushed release.
 
 ## Tools and data sources
 
@@ -29,7 +27,7 @@ read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
 - Sync/import tools queue the same existing background operations as the app.
 - `circles_get_day_brief` combines local-day scheduled Notes, draft summaries,
   recent pending comments, priority contacts and needs-reply queues. Its default
-  timezone is Europe/Bucharest. It generates no content or automatic reminders;
+  timezone is the API server's (`TZ`, e.g. `Europe/Bucharest`). It generates no content or automatic reminders;
   the caller's agent/scheduler does that.
 
 Tool results use `structuredContent.data`. Every SDK call queues a paced
@@ -152,24 +150,5 @@ Better Auth and the OAuth/MCP/CIMD packages are pinned to 1.7.7. Existing user
 IDs and CRM tenants remain unchanged. Use the normal migration service; never
 run a separate auth migration against production.
 
-On October 15, SSH diagnostics verified the deployed public endpoint through
-authorization-code/PKCE exchange, a Bearer token, SDK initialize, discovery of
-75 then-exposed tools, and a harmless sync-status read. The SSH database tunnel
-is used for local development/tests and is outside the production MCP request
-path. `/mcp` is the browser management page; clients use the HTTPS `/api/mcp` URL.
-These checks did not reproduce the reported client failure or establish its cause.
-
-The transport revision restored all 93 tool names/aliases and passed protocol/schema
-tests, including modern discovery, plus database-backed OAuth/HTTP, refresh retry/
-late replay, DPoP, revocation, expired session, disabled client and tenant checks.
-API test typechecking now includes the test folder, which its inherited exclusion
-previously skipped. Full regression passed (127 tests, 15-second timeout for
-tunnel-backed database cases), followed by an additional fresh-client OAuth
-registration/login-resume/callback test. Typecheck and root build passed; the
-root build also regenerated ignored extension output without changing its version
-or packaging a release. No new dependency or database migration is required.
-The user subsequently confirmed MCP works. The alias deduplication reduces new
-tool discovery to 75 names without removing distinct operations; its protocol
-regressions verify the reduced catalog in both protocol generations.
-Cloudflare SSO has not been verified.
-No deployment, push, production migration or extension release was done.
+`/mcp` is the browser management page; clients use the HTTPS `/api/mcp` URL.
+Cloudflare Access SSO linking has not yet been verified against a live tenant.

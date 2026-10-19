@@ -14,12 +14,8 @@ import {
   getReciprocityBadge,
   initials,
   ReciprocityBadgePill,
-  type ReciprocityInfo,
   statusColors,
 } from "./contact-card/contact-card-badges"
-
-export { formatDate, getPriorityReason, getReciprocityBadge, initials, statusColors }
-export type { ReciprocityInfo }
 
 function SubstackMark() {
   return (

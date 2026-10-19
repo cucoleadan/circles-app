@@ -7,20 +7,8 @@ import { profileUrlForPerson } from "../lib/profile-url"
 import { ContactListsEditor } from "./contact-details/contact-lists-editor"
 import { ContactNotesEditor } from "./contact-details/contact-notes-editor"
 import { ContactTagsEditor } from "./contact-details/contact-tags-editor"
+import { formatShortDate as formatDate } from "../lib/date-format"
 
-function formatDate(iso: string | null | undefined) {
-  if (!iso) return "Never"
-  try {
-    const d = new Date(iso)
-    return d.toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    })
-  } catch {
-    return iso
-  }
-}
 
 export function ContactDetailsTab({
   person,

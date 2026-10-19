@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { conversationTarget, normalizeConversationResponse, validateCapturedConversation } from "../src/lib/conversation-capture";
 
 const url = "https://substack.com/api/v1/reader/comment/42/replies?cursor=secret&token=private";

@@ -1,3 +1,11 @@
+/** Absolute short date, e.g. "Mar 4, 2026"; "Never" when missing. */
+export function formatShortDate(iso: string | null | undefined) {
+  if (!iso) return "Never"
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+}
+
 export function formatListAddedDate(iso: string | null | undefined): string | null {
   if (!iso) return null
   try {

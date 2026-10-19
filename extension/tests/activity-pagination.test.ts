@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { activityPageEvidence, activityBackfillCutoff, activityBackfillUrl, planActivityBackfillPage } from "../src/lib/activity-pagination";
 
 describe("passive activity pagination evidence", () => {

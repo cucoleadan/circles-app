@@ -15,15 +15,8 @@ import {
 import { formatListTooltip } from "../../lib/date-format"
 import { profileUrlForPerson } from "../../lib/profile-url"
 import type { ListRecord, Person } from "../../lib/types"
+import { initials } from "../contact-card/contact-card-badges"
 
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0])
-    .join("")
-    .toUpperCase()
-}
 
 export function ContactDrawerHeader({
   person,

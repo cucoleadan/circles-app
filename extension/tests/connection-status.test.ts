@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { recoveredFlow } from "../src/lib/connection-status";
 import type { FlowState } from "../src/lib/types";
 

@@ -1,3 +1,4 @@
+import { grantedAppOrigin, normalizeAppOrigin, pairAppOrigin } from "../lib/app-origin";
 import type {
   BackgroundResponse,
   DetectedProfile,
@@ -30,8 +31,46 @@ const openAppBtn = document.getElementById("open-app-btn") as HTMLButtonElement 
 
 extensionVersion.textContent = `v${chrome.runtime.getManifest().version}`;
 
+const serverInput = byId<HTMLInputElement>("server-input");
+const serverSaveBtn = byId<HTMLButtonElement>("server-save-btn");
+const serverText = byId<HTMLParagraphElement>("server-text");
+
 openAppBtn?.addEventListener("click", () => {
-  void chrome.tabs.create({ url: "https://circles.mhntwrkdan.dev" });
+  void grantedAppOrigin().then((url) => {
+    if (url) return chrome.tabs.create({ url });
+    serverInput.focus();
+  });
+});
+
+// Until a server is paired, nothing else in the popup can work, so lead with setup.
+void grantedAppOrigin().then((origin) => {
+  serverInput.value = origin ?? "";
+  byId<HTMLElement>("setup-intro").classList.toggle("hidden", origin !== null);
+});
+
+function setServerText(text: string, tone: "" | "ok" | "bad" = "") {
+  serverText.textContent = text;
+  serverText.className = `hint${tone ? ` ${tone}` : ""}`;
+}
+
+serverSaveBtn.addEventListener("click", () => {
+  const origin = normalizeAppOrigin(serverInput.value);
+  if (!origin) {
+    setServerText("Enter your Circles https address (http only for localhost).", "bad");
+    return;
+  }
+  // pairAppOrigin asks Chrome for access first, while this click still counts as a user gesture.
+  void pairAppOrigin(origin).then(async (paired) => {
+    if (!paired) {
+      setServerText("Chrome access to that server was not granted.", "bad");
+      return;
+    }
+    serverInput.value = origin;
+    setServerText(`Paired with ${new URL(origin).host}. Opening Circles…`, "ok");
+    byId<HTMLElement>("setup-intro").classList.add("hidden");
+    await send({ type: "APP_PAIRED" });
+    void refreshStatus();
+  });
 });
 
 let profile: DetectedProfile | null = null;

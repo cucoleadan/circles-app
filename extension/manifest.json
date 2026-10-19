@@ -1,14 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Circles Companion",
-  "version": "0.2.7",
+  "version": "0.3.0",
   "description": "Connects your Substack session to Circles CRM and adds people to your lists.",
-  "permissions": ["cookies", "storage", "alarms"],
+  "permissions": [
+    "cookies",
+    "storage",
+    "alarms",
+    "scripting"
+  ],
   "host_permissions": [
-    "https://*.substack.com/*",
-    "https://circles.mhntwrkdan.dev/*",
-    "http://localhost:4321/*",
-    "http://127.0.0.1:4321/*"
+    "https://*.substack.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*"
   ],
   "icons": {
     "16": "icons/icon-16.png",
@@ -31,36 +38,32 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://*.substack.com/*"],
-      "js": ["page-observer.js"],
+      "matches": [
+        "https://*.substack.com/*"
+      ],
+      "js": [
+        "page-observer.js"
+      ],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["https://*.substack.com/*"],
-      "js": ["activity-bridge.js"],
+      "matches": [
+        "https://*.substack.com/*"
+      ],
+      "js": [
+        "activity-bridge.js"
+      ],
       "run_at": "document_start"
     },
     {
       "matches": [
-        "https://circles.mhntwrkdan.dev/*",
-        "http://localhost:4321/*",
-        "http://127.0.0.1:4321/*"
+        "https://*.substack.com/*"
       ],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": ["https://*.substack.com/*"],
-      "js": ["substack.js"],
+      "js": [
+        "substack.js"
+      ],
       "run_at": "document_idle"
     }
-  ],
-  "externally_connectable": {
-    "matches": [
-      "https://circles.mhntwrkdan.dev/*",
-      "http://localhost:4321/*",
-      "http://127.0.0.1:4321/*"
-    ]
-  }
+  ]
 }

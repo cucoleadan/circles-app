@@ -58,7 +58,8 @@ export type PopupRequest =
   | { type: "GET_CURRENT_PROFILE" }
   | { type: "FETCH_LISTS" }
   | { type: "CAPTURE_ACTIVITY_BATCH"; payload: unknown }
-  | { type: "ADD_TO_LISTS"; name: string; handle: string; lists: string[]; tags: string[] };
+  | { type: "ADD_TO_LISTS"; name: string; handle: string; lists: string[]; tags: string[] }
+  | { type: "APP_PAIRED" };
 
 export type BackgroundResponse = {
   ok: boolean;
@@ -108,4 +109,3 @@ export type BridgeResponse = {
   updatedPeople?: number;
 };
 
-export type ExternalRequest = { type: "ping" } | { type: "connect-from-app" };

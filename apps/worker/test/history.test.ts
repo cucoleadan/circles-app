@@ -174,6 +174,42 @@ describe("owned post history", () => {
     expect(queries.some((sql) => sql.includes("insert into owned_content"))).toBe(true)
     expect(queries.some((sql) => sql.includes("insert into thread_snapshots"))).toBe(false)
   })
+
+  test("fetches post details outside the transaction when given a per-call wrapper", async () => {
+    let inTransaction = false
+    const queries: string[] = []
+    const client: any = {
+      query: async (sql: string) => {
+        expect(inTransaction).toBe(true)
+        queries.push(sql)
+        return { rows: [] }
+      },
+    }
+    const db = async <T>(fn: (c: any) => Promise<T>) => {
+      inTransaction = true
+      try { return await fn(client) } finally { inTransaction = false }
+    }
+    const sdk: any = {
+      getProfilePosts: async () => {
+        expect(inTransaction).toBe(false)
+        return { posts: [{ id: 778, title: "Recent post" }] }
+      },
+      getPostWithEngagement: async () => {
+        expect(inTransaction).toBe(false)
+        return { comments: [] }
+      },
+    }
+
+    await syncOwnedPostsPage(db, sdk, {
+      userId: "user-1",
+      connectionId: "connection-1",
+      ownerId,
+      ownerHandle: "owner",
+      source: "sdk",
+    }, null, 1)
+
+    expect(queries.some((sql) => sql.includes("insert into thread_snapshots"))).toBe(true)
+  })
 })
 
 describe("recent outbound replies", () => {

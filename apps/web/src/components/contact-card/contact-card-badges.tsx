@@ -7,11 +7,12 @@ export const statusColors: Record<string, string> = {
   dormant: "bg-stone-400",
 }
 
-export function initials(name: string) {
+export function initials(name: string): string {
   return name
     .split(/\s+/)
-    .slice(0, 2)
     .map((part) => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
     .join("")
     .toUpperCase()
 }

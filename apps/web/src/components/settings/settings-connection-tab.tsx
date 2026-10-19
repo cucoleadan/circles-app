@@ -13,7 +13,7 @@ import {
 } from "lucide-react"
 import { Button } from "@workspace/ui/components/button"
 import { Input } from "@workspace/ui/components/input"
-import { CHROME_STORE_URL } from "./settings-extension-tab"
+import { extensionStoreUrl } from "./settings-extension-tab"
 
 export interface SubstackConnectionInfo {
   id: string
@@ -254,11 +254,8 @@ export function SettingsConnectionTab({
             <Puzzle className="size-4" />
           </div>
           <div className="min-w-0 flex-1 space-y-0.5">
-            <div className="font-bold text-stone-900 dark:text-stone-100 text-xs flex items-center gap-1.5 flex-wrap leading-snug">
-              <span>Circles Companion Extension</span>
-              <span className="rounded bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/50 dark:text-emerald-300 dark:border-emerald-800/80 px-1.5 py-0.2 text-[9px] font-bold shrink-0">
-                Web Store
-              </span>
+            <div className="font-bold text-stone-900 dark:text-stone-100 text-xs leading-snug">
+              Circles Companion Extension
             </div>
             <p className="text-[11px] text-muted-foreground leading-snug">
               Capture outbound likes, restacks, and comments while browsing Substack.
@@ -266,7 +263,7 @@ export function SettingsConnectionTab({
           </div>
         </div>
         <a
-          href={CHROME_STORE_URL}
+          href={extensionStoreUrl()}
           target="_blank"
           rel="noreferrer"
           className="shrink-0 inline-flex items-center gap-1.5 rounded bg-[#f15a3a] hover:bg-[#d94828] text-white px-3 py-1.5 text-xs font-semibold shadow-xs transition-colors"

@@ -38,6 +38,7 @@ const overview = overviewRes.ok ? ((await overviewRes.json()) as CirclesOverview
       content="A calm CRM for the relationships that matter."
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="circles-extension-store-url" content={process.env.EXTENSION_STORE_URL ?? ""} />
     <title>Circles CRM</title>
   </head>
   <body class="bg-[#f7f5f1] dark:bg-stone-950 font-sans antialiased">

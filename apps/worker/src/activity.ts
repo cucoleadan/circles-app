@@ -6,6 +6,7 @@ import {
   ingestActivityBatch,
   normalizeActivityPage,
   openSessionToken,
+  resealSessionToken,
   type ActivityItemInput,
 } from "@workspace/core"
 import {
@@ -87,6 +88,17 @@ export async function processActivitySync(
        where id = $1 and user_id = $2`,
       [connectionId, userId]
     )
+    // Encrypt a session stored before SESSION_TOKEN_KEY was configured, without a reconnect.
+    const resealed = connRes.rows[0] && resealSessionToken(connRes.rows[0])
+    if (resealed) {
+      await client.query(
+        `update substack_connections
+         set key_id = $2, wrapped_key = $3, iv = $4, ciphertext = $5, updated_at = now()
+         where id = $1`,
+        [connectionId, resealed.keyId, resealed.wrappedKey, resealed.iv, resealed.ciphertext],
+      )
+      Object.assign(connRes.rows[0], { key_id: resealed.keyId, iv: resealed.iv, ciphertext: resealed.ciphertext })
+    }
     const checkpoint = await client.query(
       `select last_synced_at from sync_stream_state
        where connection_id = $1 and stream = 'activity'`,
@@ -196,14 +208,14 @@ export async function processScheduledHistorySync(
   stream: ScheduledHistoryStream,
   outboundStage?: OutboundStage,
 ) {
-  return withTenant(client, userId, async () => {
+  const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
       `select key_id, iv, ciphertext, publication_url, profile_handle, profile_id, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
     const conn = connection.rows[0]
-    if (!conn || conn.status !== "active") return { skipped: true }
+    if (!conn || conn.status !== "active") return null
 
     await client.query(
       `insert into sync_stream_state (connection_id, user_id, stream, status, completeness, updated_at)
@@ -212,43 +224,47 @@ export async function processScheduledHistorySync(
          set status = 'running', error = null, updated_at = now()`,
       [connectionId, userId, stream],
     )
-
-    const sdk = createSubstackClient({
-      sessionToken: openSessionToken(conn),
-      publicationUrl: conn.publication_url,
-    })
-    const context = {
-      userId,
-      connectionId,
-      ownerHandle: conn.profile_handle,
-      ownerId: conn.profile_id,
-      source: "sdk" as const,
-    }
-    // Replies keep arriving on older content, so refresh the reply trees of
-    // recently published Notes/posts rather than only the newest one. Outbound
-    // pages are re-read over a day; stable IDs make the overlap idempotent.
-    const now = Date.now()
-    const result = stream === "owned_notes"
-      ? await syncOwnedNotesPage(
-          client, sdk, context, null,
-          SCHEDULED_NOTE_REFRESH_LIMIT, new Date(now - SCHEDULED_NOTE_REFRESH_DAYS * DAY_MS),
-        )
-      : stream === "owned_posts"
-        ? await syncOwnedPostsPage(
-            client, sdk, context, null,
-            SCHEDULED_POST_REFRESH_LIMIT, new Date(now - SCHEDULED_POST_REFRESH_DAYS * DAY_MS),
-          )
-        : await syncRecentOutboundActions(
-            client, sdk, context, outboundStage === "replies" ? 40 : 20, outboundStage, new Date(now - DAY_MS),
-          )
-
-    await client.query(
-      `update sync_stream_state
-       set status = 'idle', last_synced_at = now(), completeness = 'partial',
-           finish_reason = 'recent_window', error = null, updated_at = now()
-       where connection_id = $1 and stream = $2`,
-      [connectionId, stream],
-    )
-    return { skipped: false, stats: result }
+    return conn
   })
+  if (!conn) return { skipped: true }
+
+  const sdk = createSubstackClient({
+    sessionToken: openSessionToken(conn),
+    publicationUrl: conn.publication_url,
+  })
+  const context = {
+    userId,
+    connectionId,
+    ownerHandle: conn.profile_handle,
+    ownerId: conn.profile_id,
+    source: "sdk" as const,
+  }
+  // Fetch outside any transaction; each item's writes get a short one.
+  const db = <T>(fn: (client: PoolClient) => Promise<T>) => withTenant(client, userId, () => fn(client))
+  // Replies keep arriving on older content, so refresh the reply trees of
+  // recently published Notes/posts rather than only the newest one. Outbound
+  // pages are re-read over a day; stable IDs make the overlap idempotent.
+  const now = Date.now()
+  const result = stream === "owned_notes"
+    ? await syncOwnedNotesPage(
+        db, sdk, context, null,
+        SCHEDULED_NOTE_REFRESH_LIMIT, new Date(now - SCHEDULED_NOTE_REFRESH_DAYS * DAY_MS),
+      )
+    : stream === "owned_posts"
+      ? await syncOwnedPostsPage(
+          db, sdk, context, null,
+          SCHEDULED_POST_REFRESH_LIMIT, new Date(now - SCHEDULED_POST_REFRESH_DAYS * DAY_MS),
+        )
+      : await syncRecentOutboundActions(
+          db, sdk, context, outboundStage === "replies" ? 40 : 20, outboundStage, new Date(now - DAY_MS),
+        )
+
+  await db((tx) => tx.query(
+    `update sync_stream_state
+     set status = 'idle', last_synced_at = now(), completeness = 'partial',
+         finish_reason = 'recent_window', error = null, updated_at = now()
+     where connection_id = $1 and stream = $2`,
+    [connectionId, stream],
+  ))
+  return { skipped: false, stats: result }
 }

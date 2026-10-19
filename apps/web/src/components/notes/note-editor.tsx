@@ -40,6 +40,7 @@ import {
 } from "@workspace/ui/components/avatar"
 
 import type { Person } from "../../lib/types"
+import { initials } from "../contact-card/contact-card-badges"
 
 /** A contact offered by the @-mention picker. */
 interface MentionCandidate {
@@ -77,15 +78,6 @@ async function searchContacts(query: string): Promise<MentionCandidate[]> {
   }
 }
 
-function initials(name: string): string {
-  return name
-    .split(/\s+/)
-    .map((part) => part[0])
-    .filter(Boolean)
-    .slice(0, 2)
-    .join("")
-    .toUpperCase()
-}
 
 interface MentionListHandle {
   onKeyDown: (props: SuggestionKeyDownProps) => boolean

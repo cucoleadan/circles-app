@@ -3,15 +3,7 @@ import { Loader2 } from "lucide-react"
 
 import { Button } from "@workspace/ui/components/button"
 import type { Interaction } from "../lib/types"
-import {
-  actionBadge,
-  formatDate,
-  interactionLabel,
-  targetLabel,
-  TimelineItem,
-} from "./timeline/timeline-item"
-
-export { actionBadge, formatDate, interactionLabel, targetLabel }
+import { TimelineItem } from "./timeline/timeline-item"
 
 type TimelineFilter = "all" | "comments" | "likes" | "restacks" | "inbound" | "outbound"
 

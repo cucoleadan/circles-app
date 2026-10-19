@@ -1,13 +1,5 @@
-import { APP_ORIGIN, APP_ORIGINS } from "./constants";
+import { grantedAppOrigin, originPattern } from "./app-origin";
 import type { BridgeRequest, BridgeResponse } from "./types";
-
-export function isAppOriginUrl(url: string | undefined): boolean {
-  try {
-    return !!url && APP_ORIGINS.some((origin) => new URL(url).origin === origin);
-  } catch {
-    return false;
-  }
-}
 
 async function send(tabId: number, request: BridgeRequest, timeout = 20_000): Promise<BridgeResponse> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -29,12 +21,13 @@ async function send(tabId: number, request: BridgeRequest, timeout = 20_000): Pr
 
 export async function requestViaBridge(request: BridgeRequest, open = false): Promise<BridgeResponse> {
   try {
-    let tabs = (await chrome.tabs.query({ url: APP_ORIGINS.map((origin) => `${origin}/*`) }))
-      .filter((tab) => tab.id !== undefined && isAppOriginUrl(tab.url))
+    const origin = await grantedAppOrigin();
+    if (!origin) {
+      return { ok: false, message: "Set your Circles server in the extension popup first." };
+    }
+    let tabs = (await chrome.tabs.query({ url: originPattern(origin) }))
+      .filter((tab) => tab.id !== undefined && !!tab.url && new URL(tab.url).origin === origin)
       .sort((a, b) => Number(b.active) - Number(a.active));
-
-    const origin = tabs[0]?.url ? new URL(tabs[0].url).origin : APP_ORIGIN;
-    tabs = tabs.filter((tab) => new URL(tab.url!).origin === origin);
 
     if (!tabs.length && open) {
       tabs = [await chrome.tabs.create({ url: `${origin}`, active: true })];

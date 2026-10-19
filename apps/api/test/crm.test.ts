@@ -1686,6 +1686,9 @@ describe("interactions", () => {
       circlesOverview(client)
     )
     expect(overview.ignored).toBeGreaterThanOrEqual(1)
+    // Per-action breakdown covers every active interaction exactly once.
+    expect(overview.actions.reduce((sum, row) => sum + row.total, 0)).toBe(overview.interactions)
+    for (const row of overview.actions) expect(row.last7d).toBeLessThanOrEqual(row.last30d)
   })
 })
 

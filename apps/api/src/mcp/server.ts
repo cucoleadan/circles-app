@@ -148,7 +148,7 @@ export function createCirclesMcp(principal: McpPrincipal) {
 
   if (granted(["circles:read"])) server.registerTool("circles_get_day_brief", {
     description: "Read a daily agenda from the local CRM: scheduled Notes for a local calendar day, draft summaries, recent pending comments and existing priority/needs-reply queues. Does not publish, send replies or refresh upstream.",
-    inputSchema: z.object({ date: z.iso.date(), timeZone: z.string().max(100).default("Europe/Bucharest"), limit: z.number().int().min(1).max(50).default(10) }),
+    inputSchema: z.object({ date: z.iso.date(), timeZone: z.string().max(100).default(() => Intl.DateTimeFormat().resolvedOptions().timeZone), limit: z.number().int().min(1).max(50).default(10) }),
     outputSchema: resultSchema, annotations: readAnnotations,
   }, (args) => call(async () => {
     requireScopes(principal.scopes, ["circles:read"])

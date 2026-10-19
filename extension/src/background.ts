@@ -1,20 +1,26 @@
 import {
-  APP_ORIGIN,
-  APP_ORIGINS,
   AUTO_CONNECT_COOLDOWN_MS,
   CONNECT_FLOW_TIMEOUT_MS,
   CONNECT_POLL_INTERVAL_MS,
 } from "./lib/constants";
 import { getSubstackSessionValue, hasSubstackSession } from "./lib/cookies";
 import { detectProfileFromTab } from "./lib/detect";
-import { requestViaBridge, requestConnectBridge, isAppOriginUrl } from "./lib/app-bridge";
+import { requestViaBridge, requestConnectBridge } from "./lib/app-bridge";
+import {
+  APP_ORIGIN_STORAGE_KEY,
+  grantedAppOrigin,
+  isAppOriginUrl,
+  originFromPattern,
+  originPattern,
+  setAppOrigin,
+  syncAppContentScript,
+} from "./lib/app-origin";
 import { recoveredFlow } from "./lib/connection-status";
 import { ACTIVITY_RETRY_ALARM, drainActivity, enqueueActivity, rememberActivityConnection } from "./lib/activity-queue";
 import type {
   BackgroundResponse,
   BridgeRequest,
   BridgeResponse,
-  ExternalRequest,
   FlowState,
   PopupRequest,
 } from "./lib/types";
@@ -91,8 +97,8 @@ async function setFlow(next: FlowState): Promise<FlowState> {
   void chrome.runtime
     .sendMessage({ type: "FLOW_CHANGED", flow: next })
     .catch(() => undefined);
-  void chrome.tabs.query({ url: APP_ORIGINS.map((origin) => `${origin}/*`) }).then((tabs) => {
-    for (const tab of tabs) if (tab.id && isAppOriginUrl(tab.url)) {
+  void grantedAppOrigin().then((origin) => origin ? chrome.tabs.query({ url: originPattern(origin) }) : []).then((tabs) => {
+    for (const tab of tabs) if (tab.id) {
       void chrome.tabs.sendMessage(tab.id, { type: "FLOW_CHANGED", flow: next }).catch(() => undefined);
     }
   }).catch(() => undefined);
@@ -324,6 +330,8 @@ async function maybeAutoConnect(forceAppState = false): Promise<void> {
 
 async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResponse> {
   switch (request.type) {
+    case "APP_PAIRED":
+      return onboardPairedApp();
     case "GET_STATUS": {
       void maybeAutoConnect();
       const [substackLoggedIn, app] = await Promise.all([
@@ -465,31 +473,34 @@ chrome.runtime.onMessage.addListener(
       sendResponse({ ok: false, message: "Activity capture source was rejected." });
       return;
     }
-    if (["APP_PAGE_LOADED", "connect-from-app", "SUBMIT_PUBLICATION_URL"].includes(request.type) && !isAppOriginUrl(sender.url)) {
-      // The extension popup may also submit a publication URL.
-      if (sender.url !== chrome.runtime.getURL("popup/popup.html")) {
-        sendResponse({ ok: false, message: "App message source was rejected." });
-        return;
+    const fromApp = ["APP_PAGE_LOADED", "connect-from-app", "SUBMIT_PUBLICATION_URL"].includes(request.type);
+    // The extension popup may also submit a publication URL.
+    const fromPopup = sender.url === chrome.runtime.getURL("popup/popup.html");
+    void (async () => {
+      if (
+        (fromApp && !fromPopup && !(await isAppOriginUrl(sender.url))) ||
+        (request.type === "APP_PAIRED" && !fromPopup)
+      ) {
+        return { ok: false, message: "App message source was rejected." };
       }
-    }
-    void initialized.then(() => handlePopupRequest(request)).then(sendResponse).catch(() => sendResponse({ ok: false, message: "Request failed; capture was not confirmed." }));
+      await initialized;
+      return handlePopupRequest(request);
+    })().then(sendResponse).catch(() => sendResponse({ ok: false, message: "Request failed; capture was not confirmed." }));
     return true;
   },
 );
 
-chrome.runtime.onMessageExternal.addListener(
-  (request: ExternalRequest, _sender, sendResponse) => {
-    if (request?.type === "ping") {
-      sendResponse({ ok: true, installed: true });
-      return;
-    }
-    if (request?.type === "connect-from-app") {
-      void initialized.then(() => runConnectFlow()).then(sendResponse).catch(() => sendResponse({ ok: false, message: "Connection failed." }));
-      return true;
-    }
-    sendResponse({ ok: false, message: "Unknown request." });
-  },
-);
+// Optional host access is only ever requested to pair a Circles server. The
+// popup may close while Chrome shows the prompt, so finish pairing here too.
+chrome.permissions.onAdded.addListener(({ origins = [] }) => {
+  const origin = origins.map(originFromPattern).find((value): value is string => value !== null);
+  if (origin) void setAppOrigin(origin).catch((error) => console.warn("[Circles] Could not pair the server.", error));
+});
+
+// A different Circles server means different CRM data; drop what was cached from the old one.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && APP_ORIGIN_STORAGE_KEY in changes) void clearAppStateCache();
+});
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ACTIVITY_RETRY_ALARM) {
@@ -517,20 +528,27 @@ async function waitForTabLoad(tabId: number, timeoutMs: number): Promise<void> {
   }
 }
 
+/** After the user pairs a Circles server: open it, record the install, and connect Substack if needed. */
+async function onboardPairedApp(): Promise<BackgroundResponse> {
+  const origin = await grantedAppOrigin();
+  if (!origin) return { ok: false, message: "Set your Circles server first." };
+  const tab = await chrome.tabs.create({ url: origin });
+  if (!tab.id) return { ok: false };
+  await waitForTabLoad(tab.id, 20_000);
+  await requestViaBridge({ type: "POST_INSTALL" });
+  const state = await requestAppState();
+  if (state.ok && state.appState && !state.appState.connection) {
+    await runConnectFlow();
+  }
+  return { ok: true };
+}
+
 chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason !== "install") return;
-  void chrome.tabs
-    .create({ url: `${APP_ORIGINS[0]}` })
-    .then(async (tab) => {
-      if (!tab.id) return;
-      await waitForTabLoad(tab.id, 20_000);
-      await requestViaBridge({ type: "POST_INSTALL" });
-      const state = await requestAppState();
-      if (state.ok && state.appState && !state.appState.connection) {
-        await runConnectFlow();
-      }
-    })
-    .catch(() => undefined);
+  // Re-register the app bridge for the paired server on install and every update.
+  void syncAppContentScript().catch((error) => console.warn("[Circles] Could not register the app bridge.", error));
+  if (details.reason === "install") {
+    void chrome.tabs.create({ url: chrome.runtime.getURL("popup/popup.html") });
+  }
 });
 
 const initialized = readStoredFlow();

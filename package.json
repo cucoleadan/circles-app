@@ -2,6 +2,7 @@
   "name": "circles-crm",
   "version": "0.0.1",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "turbo build",
     "dev": "bun.exe scripts/dev.ts",
@@ -9,7 +10,7 @@
     "lint": "turbo lint",
     "format": "turbo format",
     "typecheck": "turbo typecheck",
-    "test": "bun --env-file=.env test --concurrent-test-files=1 packages/core apps/worker apps/api"
+    "test": "bun --env-file=.env test --concurrent-test-files=1 packages/core apps/worker apps/api apps/web/src extension/tests"
   },
   "devDependencies": {
     "@types/bun": "^1.4.2",

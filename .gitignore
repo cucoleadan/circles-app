@@ -32,3 +32,6 @@ yarn-error.log*
 # migration exports (contain credentials/dumps)
 scripts/migration/exports/
 
+
+# packaged extension builds (publish via GitHub Releases)
+extension/*.zip

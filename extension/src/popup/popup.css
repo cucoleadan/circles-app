@@ -450,3 +450,13 @@ button, input, a, label {
 .hidden {
   display: none !important;
 }
+
+.server-row {
+  display: flex;
+  gap: 6px;
+}
+
+.server-row .input {
+  flex: 1;
+  min-width: 0;
+}

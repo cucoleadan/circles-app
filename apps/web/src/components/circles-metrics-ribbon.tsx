@@ -1,5 +1,5 @@
 import { Clock, MessageSquare, Sparkles, Users } from "lucide-react"
-import type { CirclesOverview, Person } from "../lib/types"
+import type { ActionCount, CirclesOverview, Person } from "../lib/types"
 
 export function CirclesMetricsRibbon({
   overview,
@@ -56,6 +56,37 @@ export function CirclesMetricsRibbon({
           {totalActions}
         </p>
       </div>
+
+      <ActionBreakdown actions={overview?.actions ?? []} />
+    </div>
+  )
+}
+
+const ACTION_LABELS: Record<string, string> = { like: "Likes", restack: "Restacks", comment: "Comments", reply: "Replies" }
+
+/** Given vs received per action over the last 30 days; the tooltip carries all-time and 7-day totals. */
+function ActionBreakdown({ actions }: { actions: ActionCount[] }) {
+  const find = (direction: string, actionType: string) =>
+    actions.find((row) => row.direction === direction && row.actionType === actionType)
+  const rows = Object.entries(ACTION_LABELS)
+    .map(([actionType, label]) => ({ label, given: find("outbound", actionType), received: find("inbound", actionType) }))
+    .filter((row) => row.given || row.received)
+  if (rows.length === 0) return null
+
+  return (
+    <div className="col-span-2 sm:col-span-4 flex flex-wrap items-center gap-x-4 gap-y-1 rounded-2xl border border-stone-200/80 bg-white px-3 py-2 text-[11px] sm:text-xs text-stone-500 shadow-2xs dark:border-stone-800 dark:bg-stone-900">
+      <span className="font-medium">Last 30 days · given / received</span>
+      {rows.map(({ label, given, received }) => (
+        <span
+          key={label}
+          title={`${label}: ${given?.total ?? 0} given / ${received?.total ?? 0} received all time; ${given?.last7d ?? 0} / ${received?.last7d ?? 0} in the last 7 days`}
+        >
+          {label}{" "}
+          <strong className="text-stone-900 dark:text-stone-100">{given?.last30d ?? 0}</strong>
+          {" / "}
+          <strong className="text-stone-900 dark:text-stone-100">{received?.last30d ?? 0}</strong>
+        </span>
+      ))}
     </div>
   )
 }

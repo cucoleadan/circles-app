@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "bun:test";
 
 if (!vi.stubGlobal) {
   vi.stubGlobal = (name: string, value: any) => {
@@ -9,9 +9,12 @@ if (!vi.unstubAllGlobals) {
   vi.unstubAllGlobals = () => {};
 }
 
+// Bun has no vi.resetModules; a fresh query string re-evaluates the module, like a worker restart.
+let generation = 0;
+const freshQueue = (): Promise<typeof import("../src/lib/activity-queue")> => import(`../src/lib/activity-queue?${generation}`);
 let storage: Record<string, unknown>;
 beforeEach(() => {
-  vi.resetModules();
+  generation += 1;
   storage = {};
   vi.stubGlobal("chrome", { storage: { local: {
     get: vi.fn(async (key: string) => ({ [key]: structuredClone(storage[key]) })),
@@ -21,7 +24,7 @@ beforeEach(() => {
 const app = { ok: true, appState: { connection: { id: "connection-a" } } };
 const payload = { activityItems: [{ id: "first" }, { id: "middle" }, { id: "last" }] };
 async function setup() {
-  const queue = await import("../src/lib/activity-queue");
+  const queue = await freshQueue();
   await queue.rememberActivityConnection(app as never);
   return queue;
 }
@@ -45,8 +48,8 @@ describe("durable activity capture", () => {
     expect(await queue.enqueueActivity(payload)).toMatchObject({ ok: true, queued: true });
     await queue.drainActivity(async () => ({ ok: false }));
     expect(pending()).toBe(1);
-    vi.resetModules();
-    queue = await import("../src/lib/activity-queue");
+    generation += 1;
+    queue = await freshQueue();
     await queue.drainActivity(async (request) => request.type === "GET_APP_STATE" ? app as never : { ok: true });
     expect(pending()).toBe(0);
   });
@@ -83,7 +86,7 @@ describe("durable activity capture", () => {
     expect(pending()).toBe(100);
   });
   it("does not queue data without a known connection", async () => {
-    const queue = await import("../src/lib/activity-queue");
+    const queue = await freshQueue();
     expect(await queue.enqueueActivity(payload)).toMatchObject({ ok: false });
   });
 });

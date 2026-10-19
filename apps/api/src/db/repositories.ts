@@ -991,6 +991,16 @@ export interface CirclesOverview {
   interactions: number
   followsNotSubscribed: number
   ignored: number
+  /** Active interactions grouped by direction and action, e.g. Likes given vs received. */
+  actions: ActionCount[]
+}
+
+export interface ActionCount {
+  direction: "inbound" | "outbound"
+  actionType: string
+  total: number
+  last7d: number
+  last30d: number
 }
 
 export async function circlesOverview(client: PoolLike): Promise<CirclesOverview> {
@@ -1027,6 +1037,15 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
      from people p
      where p.archived_at is null`
   )
+  const actions = await client.query(
+    `select direction, action_type as "actionType", count(*)::int as total,
+            count(*) filter (where occurred_at > now() - interval '7 days')::int as "last7d",
+            count(*) filter (where occurred_at > now() - interval '30 days')::int as "last30d"
+       from interactions
+       where removed_at is null and direction in ('inbound', 'outbound')
+       group by direction, action_type
+       order by direction, total desc`
+  )
   const byStatus: Record<string, number> = {}
   for (const row of people.rows) byStatus[row.status ?? "new"] = row.count
   const byDrift: Record<string, number> = {}
@@ -1038,5 +1057,6 @@ export async function circlesOverview(client: PoolLike): Promise<CirclesOverview
     interactions: interactions.rows[0].count,
     followsNotSubscribed: specialCounts.rows[0]?.follows_not_subscribed ?? 0,
     ignored: specialCounts.rows[0]?.ignored ?? 0,
+    actions: actions.rows,
   }
 }

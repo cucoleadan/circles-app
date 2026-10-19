@@ -76,6 +76,15 @@ export interface CirclesOverview {
   interactions: number
   followsNotSubscribed?: number
   ignored?: number
+  actions?: ActionCount[]
+}
+
+export interface ActionCount {
+  direction: "inbound" | "outbound"
+  actionType: string
+  total: number
+  last7d: number
+  last30d: number
 }
 
 export interface Interaction {

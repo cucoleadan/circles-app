@@ -17,6 +17,15 @@ type HistoryContext = {
   source: "sdk" | "import"
 }
 
+/**
+ * Where history writes go: a client already inside a tenant transaction, or a
+ * wrapper that opens a short transaction per call so Substack fetches never
+ * run while a transaction is held open.
+ */
+export type HistoryDb = PoolClient | (<T>(fn: (client: PoolClient) => Promise<T>) => Promise<T>)
+const inDb = <T>(db: HistoryDb, fn: (client: PoolClient) => Promise<T>) =>
+  typeof db === "function" ? db(fn) : fn(db)
+
 export type HistoryPageResult = {
   items: number
   newInteractions: number
@@ -355,7 +364,7 @@ export async function syncOutboundActionsPage(
 }
 
 export async function syncRecentOutboundActions(
-  client: PoolClient,
+  db: HistoryDb,
   sdk: SubstackClient,
   context: HistoryContext,
   limit = 20,
@@ -374,15 +383,14 @@ export async function syncRecentOutboundActions(
     do {
       if (read > 0) await sleep(2_000)
       const page = await fetchOutboundPage(sdk, context.ownerId, currentStage, cursor, limit)
-      await preserveOutboundEvidence(client, context, currentStage, page)
       const rawItems = Array.isArray(page?.items) ? page.items : []
       const normalized = normalizeOutboundProfileFeed(rawItems, context.ownerId)
       const filtered = cutoff
         ? normalized.filter((item) => !isAtOrBeforeCutoff(item, cutoff))
         : normalized
-      const stats = await ingestActivityBatch(client, {
-        ...context,
-        items: filtered,
+      const stats = await inDb(db, async (client) => {
+        await preserveOutboundEvidence(client, context, currentStage, page)
+        return ingestActivityBatch(client, { ...context, items: filtered })
       })
       items += filtered.length
       newInteractions += stats.newInteractions
@@ -536,6 +544,11 @@ function postItems(page: unknown): Array<Record<string, any>> {
   return items.map((item) => record(item)).filter((item): item is Record<string, any> => Boolean(item))
 }
 
+function ownedContentId(kind: "note" | "post", item: Record<string, any>) {
+  const raw = kind === "note" ? record(item.comment) ?? item : item
+  return firstString(raw.id, raw.post_id, item.id)
+}
+
 async function upsertOwnedContent(
   client: PoolClient,
   context: HistoryContext,
@@ -543,7 +556,7 @@ async function upsertOwnedContent(
   item: Record<string, any>,
 ): Promise<string | null> {
   const raw = kind === "note" ? record(item.comment) ?? item : item
-  const externalId = firstString(raw.id, raw.post_id, item.id)
+  const externalId = ownedContentId(kind, item)
   if (!externalId) return null
   const title = firstString(raw.title, raw.headline, item.title)
   const body = firstString(raw.body, raw.body_text, raw.subtitle) ?? bodyText(raw.body_json)
@@ -570,7 +583,7 @@ async function upsertOwnedContent(
 }
 
 export async function syncOwnedNotesPage(
-  client: PoolClient,
+  db: HistoryDb,
   sdk: SubstackClient,
   context: HistoryContext,
   cursor?: string | null,
@@ -597,9 +610,9 @@ export async function syncOwnedNotesPage(
       }
     }
 
-    const noteId = await upsertOwnedContent(client, context, "note", item)
+    const noteId = ownedContentId("note", item)
     if (!noteId) continue
-    let result: any
+    let result: any = null
     try {
       // Pacing delay between note detail fetches to avoid upstream rate limits
       await sleep(300)
@@ -608,27 +621,30 @@ export async function syncOwnedNotesPage(
       // Deleted or no-longer-readable historical Notes should not poison the
       // entire resumable archive. The owned-content row still records that the
       // profile feed returned the Note, and the cursor may safely advance.
-      if (hasHttpStatus(error, 404)) continue
-      throw error
+      if (!hasHttpStatus(error, 404)) throw error
     }
-    await client.query(
-      `insert into note_replies_snapshots (connection_id, note_id, schema_version, payload, captured_at)
-       values ($1, $2, 1, $3, now())
-       on conflict (connection_id, note_id) do update set payload = excluded.payload, captured_at = now()`,
-      [context.connectionId, noteId, JSON.stringify(result)],
-    )
-    const stats = await ingestConversationReplies(client, {
-      ...context,
-      conversation: {
-        targetType: "note",
-        targetId: noteId,
-        sourceUrl: firstString(item.canonical_url, item.url, item.comment?.canonical_url),
-        rootAuthor: { id: context.ownerId, handle: context.ownerHandle },
-        comments: noteComments(result),
-      },
+    const stats = await inDb(db, async (client) => {
+      await upsertOwnedContent(client, context, "note", item)
+      if (!result) return null
+      await client.query(
+        `insert into note_replies_snapshots (connection_id, note_id, schema_version, payload, captured_at)
+         values ($1, $2, 1, $3, now())
+         on conflict (connection_id, note_id) do update set payload = excluded.payload, captured_at = now()`,
+        [context.connectionId, noteId, JSON.stringify(result)],
+      )
+      return ingestConversationReplies(client, {
+        ...context,
+        conversation: {
+          targetType: "note",
+          targetId: noteId,
+          sourceUrl: firstString(item.canonical_url, item.url, item.comment?.canonical_url),
+          rootAuthor: { id: context.ownerId, handle: context.ownerHandle },
+          comments: noteComments(result),
+        },
+      })
     })
-    newInteractions += stats.newInteractions
-    newPeople += stats.newPeople
+    newInteractions += stats?.newInteractions ?? 0
+    newPeople += stats?.newPeople ?? 0
   }
   const nextCursor = firstString(page?.nextCursor)
   const complete = hitCutoff || !nextCursor
@@ -636,7 +652,7 @@ export async function syncOwnedNotesPage(
 }
 
 export async function syncOwnedPostsPage(
-  client: PoolClient,
+  db: HistoryDb,
   sdk: SubstackClient,
   context: HistoryContext,
   cursor?: string | null,
@@ -663,39 +679,42 @@ export async function syncOwnedPostsPage(
       }
     }
 
-    const postId = await upsertOwnedContent(client, context, "post", item)
+    const postId = ownedContentId("post", item)
     if (!postId) continue
-    let result: any
+    let result: any = null
     try {
       result = await sdk.getPostWithEngagement(postId)
     } catch (error) {
       // Old, deleted, or otherwise unavailable posts can remain in the profile
       // listing after their detail/comments endpoint starts returning 404.
       // Preserve the post seed and advance instead of restarting forever.
-      if (hasHttpStatus(error, 404)) continue
-      throw error
+      if (!hasHttpStatus(error, 404)) throw error
     }
-    await client.query(
-      `insert into thread_snapshots
-          (id, user_id, connection_id, thread_kind, thread_root_id, complete, payload, fetched_at)
-       values ($1, $2, $3, 'post', $4, true, $5, now())
-       on conflict (user_id, thread_kind, thread_root_id) do update
-         set connection_id = excluded.connection_id, complete = true,
-             payload = excluded.payload, fetched_at = now()`,
-      [randomUUID(), context.userId, context.connectionId, postId, JSON.stringify(result)],
-    )
-    const stats = await ingestConversationReplies(client, {
-      ...context,
-      conversation: {
-        targetType: "post",
-        targetId: postId,
-        sourceUrl: firstString(item.canonical_url, item.url),
-        rootAuthor: { id: context.ownerId, handle: context.ownerHandle },
-        comments: postComments(result),
-      },
+    const stats = await inDb(db, async (client) => {
+      await upsertOwnedContent(client, context, "post", item)
+      if (!result) return null
+      await client.query(
+        `insert into thread_snapshots
+            (id, user_id, connection_id, thread_kind, thread_root_id, complete, payload, fetched_at)
+         values ($1, $2, $3, 'post', $4, true, $5, now())
+         on conflict (user_id, thread_kind, thread_root_id) do update
+           set connection_id = excluded.connection_id, complete = true,
+               payload = excluded.payload, fetched_at = now()`,
+        [randomUUID(), context.userId, context.connectionId, postId, JSON.stringify(result)],
+      )
+      return ingestConversationReplies(client, {
+        ...context,
+        conversation: {
+          targetType: "post",
+          targetId: postId,
+          sourceUrl: firstString(item.canonical_url, item.url),
+          rootAuthor: { id: context.ownerId, handle: context.ownerHandle },
+          comments: postComments(result),
+        },
+      })
     })
-    newInteractions += stats.newInteractions
-    newPeople += stats.newPeople
+    newInteractions += stats?.newInteractions ?? 0
+    newPeople += stats?.newPeople ?? 0
   }
   const complete = hitCutoff || items.length < limit
   return {

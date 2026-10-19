@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, readdirSync, statSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, readdirSync } from "node:fs";
 import { deflateRawSync } from "node:zlib";
 import { execSync } from "node:child_process";
 import path from "node:path";
@@ -25,58 +25,32 @@ function crc32(buf) {
   return (crc ^ -1) >>> 0;
 }
 
-// 1. Check version alignment across all 4 files per AGENTS.md
-console.log("--> Verifying version alignment...");
+// 1. Check the manifest and package versions match
 const manifest = JSON.parse(readFileSync(path.join(projectRoot, "manifest.json"), "utf8"));
 const pkg = JSON.parse(readFileSync(path.join(projectRoot, "package.json"), "utf8"));
-const pkgLock = JSON.parse(readFileSync(path.join(projectRoot, "package-lock.json"), "utf8"));
-const versionJson = JSON.parse(readFileSync(path.join(projectRoot, "version.json"), "utf8"));
-
 const vManifest = manifest.version;
-const vPkg = pkg.version;
-const vLock = pkgLock.version;
-const vJson = versionJson.version;
-
-if (vManifest !== vPkg || vManifest !== vLock || vManifest !== vJson) {
-  console.error("Version mismatch found:");
-  console.error(`  manifest.json:     ${vManifest}`);
-  console.error(`  package.json:      ${vPkg}`);
-  console.error(`  package-lock.json: ${vLock}`);
-  console.error(`  version.json:      ${vJson}`);
+if (vManifest !== pkg.version) {
+  console.error(`Version mismatch: manifest.json ${vManifest}, package.json ${pkg.version}`);
   process.exit(1);
 }
-console.log(`✓ All version files match version ${vManifest}`);
+console.log(`✓ Version ${vManifest}`);
 
-// 2. Ensure promo tile asset exists
-const promoTilePath = path.join(projectRoot, "store-assets/promo-tile-440x280.png");
-if (!existsSync(promoTilePath)) {
-  console.log("--> Generating promo tile asset...");
-  execSync(`node "${path.join(__dirname, "generate-promo.mjs")}"`, { stdio: "inherit" });
-}
-
-// 3. Run production build
+// 2. Run production build
 console.log("--> Building extension with --prod...");
 execSync(`node "${path.join(__dirname, "build.mjs")}" --prod`, { cwd: projectRoot, stdio: "inherit" });
 
-// 4. Validate dist/manifest.json
+// 3. Validate dist/manifest.json
 console.log("--> Validating production dist/manifest.json...");
 const distManifest = JSON.parse(readFileSync(path.join(distDir, "manifest.json"), "utf8"));
 const hasDevOrigin = (arr) => Array.isArray(arr) && arr.some((item) => item.includes("localhost") || item.includes("127.0.0.1"));
 
+// Local hosts may only be granted optionally, when a developer pairs one.
 if (hasDevOrigin(distManifest.host_permissions)) {
   throw new Error("dist/manifest.json still contains localhost in host_permissions!");
 }
-for (const cs of distManifest.content_scripts ?? []) {
-  if (hasDevOrigin(cs.matches)) {
-    throw new Error("dist/manifest.json still contains localhost in content_scripts.matches!");
-  }
-}
-if (hasDevOrigin(distManifest.externally_connectable?.matches)) {
-  throw new Error("dist/manifest.json still contains localhost in externally_connectable.matches!");
-}
-console.log("✓ Production manifest verified (clean of localhost/127.0.0.1).");
+console.log("✓ Production manifest verified (no required localhost access).");
 
-// 5. Gather all files in dist
+// 4. Gather all files in dist
 function getAllFiles(dir, baseDir = dir) {
   let files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -94,7 +68,7 @@ function getAllFiles(dir, baseDir = dir) {
 const entries = getAllFiles(distDir);
 console.log(`--> Packaging ${entries.length} files into zip...`);
 
-// 6. Create ZIP buffer using raw deflate
+// 5. Create ZIP buffer using raw deflate
 function createZip(fileEntries) {
   const localHeaders = [];
   const centralHeaders = [];

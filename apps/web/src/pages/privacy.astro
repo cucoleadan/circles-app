@@ -1,5 +1,8 @@
 ---
 import "@workspace/ui/globals.css";
+// The instance operator, not the project authors, owns this policy.
+const host = `https://${Astro.url.host}`
+const contactEmail = process.env.CONTACT_EMAIL ?? ""
 ---
 
 <!doctype html>
@@ -117,7 +120,7 @@ import "@workspace/ui/globals.css";
           <h2 class="text-lg font-semibold text-foreground">4. Data Storage and Transmission</h2>
           <p>
             Circles Companion transmits data exclusively via secure encrypted connections (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">HTTPS</code>)
-            directly between your browser, Substack's official endpoints, and your Circles CRM host (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">https://circles.mhntwrkdan.dev</code>).
+            directly between your browser, Substack's official endpoints, and your Circles CRM host (<code class="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-foreground">{host}</code>).
           </p>
           <p>
             Data is stored in your private PostgreSQL database under strict row-level security (RLS) tenant isolation.
@@ -143,7 +146,10 @@ import "@workspace/ui/globals.css";
               <strong><code>host_permissions</code> (<code>https://*.substack.com/*</code>)</strong>: Required to inject the in-page quick-add contact buttons and passively capture response streams when you browse your Substack feed.
             </li>
             <li>
-              <strong><code>host_permissions</code> (<code>https://circles.mhntwrkdan.dev/*</code>)</strong>: Required to communicate with your Circles CRM web API.
+              <strong><code>scripting</code></strong>: Used to load the companion's bridge script only on the Circles server you pair in the extension popup.
+            </li>
+            <li>
+              <strong><code>optional_host_permissions</code> (<code>https://*/*</code>)</strong>: Never granted up front. When you enter your Circles server address in the popup, Chrome asks you to allow access to that single site (for example <code>{host}/*</code>) so the extension can communicate with your Circles CRM web API. No other site is accessed.
             </li>
           </ul>
         </section>
@@ -173,9 +179,14 @@ import "@workspace/ui/globals.css";
         <section class="space-y-3 border-t border-border/40 pt-6">
           <h2 class="text-lg font-semibold text-foreground">8. Contact</h2>
           <p>
-            If you have questions about this Privacy Policy or your CRM data, contact:
-            <br />
-            <a href="mailto:cucoleadan@gmail.com" class="font-medium text-primary hover:underline">cucoleadan@gmail.com</a>
+            If you have questions about this Privacy Policy or your CRM data, contact the operator of this Circles
+            instance{contactEmail ? ":" : "."}
+            {contactEmail && (
+              <>
+                <br />
+                <a href={`mailto:${contactEmail}`} class="font-medium text-primary hover:underline">{contactEmail}</a>
+              </>
+            )}
           </p>
         </section>
       </div>

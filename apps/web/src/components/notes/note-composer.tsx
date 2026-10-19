@@ -67,6 +67,7 @@ import {
 import { NoteEditor, toSubstackDoc } from "./note-editor"
 import { PostPreview } from "./note-item"
 import { NoteTagChip, NoteTagPicker, useNoteTags } from "./note-tags"
+import { initials } from "../contact-card/contact-card-badges"
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const CARD_CLASS =
@@ -112,17 +113,6 @@ function defaultSchedule(note: ScheduledNote | null, day: Date | null): Date {
   return atTime(new Date(Date.now() + DAY_MS), "09:00")
 }
 
-function initials(name: string): string {
-  return (
-    name
-      .split(/\s+/)
-      .map((part) => part[0])
-      .filter(Boolean)
-      .slice(0, 2)
-      .join("")
-      .toUpperCase() || "Me"
-  )
-}
 
 const iconButtonClass =
   "flex size-8 items-center justify-center rounded-lg text-stone-600 transition-colors hover:bg-stone-100 hover:text-stone-900 disabled:pointer-events-none disabled:opacity-40 dark:text-stone-300 dark:hover:bg-stone-800 dark:hover:text-white"
@@ -419,7 +409,7 @@ export function NoteComposer({
           <div className="flex min-w-0 items-center gap-2.5">
             <Avatar className="size-9">
               <AvatarFallback className="bg-[#f15a3a] text-xs font-bold text-white">
-                {initials(displayName)}
+                {initials(displayName) || "Me"}
               </AvatarFallback>
             </Avatar>
             <span className="truncate text-sm font-semibold text-stone-900 dark:text-stone-100">

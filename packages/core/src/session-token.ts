@@ -56,3 +56,9 @@ export function openSessionToken(row: StoredSessionToken): string {
   decipher.setAuthTag(data.subarray(data.length - 16))
   return Buffer.concat([decipher.update(data.subarray(0, data.length - 16)), decipher.final()]).toString("utf8")
 }
+
+/** Sealed replacement for a legacy plain row once SESSION_TOKEN_KEY is set; null when nothing changes. */
+export function resealSessionToken(row: StoredSessionToken): SealedSessionToken | null {
+  if ((row.key_id && row.key_id !== PLAIN) || !configuredKey()) return null
+  return sealSessionToken(row.ciphertext)
+}

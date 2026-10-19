@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "bun:test";
 import { parseCompanionResponse } from "../src/lib/companion-response";
 
 describe("companion response", () => {
