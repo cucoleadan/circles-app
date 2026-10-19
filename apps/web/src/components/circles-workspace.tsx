@@ -170,7 +170,10 @@ export function CirclesWorkspace({
 
   async function logout() {
     // Leaving on a failed sign-out keeps the session and "logs back in" on reload.
-    const response = await fetch("/api/auth/sign-out", { method: "POST" }).catch(() => null)
+    // Better Auth answers 415 to a POST without a JSON content type.
+    const response = await fetch("/api/auth/sign-out", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    }).catch(() => null)
     if (!response?.ok) {
       setNotice("Sign-out failed. Please try again.")
       setTimeout(() => setNotice(null), 3000)

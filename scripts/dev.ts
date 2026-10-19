@@ -113,11 +113,23 @@ async function tunnelDatabaseUrl(host: string) {
   databaseUrl.hostname = "127.0.0.1"
   databaseUrl.port = String(localDatabasePort)
 
+  spawnTunnel(host)
+  await waitForTunnel()
+  console.log(`Database tunnel ready on localhost:${localDatabasePort}.`)
+  return databaseUrl
+}
+
+function spawnTunnel(host: string) {
   tunnel = Bun.spawn(
     [
       "ssh",
       "-o",
       "ExitOnForwardFailure=yes",
+      // Exit on a dead connection (e.g. after sleep) so keepTunnelOpen reconnects.
+      "-o",
+      "ServerAliveInterval=15",
+      "-o",
+      "ServerAliveCountMax=3",
       "-N",
       "-L",
       `${localDatabasePort}:127.0.0.1:${remoteDatabasePort}`,
@@ -125,9 +137,29 @@ async function tunnelDatabaseUrl(host: string) {
     ],
     { stdin: "ignore", stdout: "inherit", stderr: "inherit", windowsHide: true }
   )
-  await waitForTunnel()
-  console.log(`Database tunnel ready on localhost:${localDatabasePort}.`)
-  return databaseUrl
+}
+
+// Reopen the tunnel whenever ssh exits, backing off up to 30 s, until dev stops.
+async function keepTunnelOpen(host: string) {
+  let delay = 1_000
+  while (!stopping) {
+    await tunnel?.exited
+    if (stopping) return
+    console.warn(`\nDatabase tunnel closed; reconnecting in ${delay / 1000}s…`)
+    await Bun.sleep(delay)
+    if (stopping) return
+    try {
+      await remote(`docker start ${databaseProxy}`)
+      spawnTunnel(host)
+      await waitForTunnel()
+      console.log("Database tunnel reconnected.")
+      delay = 1_000
+    } catch (error) {
+      killTree(tunnel)
+      console.warn(`Tunnel reconnect failed: ${error instanceof Error ? error.message : error}`)
+      delay = Math.min(delay * 2, 30_000)
+    }
+  }
 }
 
 try {
@@ -175,6 +207,7 @@ try {
         `${root}/apps/web`
       ),
     ]
+    if (sshHost) void keepTunnelOpen(sshHost)
     stop(await Promise.race(apps.map((app) => app.exited)))
   }
 } catch (error) {
