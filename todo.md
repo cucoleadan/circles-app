@@ -30,10 +30,7 @@ or status changes. Last updated: 2026-10-20.
 
 - [ ] Smoke test the live store build (0.3.0): a fresh install opens setup, pairs a server,
       connects Substack and captures there; re-pairing a second server switches over.
-- [ ] Attach `extension/circles-companion-0.3.0.zip` to a GitHub Release
-      (`gh release create extension-v0.3.0 …`); none exists yet.
-- [ ] Add a real (privacy-blurred) screenshot to the README, and a GitHub repo
-      description and topics.
+- [ ] Add a real (privacy-blurred) screenshot to the README.
 - [ ] Live `TZ` on api is `UTC`; set a local IANA zone if the MCP day brief
       should default to local time.
 

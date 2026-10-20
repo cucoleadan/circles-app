@@ -235,9 +235,11 @@ cd extension
 bun run pack
 ```
 
-That writes `extension/circles-companion-<version>.zip` (git-ignored; publish
-it as a GitHub Release) with the contents of `dist` at the archive root, and
-refuses a production build without an https origin. Do not bump or rebuild the
+That writes `extension/circles-companion-<version>.zip` (git-ignored) with the
+contents of `dist` at the archive root, and refuses a build whose required host
+permissions include localhost. When a push to `main` changes the manifest
+version, `.github/workflows/extension-release.yml` packs it and publishes the
+`extension-v<version>` GitHub Release; do not upload releases by hand. Do not bump or rebuild the
 extension for a web/API-only change unless requested or required for
 compatibility.
 

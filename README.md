@@ -83,7 +83,9 @@ click its toolbar icon, enter your Circles address as the **Circles server**
 and allow access when Chrome asks. The extension only gets access to that one
 site; it registers its app bridge there at runtime.
 
-To build it yourself:
+Each version is also attached to the repository's
+[Releases](https://github.com/cucoleadan/circles-app/releases). To build it
+yourself:
 
 ```sh
 cd extension
