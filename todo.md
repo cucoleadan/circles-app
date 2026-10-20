@@ -1,7 +1,7 @@
 # Circles CRM — open work
 
 Open items only; completed work is in git history. Update this file when scope
-or status changes. Last updated: 2026-10-19.
+or status changes. Last updated: 2026-10-20.
 
 ## Substack audience endpoints (blocking follower/following sync)
 
@@ -14,12 +14,12 @@ or status changes. Last updated: 2026-10-19.
       activity sync are healthy. Next: capture the live response (status,
       content type, `cf-mitigated`) to tell a Cloudflare challenge from a
       changed or retired endpoint, then fix it in `unofficial-substack-sdk`.
-- [ ] Re-check that CRM "following" (293 contacts) matches upstream once the
-      endpoint works again.
+- [ ] Re-check that CRM "following" matches upstream once the endpoint works
+      again.
 
 ## MCP
 
-- [ ] Re-authorize Cursor and select the write permissions on the consent page.
+- [ ] Confirm Cursor completes the consent flow with write scopes.
 - [ ] Resolve ChatGPT's "Missing OAuth callback data" error; confirm whether it
       now completes the flow and calls tools.
 - [ ] Verify modern-client/gateway integration and actual Cloudflare SSO linking.
@@ -34,9 +34,7 @@ or status changes. Last updated: 2026-10-19.
       (`gh release create extension-v0.3.0 …`); none exists yet.
 - [ ] Add a real (privacy-blurred) screenshot to the README, and a GitHub repo
       description and topics.
-- [ ] Run `gitleaks detect` over the full history before switching the repo to
-      public (manual pattern scans found only placeholders).
-- [ ] Live `TZ` on api is `UTC`; set `TZ=Europe/Bucharest` if the MCP day brief
+- [ ] Live `TZ` on api is `UTC`; set a local IANA zone if the MCP day brief
       should default to local time.
 
 ## Verify deployed fixes live (UI)
@@ -46,8 +44,7 @@ or status changes. Last updated: 2026-10-19.
 - [ ] List member counts; companion confirmation flow.
 - [ ] Contact refetch against a live contact (recent pages, not a full backfill).
 - [ ] Handle repair: handle-less subscriber IDs that Substack returns 404 for
-      must stay handle-less unless new identity evidence appears (3,002 active
-      contacts currently have neither handle nor profile link).
+      must stay handle-less unless new identity evidence appears.
 - [ ] Live unlike/unrestack smoke test and post/Note source reconciliation.
 
 ## Operations
