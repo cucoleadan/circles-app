@@ -30,7 +30,9 @@ or status changes. Last updated: 2026-10-20.
 
 - [ ] Smoke test the live store build (0.3.0): a fresh install opens setup, pairs a server,
       connects Substack and captures there; re-pairing a second server switches over.
-- [ ] Add a real (privacy-blurred) screenshot to the README.
+- [ ] Replace the Chrome Web Store listing screenshots with
+      `extension/store-assets/screenshot-0*-1280x800.png` (dashboard only; the
+      API cannot edit listings).
 - [ ] Live `TZ` on api is `UTC`; set a local IANA zone if the MCP day brief
       should default to local time.
 

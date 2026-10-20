@@ -15,24 +15,65 @@ you, who you engage with, and who is waiting on a reply.
 
 ## Features
 
-- **Contacts and timelines** — every inbound and outbound interaction, with the
-  Note or post it happened on, merged by stable Substack profile ID.
-- **Separate inbound and outbound scores** — engagement you receive never
-  inflates the engagement you give, and vice versa; "given / received" totals
-  per action.
-- **Queues** — people who need a reply, drifting relationships, priority
-  contacts, received-comment triage, lists and tags.
-- **Background sync** — a PostgreSQL job queue polls the notification feed,
-  refreshes reply trees on your recent Notes/posts, reconciles followers and
-  subscribers, and runs resumable historical backfills.
-- **Note scheduling** — write, schedule and tag Substack Notes; Substack itself
-  publishes them.
-- **Companion Chrome extension** — connects your Substack session and captures
-  your outbound likes, restacks and replies as they happen.
-- **MCP server** — an OAuth-protected `/api/mcp` endpoint that lets AI agents
-  read and manage your CRM with scoped grants (see [docs/mcp.md](docs/mcp.md)).
-- **Multi-tenant safety** — PostgreSQL row-level security on every tenant
-  table, a restricted runtime database role, and append-only migrations.
+Screenshots show generated sample data.
+
+### Contacts, scores and queues
+
+Everyone who engages with you, or whom you engage with, becomes a contact,
+merged by stable Substack profile ID. Inbound and outbound engagement are scored
+separately, so what you receive never inflates what you give, and the strip
+under the totals shows given / received per action. Queues surface people who
+need a reply, drifting relationships and priority contacts; lists and tags
+organize the rest.
+
+![Contacts with relationship scores and action queues](docs/screenshots/01-contacts.png)
+
+### Contact timelines
+
+Each contact has a full interaction timeline in both directions, with the Note
+or post it happened on, a relationship balance and a per-action breakdown.
+
+![A contact's relationship balance and interaction timeline](docs/screenshots/02-contact.png)
+
+### Comment triage
+
+Comments and direct replies on your Notes and articles, newest first, marked
+when you have already replied or liked, and filterable by date, status and
+content type.
+
+![Received comments with replied and liked status](docs/screenshots/03-comments.png)
+
+### Background sync and history backfills
+
+A PostgreSQL job queue polls the notification feed, refreshes reply trees on
+your recent Notes and posts, and reconciles followers and subscribers.
+Resumable backfills import older history per source, with honest progress for
+streams Substack only partly exposes.
+
+![Choosing sources and a timeframe for a history backfill](docs/screenshots/04-sync.png)
+
+### Note scheduling
+
+Write, schedule and tag Substack Notes. Drafts live in Substack and Substack
+itself publishes them at the scheduled time, so nothing depends on Circles
+being up.
+
+![Composing and scheduling Substack Notes](docs/screenshots/05-notes.png)
+
+### Companion Chrome extension
+
+Connects your Substack session and captures your outbound likes, restacks and
+replies as they happen. See [Browser extension](#browser-extension).
+
+### MCP server
+
+An OAuth-protected `/api/mcp` endpoint that lets AI agents read and manage your
+CRM with scoped grants (see [docs/mcp.md](docs/mcp.md)).
+
+### Multi-tenant safety
+
+PostgreSQL row-level security on every tenant table, a restricted runtime
+database role, and append-only migrations.
 
 ## Architecture
 

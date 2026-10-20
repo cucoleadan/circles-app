@@ -35,3 +35,6 @@ scripts/migration/exports/
 
 # packaged extension builds (publish via GitHub Releases)
 extension/*.zip
+
+# Playwright MCP snapshots (may contain live data)
+.playwright-mcp/
