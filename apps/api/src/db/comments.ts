@@ -30,8 +30,16 @@ export async function listComments(client: PoolLike, options: {
     cursorWhere = "and (c.occurred_at, c.id) < ($7, $8)"
   }
   params.push(limit + 1)
+  const shortWindow = Date.parse(String(params[5])) - Date.parse(String(params[4])) <= 31 * 86400000
   const result = await client.query(
-    `with candidates as (
+    `with window_keys as (
+      -- The final filter keeps a comment only if its chosen row is in the window,
+      -- so limiting work to comments with any row there changes no result. It
+      -- only pays off for short windows; long history ranges skip it.
+      select distinct ${commentKey("w")} as comment_key from interactions w
+      where w.direction = 'inbound' and w.action_type in ('comment', 'reply') and w.removed_at is null
+        and w.occurred_at >= $5::timestamptz and w.occurred_at < $6::timestamptz
+    ), candidates as (
       select i.*, ${commentKey("i")} as comment_key,
         p.name as author_name, p.handle as author_handle, p.avatar_url as author_avatar,
         o.kind as content_kind, o.title as content_title, o.body as content_body, o.url as content_url,
@@ -53,6 +61,7 @@ export async function listComments(client: PoolLike, options: {
             or nullif(i.metadata->>'root_comment_id', '') is not null then 'note'
           else coalesce(i.thread_kind, i.target_type) end
       where i.direction = 'inbound' and i.action_type in ('comment', 'reply') and i.removed_at is null
+        ${shortWindow ? `and ${commentKey("i")} in (select comment_key from window_keys)` : ""}
     ), comments as (
       select c.*,
         exists (select 1 from interactions a

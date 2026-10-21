@@ -5,9 +5,10 @@ or status changes. Last updated: 2026-10-21.
 
 ## Substack audience endpoints
 
-- [ ] Verify after deploy: migration 035 retires queued `sync:followers` work,
-      the following sweep (`/api/v1/feed/following`) completes, and
-      `enrich:missing-handles` names the contacts it creates.
+- [ ] Confirm the larger account's first scheduled following sweep (the
+      2026-10-21 manual run covered the smaller one: 1,302 checked, 256
+      followed, 43 created, placeholder names resolving) and that its
+      backfill stays limited to the sweep's placeholder contacts.
 - [ ] Followers come only from follow notifications (Substack's
       `subscriber-lists` endpoint answers non-browser clients with a Cloudflare
       challenge since 2026-10-13). Unfollows are not detected. If a full list
@@ -16,10 +17,6 @@ or status changes. Last updated: 2026-10-21.
       challenged endpoint.
 
 ## MCP
-
-- [ ] Live check of the SDK result cache: a repeated SDK call returns
-      `_meta["circles/cached"] = true` without a new `mcp:substack` job, and
-      `refresh: true` within 10 minutes still reuses the copy.
 
 - [ ] Confirm Cursor completes the consent flow with write scopes.
 - [ ] Resolve ChatGPT's "Missing OAuth callback data" error; confirm whether it
@@ -35,8 +32,9 @@ or status changes. Last updated: 2026-10-21.
 - [ ] Replace the Chrome Web Store listing screenshots with
       `extension/store-assets/screenshot-0*-1280x800.png` (dashboard only; the
       API cannot edit listings).
-- [ ] Live `TZ` on api is `UTC`; set a local IANA zone if the MCP day brief
-      should default to local time.
+- [ ] Live `TZ` on api is `UTC` (compose passes `${TZ:-UTC}`); add
+      `TZ=Europe/Bucharest` (or the owner's IANA zone) to the Dokploy compose
+      env if the MCP day brief should default to local time.
 
 ## Verify deployed fixes live (UI)
 
@@ -50,8 +48,12 @@ or status changes. Last updated: 2026-10-21.
 
 ## Operations
 
-- [ ] Backup policy beyond Dokploy's scheduled backups; a tested restore into a
-      scratch database; measured read performance.
+- [ ] Off-site copies: daily dumps (compose `backup` service) stay on the
+      database host. Add a Dokploy S3 destination or copy `/backups` off the
+      server. Restore drill and read timings are in `docs/operations.md`.
+- [ ] Comment history over ranges longer than 31 days still ranks every
+      inbound comment (~510 ms on the 9.4k-contact account); index the comment
+      key if that view gets slow.
 
 ## Known limitations
 

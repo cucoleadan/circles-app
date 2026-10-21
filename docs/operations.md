@@ -131,6 +131,47 @@ private channel; rotate them after first sign-in when practical.
 
 ## Backups
 
-Dokploy's scheduled PostgreSQL backups are the interim mechanism; the full
-off-site encrypted backup/restore policy with tested restores is still open
-(see `todo.md`). Until then, treat backups as unproven.
+Dokploy has no backup destination configured, so it takes no database
+backups. The compose `backup` service (`postgres:18-alpine`, same major as the
+server) writes `pg_dump --format=custom` files to the `backups` volume as
+`/backups/circles-<UTC timestamp>.dump`. It checks hourly, dumps when the
+newest file is over 23 hours old and deletes dumps older than
+`BACKUP_KEEP_DAYS` (default 14). A dump is ~490 MB for a ~1.3 GB database.
+It connects with the admin `DATABASE_URL` (superuser), so dumps include every
+tenant's rows despite RLS. Check it with `docker logs <app>-backup-1`.
+
+These dumps live on the same host as the database: they cover mistakes and
+corruption, not losing the server. Copy them off the host, or add a Dokploy S3
+destination, for disaster recovery.
+
+### Restore drill (tested 2026-10-21)
+
+Run inside the backup container, which has the client tools, the network and
+the admin URL:
+
+```sh
+docker exec -it <app>-backup-1 sh
+base="${DATABASE_URL%/*}"            # the URL must not carry ?query params
+file=$(ls -t /backups/circles-*.dump | head -1)
+psql "$DATABASE_URL" -c "create database circles_restore_check"
+pg_restore --no-owner --no-privileges --jobs=2 --exit-on-error   -d "$base/circles_restore_check" "$file"
+psql -tA "$base/circles_restore_check" -c "select max(name) from app_migrations"
+psql "$DATABASE_URL" -c "drop database circles_restore_check"
+```
+
+The drill restored a 486 MB dump in 101 s; row counts matched the live
+database apart from rows synced after the dump, and all 26 RLS tables kept RLS.
+`--no-owner --no-privileges` suits a scratch copy. To replace the real
+database, stop `api`/`worker`, restore with owners and privileges kept (the
+roles already exist in the cluster), then start them again.
+
+### Read performance (measured 2026-10-21 on the restored copy)
+
+Medians of three warm runs through the app role with RLS, over an SSH tunnel
+with an ~8 ms round trip, for a 9.4k-contact and a 1.3k-contact account:
+overview 180/90 ms, people list (1,000) 229/70 ms, priority 211/81 ms,
+needs-reply 160/57 ms, following 42/50 ms, search 92/59 ms. Pending comments
+took 715/43 ms because the query ranked every inbound comment before applying
+its window. Windows up to 31 days now pre-select comments with a row in the
+window, which cut the live 48-hour view from ~450-510 ms to ~110-140 ms with
+identical results; longer history ranges are unchanged (~510 ms).
