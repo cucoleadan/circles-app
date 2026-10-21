@@ -360,7 +360,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     const backfill = executedQueries.filter((query) => query.sql.includes("'enrich:missing-handles'"))
     expect(backfill).toHaveLength(1)
     expect(backfill[0]!.sql).toContain("not exists")
-    expect(JSON.parse(backfill[0]!.params![0])).toEqual({ userId: "user-1", connectionId: "conn-1" })
+    expect(JSON.parse(backfill[0]!.params![0])).toEqual({ userId: "user-1", connectionId: "conn-1", placeholdersOnly: true })
   })
 
   test.each([

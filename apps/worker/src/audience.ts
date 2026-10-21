@@ -286,6 +286,7 @@ export async function processMissingHandleBackfill(
   userId: string,
   connectionId: string,
   afterId?: string | null,
+  placeholdersOnly = false,
 ) {
   const state = await withTenant(client, userId, async () => {
     const connection = await client.query(
@@ -299,8 +300,9 @@ export async function processMissingHandleBackfill(
        where user_id = $1 and archived_at is null and normalized_handle is null
          and substack_profile_id is not null
          and ($2::text is null or id > $2::text)
+         and (not $3 or name in ('Following ' || substack_profile_id, 'Follower ' || substack_profile_id))
        order by id limit 1`,
-      [userId, afterId ?? null],
+      [userId, afterId ?? null, placeholdersOnly],
     )
     return { connection: connection.rows[0], person: person.rows[0] }
   })

@@ -77,6 +77,41 @@ services:
       EXTENSION_STORE_URL: ${EXTENSION_STORE_URL:-}
       CONTACT_EMAIL: ${CONTACT_EMAIL:-}
 
+  # Daily logical dumps kept on the host (see docs/operations.md "Backups").
+  # Checks hourly and dumps when the newest file is over 23 hours old, so
+  # redeploys do not pile up extra dumps.
+  backup:
+    image: postgres:18-alpine
+    networks:
+      - dokploy-network
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - backups:/backups
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        while true; do
+          if [ -z "$$(find /backups -name 'circles-*.dump' -mmin -1380)" ]; then
+            file=/backups/circles-$$(date -u +%Y%m%dT%H%M%SZ).dump
+            if pg_dump --format=custom --file="$$file.partial" "$$DATABASE_URL"; then
+              mv "$$file.partial" "$$file"
+              find /backups -name 'circles-*.dump' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+              echo "backup written: $$file ($$(du -h "$$file" | cut -f1))"
+            else
+              rm -f "$$file.partial"
+              echo "backup failed" >&2
+            fi
+          fi
+          sleep 3600
+        done
+
+volumes:
+  backups:
+
 networks:
   dokploy-network:
     external: true

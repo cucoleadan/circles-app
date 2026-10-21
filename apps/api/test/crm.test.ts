@@ -1578,6 +1578,8 @@ describe("interactions", () => {
       values ('handle-connection',$1,1,'plain','','','synthetic-private-session','active')`, [userA])
     await withTenant({ appUserId: userA }, (client) =>
       applyFollowingSnapshot(client, userA, [{ id: "4242", handle: null, isSubscribed: false }], false))
+    await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Unresolvable Subscriber", substackProfileId: "5555" }))
     const { processMissingHandleBackfill } = await import(new URL("../../worker/src/audience.ts", import.meta.url).href)
     const originalFetch = globalThis.fetch
     globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
@@ -1588,7 +1590,9 @@ describe("interactions", () => {
     }) as typeof fetch
     const client = await db.connect()
     try {
-      expect(await processMissingHandleBackfill(client, userA, "handle-connection")).toMatchObject({ recovered: 1 })
+      expect(await processMissingHandleBackfill(client, userA, "handle-connection", null, true)).toMatchObject({ recovered: 1 })
+      // The handle-less subscriber is not a sweep placeholder, so it is never looked up.
+      expect(await processMissingHandleBackfill(client, userA, "handle-connection", null, true)).toMatchObject({ completed: true, checked: 0 })
     } finally { client.release(); globalThis.fetch = originalFetch }
     const person = await withTenant({ appUserId: userA }, (client) =>
       client.query("select name, handle, avatar_url, profile_url, is_following from people where substack_profile_id = '4242'"))

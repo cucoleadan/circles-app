@@ -82,6 +82,7 @@ export interface JobHandlers {
     userId: string,
     connectionId: string,
     afterId?: string | null,
+    placeholdersOnly?: boolean,
   ) => Promise<any>
 }
 
@@ -367,14 +368,15 @@ export async function claimAndRunJob(
               `${result.created ?? 0} new contacts.`,
           )
         }
-        // The following list is ID-only; resolve names/handles for contacts it created.
+        // The following list is ID-only; resolve names/handles for the contacts it
+        // created, not every handle-less subscriber (thousands of profile reads).
         if (!result.skipped && (result.created ?? 0) > 0) {
           enqueue(
             `insert into jobs (type, payload, status, run_at)
              select 'enrich:missing-handles', $1::jsonb, 'pending', now() + interval '1 minute'
              where not exists (select 1 from jobs where type = 'enrich:missing-handles'
                and status in ('pending', 'running') and payload->>'connectionId' = $2)`,
-            [JSON.stringify({ userId, connectionId }), connectionId],
+            [JSON.stringify({ userId, connectionId, placeholdersOnly: true }), connectionId],
           )
         }
         jobResult = result.skipped
@@ -382,8 +384,8 @@ export async function claimAndRunJob(
           : numericSummary(result, ["checked", "updated", "subscribed", "created", "failed"])
       } else if (job.type === "enrich:missing-handles") {
         const result = handlers?.onMissingHandleBackfill
-          ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId)
-          : await processMissingHandleBackfill(client, userId, connectionId, afterId)
+          ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId, payload.placeholdersOnly === true)
+          : await processMissingHandleBackfill(client, userId, connectionId, afterId, payload.placeholdersOnly === true)
         const keepGoing = importRunId
           ? await recordMissingHandleProgress(client, userId, importRunId, result)
           : !result.completed && !result.skipped
