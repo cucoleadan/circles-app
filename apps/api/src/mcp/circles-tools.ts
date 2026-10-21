@@ -47,10 +47,10 @@ export const circlesTools: CirclesTool[] = [
       vipScoreThreshold: z.number().int().min(0).max(100000).optional(),
     }),
   }, organize),
-  tool("list_people", "Search locally synced contacts, including priority, needs-reply and outbound views. Pagination uses offset.", "GET", "/people", {
+  tool("list_people", "Search locally synced contacts, including priority, needs-reply, outbound and following (accounts you follow, swept daily) views. Pagination uses offset.", "GET", "/people", {
     search: z.string().max(500).optional(),
     status: z.enum(["new", "reach-out", "contacted", "conversation", "active", "archived"]).optional(),
-    view: z.enum(["all", "needs-reply", "awaiting-response", "mutual", "priority", "conversations", "inbound", "outbound", "no-history", "opportunities", "follows-not-subscribed", "ignored"]).default("all"),
+    view: z.enum(["all", "needs-reply", "awaiting-response", "mutual", "priority", "conversations", "inbound", "outbound", "no-history", "opportunities", "follows-not-subscribed", "following", "ignored"]).default("all"),
     sort: z.enum(["engagement", "recent_conversation", "recent_interaction", "name", "inbound", "outbound", "priority"]).optional(),
     tagId: entityId.optional(), listId: entityId.optional(),
     since: dateTime.optional(), until: dateTime.optional(),

@@ -2168,8 +2168,8 @@ describe("MCP OAuth and tenant operations", () => {
       await client.connect(new StreamableHTTPClientTransport(new URL("/api/mcp", server.url), {
         requestInit: { headers: { authorization: `Bearer ${grant.access_token}` } },
       }))
-      // A read grant lists 19 circles_* reads plus the 18 SDK reads.
-      expect((await client.listTools()).tools).toHaveLength(37)
+      // A read grant lists 20 circles_* reads plus the 12 SDK reads Circles does not sync.
+      expect((await client.listTools()).tools).toHaveLength(32)
       const result = await client.callTool({ name: "circles_list_people", arguments: {} })
       expect(result.isError).not.toBe(true)
       await expect(client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })).rejects.toThrow("not found")
@@ -2392,6 +2392,11 @@ describe("MCP OAuth and tenant operations", () => {
     expect(run.result.isError).not.toBe(true)
     expect(JSON.stringify(run.result)).toContain("Tester")
     expect(JSON.stringify(run.result)).not.toContain("synthetic-private-session")
+    const second = await authorize(cookieA)
+    const cached = await enqueueSdkTool(second.principal, "get_authenticated_profile", {}, ["substack:read"])
+    expect(JSON.stringify((cached as { cached?: unknown }).cached)).toContain("Tester")
+    // A refresh inside the cooldown still reuses the copy instead of hitting Substack.
+    expect("cached" in await enqueueSdkTool(second.principal, "get_authenticated_profile", {}, ["substack:read"], true)).toBe(true)
   }, 15000)
 
   test("two agent clients cannot race past the account's ten-job limit", async () => {
@@ -2425,6 +2430,31 @@ describe("MCP OAuth and tenant operations", () => {
       } })
       expect(result.isError).not.toBe(true)
       expect((result.structuredContent as any).data.notes.map((note: { id: string }) => note.id)).toEqual(["inside"])
+    } finally { await client.close() }
+  })
+
+  test("following and Note engagement are served from synced CRM data", async () => {
+    const [followed] = await withTenant({ appUserId: userA }, async (client) => {
+      const followed = await createPerson(client, userA, { name: "Followed", handle: "followed", isFollowing: true })
+      const other = await createPerson(client, userA, { name: "Other", handle: "other" })
+      const add = (externalId: string, personId: string, actionType: "like" | "restack" | "comment", threadRootId: string) =>
+        recordInteraction(client, userA, { externalId, personId, direction: "inbound", actionType, targetType: "note",
+          targetId: threadRootId, threadKind: "note", threadRootId, occurredAt: new Date().toISOString() })
+      await add("note-like", followed.id, "like", "700")
+      await add("note-restack", other.id, "restack", "700")
+      await add("other-note", other.id, "comment", "701")
+      return [followed]
+    })
+    const principal: McpPrincipal = { appUserId: userA, authUserId: authA, clientId: "test", issuedAt: 1, scopes: new Set(["circles:read"]) }
+    const client = new McpClient({ name: "covered-reads-test", version: "1" })
+    try {
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpResource), { fetch: (input, init) => handleMcpRequest(new Request(input, init), principal) }))
+      const engagement = (await client.callTool({ name: "circles_get_note_engagement", arguments: { noteId: "note:700" } })).structuredContent as any
+      expect(engagement.data.counts).toEqual([
+        { direction: "inbound", actionType: "like", total: 1 }, { direction: "inbound", actionType: "restack", total: 1 },
+      ])
+      const following = (await client.callTool({ name: "circles_list_people", arguments: { view: "following" } })).structuredContent as any
+      expect(following.data.people.map((person: { id: string }) => person.id)).toEqual([followed.id])
     } finally { await client.close() }
   })
 })

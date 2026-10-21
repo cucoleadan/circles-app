@@ -58,9 +58,13 @@ private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
 It uses local signing-key verification and finite JSON transport responses.
-Discovery lists up to 75 tools (18 canonical SDK reads plus 57 Circles
-operations), omitting duplicate camelCase SDK names and any tool the grant's
-scopes do not allow. SDK reads wait up to 20 s and return the result inline
+Discovery lists up to 70 tools (12 canonical SDK reads plus 58 Circles
+operations), omitting duplicate camelCase SDK names, the six SDK reads Circles already
+syncs (profile, activity, unread activity, own Notes, following, Note
+engagement), and any tool the grant's
+scopes do not allow. SDK reads return the server's cached run for the same
+tool/arguments (under 6 h old); only a miss or `refresh: true` (ignored within
+10 min of the last fetch) queues a live read, which waits up to 20 s inline
 before falling back to `circles_get_tool_run`. Previously queued aliases remain
 executable through the unchanged worker SDK bridge.
 

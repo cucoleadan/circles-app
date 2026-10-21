@@ -1,7 +1,7 @@
 # Circles CRM — open work
 
 Open items only; completed work is in git history. Update this file when scope
-or status changes. Last updated: 2026-10-20.
+or status changes. Last updated: 2026-10-21.
 
 ## Substack audience endpoints (blocking follower/following sync)
 
@@ -15,9 +15,14 @@ or status changes. Last updated: 2026-10-20.
       content type, `cf-mitigated`) to tell a Cloudflare challenge from a
       changed or retired endpoint, then fix it in `unofficial-substack-sdk`.
 - [ ] Re-check that CRM "following" matches upstream once the endpoint works
-      again.
+      again. MCP now serves following only from this sweep (`circles_list_people`
+      view `following`), so it stays stale until the sweep recovers.
 
 ## MCP
+
+- [ ] Live check of the SDK result cache: a repeated SDK call returns
+      `_meta["circles/cached"] = true` without a new `mcp:substack` job, and
+      `refresh: true` within 10 minutes still reuses the copy.
 
 - [ ] Confirm Cursor completes the consent flow with write scopes.
 - [ ] Resolve ChatGPT's "Missing OAuth callback data" error; confirm whether it

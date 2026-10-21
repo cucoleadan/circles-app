@@ -12,10 +12,17 @@ export interface McpPrincipal {
   scopes: ReadonlySet<string>
 }
 
+// Circles already syncs these: circles_get_connection (profile), the 10-minute activity
+// sync (list_people/list_comments/person timelines), circles_list_notes (own Notes),
+// the daily following sweep (list_people view "following") and circles_get_note_engagement.
+export const CIRCLES_COVERED_SDK_TOOLS = new Set([
+  "get_authenticated_profile", "get_activity", "get_unread_activity", "get_notes", "get_following", "get_note_engagement",
+])
 const sdkTools = await discoverSubstackTools()
 export const substackTools = sdkTools.filter((tool) => {
   const canonical = tool.name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
-  return tool.name === canonical || !sdkTools.some((other) => other.name === canonical)
+  return !CIRCLES_COVERED_SDK_TOOLS.has(canonical) &&
+    (tool.name === canonical || !sdkTools.some((other) => other.name === canonical))
 })
 
 export function sdkScopes(args: Record<string, unknown>): McpScope[] {
@@ -24,10 +31,23 @@ export function sdkScopes(args: Record<string, unknown>): McpScope[] {
   return raw ? ["substack:read", "substack:records"] : ["substack:read"]
 }
 
-export async function enqueueSdkTool(principal: McpPrincipal, name: string, args: Record<string, unknown>, scopes: McpScope[]) {
+// Agents read the server's copy; a live Substack read happens only on a cache miss or an explicit refresh.
+export const SDK_CACHE_MS = 6 * 60 * 60 * 1000
+export const SDK_REFRESH_MIN_MS = 10 * 60 * 1000
+
+export async function enqueueSdkTool(principal: McpPrincipal, name: string, args: Record<string, unknown>, scopes: McpScope[], refresh = false) {
   return withTenant({ appUserId: principal.appUserId }, async (client) => {
     const conn = await currentConnection(client, principal.appUserId)
     if (!conn || conn.status !== "active") throw new Error("Connect an active Substack account first")
+    // Shared across the tenant's clients; identical arguments imply identical required scopes.
+    const cached = (await client.query(
+      `select result, finished_at as "fetchedAt" from mcp_tool_runs
+       where connection_id = $1 and tool_name = $2 and arguments = $3::jsonb and result is not null
+         and coalesce(result->>'isError', 'false') <> 'true' and finished_at > now() - make_interval(secs => $4)
+       order by finished_at desc limit 1`,
+      [conn.id, name, JSON.stringify(args), (refresh ? SDK_REFRESH_MIN_MS : SDK_CACHE_MS) / 1000],
+    )).rows[0]
+    if (cached) return { cached: cached as { result: Record<string, unknown>; fetchedAt: Date } }
     await client.query("select pg_advisory_xact_lock(hashtext($1))", [`mcp:${principal.appUserId}`])
     const recent = await client.query(
       `select r.id from mcp_tool_runs r join jobs j on j.id = r.job_id

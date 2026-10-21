@@ -12,7 +12,7 @@ import { tenantOperations } from "../routes/v1.js"
 import { circlesTools, entityId, operationRequest } from "./circles-tools.js"
 import { localDayRange } from "./day.js"
 import { MCP_SCOPES, requireScopes } from "./scopes.js"
-import { enqueueSdkTool, getSdkRun, sdkScopes, substackTools, type McpPrincipal } from "./sdk-tools.js"
+import { enqueueSdkTool, getSdkRun, SDK_CACHE_MS, SDK_REFRESH_MIN_MS, sdkScopes, substackTools, type McpPrincipal } from "./sdk-tools.js"
 import { McpUnauthorized, principalFor } from "./auth.js"
 export { principalFor } from "./auth.js"
 
@@ -61,23 +61,36 @@ export function createCirclesMcp(principal: McpPrincipal) {
   }))
 
   if (granted(["substack:read"])) {
+    type SdkResult = { content?: unknown[]; structuredContent?: unknown; isError?: boolean; _meta?: Record<string, unknown> }
+    const sdkResult = (result: SdkResult) => result.structuredContent || result.isError ? result : toolResult(result)
+    // Tell the agent how old the data is, so it does not refetch to "check".
+    const withFreshness = (result: SdkResult, fetchedAt: Date | string, cached: boolean): ReturnType<typeof toolResult> => {
+      const at = new Date(fetchedAt).toISOString()
+      return { ...result, _meta: { ...result._meta, "circles/fetchedAt": at, "circles/cached": cached },
+        content: [...(result.content ?? []), { type: "text" as const, text: cached
+          ? `Served from the Circles server cache (fetched ${at}). Use it; pass refresh: true only when the user explicitly needs live data.`
+          : `Live Substack read fetched ${at}; later calls with the same arguments use this cached copy.` }] } as ReturnType<typeof toolResult>
+    }
     for (const tool of substackTools) server.registerTool(tool.name, {
-      title: tool.title, description: `${tool.description ?? tool.name} Live Substack read, queued and paced. Waits up to ${SDK_WAIT_MS / 1000}s and returns the SDK result inline; if still running, returns a runId to poll with circles_get_tool_run. Requires substack:read; raw/record opt-ins also require substack:records.`,
-      inputSchema: fromJsonSchema<Record<string, unknown>>(tool.inputSchema), outputSchema: resultSchema,
-      annotations: tool.annotations,
-    }, async (args) => {
+      title: tool.title, description: `${tool.description ?? tool.name} Returns the Circles server's cached copy (refreshed from Substack at most every ${SDK_CACHE_MS / 3600000} hours). Prefer circles_* tools for CRM data. Set refresh: true only when the user explicitly asks for live data; the live read is queued, paced and waited for (up to ${SDK_WAIT_MS / 1000}s, then poll circles_get_tool_run), and is ignored when the cache is under ${SDK_REFRESH_MIN_MS / 60000} minutes old. Requires substack:read; raw/record opt-ins also require substack:records.`,
+      inputSchema: fromJsonSchema<Record<string, unknown>>({ ...tool.inputSchema, properties: { ...tool.inputSchema.properties,
+        refresh: { type: "boolean", default: false, description: "Force a live Substack read instead of the server cache. Only when the user explicitly asks for live data." } } }),
+      outputSchema: resultSchema, annotations: tool.annotations,
+    }, async ({ refresh, ...args }) => {
       const queued = await call(async () => {
         const scopes = sdkScopes(args)
         requireScopes(principal.scopes, scopes)
-        return enqueueSdkTool(principal, tool.name, args, scopes)
+        return enqueueSdkTool(principal, tool.name, args, scopes, refresh === true)
       })
       if ("isError" in queued) return queued
-      const { runId } = queued.structuredContent.data as { runId: string }
+      const queuedData = queued.structuredContent.data as { runId: string } | { cached: { result: SdkResult; fetchedAt: Date } }
+      if ("cached" in queuedData) return withFreshness(sdkResult(queuedData.cached.result), queuedData.cached.fetchedAt, true)
+      const { runId } = queuedData
       for (const deadline = Date.now() + SDK_WAIT_MS; Date.now() < deadline;) {
         await sleep(SDK_POLL_MS)
         const run = await getSdkRun(principal, runId).catch(() => null)
         // The worker stores the SDK's own content/structuredContent/isError.
-        if (run?.result) return run.result.structuredContent || run.result.isError ? run.result : toolResult(run.result)
+        if (run?.result) return run.result.isError ? run.result : withFreshness(sdkResult(run.result), run.finishedAt ?? new Date(), false)
         if (run && run.status !== "pending" && run.status !== "running")
           return { ...toolResult({ error: "The SDK read failed; check the Substack connection and try again", runId }), isError: true }
       }
@@ -144,6 +157,29 @@ export function createCirclesMcp(principal: McpPrincipal) {
     })
     if (!note) throw new Error("Note not found")
     return { note }
+  }))
+
+  if (granted(["circles:read"])) server.registerTool("circles_get_note_engagement", {
+    description: "Read synced likes, restacks and replies on one of your Notes, with counts and the people involved. Comes from the 10-minute activity sync and reply-tree refreshes, not a live Substack read.",
+    inputSchema: z.object({ noteId: entityId, limit: z.number().int().min(1).max(200).default(50) }),
+    outputSchema: resultSchema, annotations: readAnnotations,
+  }, ({ noteId, limit }) => call(async () => {
+    requireScopes(principal.scopes, ["circles:read"])
+    const id = noteId.startsWith("note:") ? noteId.slice(5) : noteId
+    return withTenant({ appUserId: principal.appUserId }, async (client) => {
+      const match = "i.removed_at is null and i.thread_kind = 'note' and (i.thread_root_id = $1 or i.target_id = $1)"
+      const counts = (await client.query(
+        `select i.direction, i.action_type as "actionType", count(*)::int as total
+         from interactions i where ${match} group by 1, 2 order by 1, 2`, [id],
+      )).rows
+      const interactions = (await client.query(
+        `select i.direction, i.action_type as "actionType", i.occurred_at as "occurredAt", i.body,
+           p.id as "personId", p.name, p.handle
+         from interactions i left join people p on p.id = i.person_id
+         where ${match} order by i.occurred_at desc limit $2`, [id, limit],
+      )).rows
+      return { noteId: id, counts, interactions, coverage: "Locally synced evidence; grouped notifications and old removed actions may be incomplete." }
+    })
   }))
 
   if (granted(["circles:read"])) server.registerTool("circles_get_day_brief", {

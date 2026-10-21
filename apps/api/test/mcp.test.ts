@@ -159,18 +159,21 @@ describe("Circles MCP protocol and tool boundaries", () => {
       const listed = (await client.listTools()).tools
       const original = await discoverSubstackTools()
       expect(original).toHaveLength(36)
-      expect(listed).toHaveLength(75)
-      expect(listed.filter((tool) => tool.name.startsWith("circles_"))).toHaveLength(57)
+      expect(listed).toHaveLength(70)
+      expect(listed.filter((tool) => tool.name.startsWith("circles_"))).toHaveLength(58)
       expect(new Set(listed.map((tool) => tool.name)).size).toBe(listed.length)
       for (const upstream of original) {
         const canonical = upstream.name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
         const forwarded = listed.find((tool) => tool.name === canonical)!
+        if (sdkTools.CIRCLES_COVERED_SDK_TOOLS.has(canonical)) { expect(forwarded).toBeUndefined(); continue }
         if (canonical !== upstream.name) expect(listed.some((tool) => tool.name === upstream.name)).toBe(false)
         expect(forwarded).toBeDefined()
-        expect(forwarded.inputSchema).toEqual(upstream.inputSchema)
+        const { refresh, ...properties } = forwarded.inputSchema.properties ?? {}
+        expect({ ...forwarded.inputSchema, properties } as unknown).toEqual(upstream.inputSchema)
+        expect(refresh).toMatchObject({ type: "boolean", default: false })
         expect(forwarded.annotations?.readOnlyHint).toBe(true)
       }
-      const invalid = await client.callTool({ name: "get_notes", arguments: { limit: "invalid" } })
+      const invalid = await client.callTool({ name: "get_profile_notes", arguments: { limit: "invalid" } })
       expect(invalid.isError).toBe(true)
       expect(JSON.stringify(invalid)).not.toContain("substack:read")
     } finally { await client.close() }
@@ -181,13 +184,13 @@ describe("Circles MCP protocol and tool boundaries", () => {
     try {
       const names = (await client.listTools()).tools.map((tool) => tool.name)
       const reads = circlesTools.filter((tool) => tool.scopes.every((scope) => scope === "circles:read")).map((tool) => tool.name)
-      expect(names.sort()).toEqual([...reads, "circles_list_notes", "circles_get_note", "circles_get_day_brief"].sort())
+      expect(names.sort()).toEqual([...reads, "circles_list_notes", "circles_get_note", "circles_get_note_engagement", "circles_get_day_brief"].sort())
       await expect(client.callTool({ name: "circles_create_person", arguments: { name: "Test" } })).rejects.toThrow("not found")
     } finally { await client.close() }
     const sdkOnly = await connect({ ...principal, scopes: new Set(["substack:read"]) })
     try {
       const names = (await sdkOnly.listTools()).tools.map((tool) => tool.name)
-      expect(names).toHaveLength(19)
+      expect(names).toHaveLength(13)
       expect(names).toContain("circles_get_tool_run")
       expect(names.some((name) => name.startsWith("circles_") && name !== "circles_get_tool_run")).toBe(false)
     } finally { await sdkOnly.close() }
@@ -201,9 +204,25 @@ describe("Circles MCP protocol and tool boundaries", () => {
       .mockResolvedValue({ id: "run-1", status: "done", result: finished })
     const client = await connect(principal)
     try {
-      const result = await client.callTool({ name: "get_authenticated_profile", arguments: {} })
+      const result = await client.callTool({ name: "get_subscriber_stats", arguments: {} })
       expect(result.structuredContent).toEqual({ data: { id: 1 } })
       expect(run).toHaveBeenCalledTimes(2)
+    } finally { await client.close(); enqueue.mockRestore(); run.mockRestore() }
+  })
+
+  test("SDK reads serve the server cache and pass refresh separately from SDK arguments", async () => {
+    const cached = { content: [{ type: "text", text: "{}" }], structuredContent: { data: { id: 2 } } }
+    const enqueue = spyOn(sdkTools, "enqueueSdkTool").mockResolvedValue({ cached: { result: cached, fetchedAt: new Date("2026-10-21T08:00:00Z") } })
+    const run = spyOn(sdkTools, "getSdkRun")
+    const client = await connect(principal)
+    try {
+      const result = await client.callTool({ name: "get_email_stats", arguments: { limit: 5, refresh: true } })
+      expect(result.structuredContent).toEqual({ data: { id: 2 } })
+      expect(JSON.stringify(result.content)).toContain("server cache")
+      expect(result._meta?.["circles/cached"]).toBe(true)
+      expect(enqueue.mock.calls[0]![2]).not.toHaveProperty("refresh")
+      expect(enqueue.mock.calls[0]![4]).toBe(true)
+      expect(run).not.toHaveBeenCalled()
     } finally { await client.close(); enqueue.mockRestore(); run.mockRestore() }
   })
 
@@ -214,7 +233,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
     }), principal)
     expect(legacy.headers.get("content-type")).toContain("application/json")
     expect(legacy.headers.get("mcp-session-id")).toBeNull()
-    expect((await legacy.json()).result.tools).toHaveLength(75)
+    expect((await legacy.json()).result.tools).toHaveLength(70)
     const modern = await handleMcpRequest(new Request("http://localhost/api/mcp", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json", "mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: {
@@ -233,7 +252,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       } } }),
     }), principal)
     expect(modernTools.status).toBe(200)
-    expect((await modernTools.json()).result.tools).toHaveLength(75)
+    expect((await modernTools.json()).result.tools).toHaveLength(70)
     expect((await handleMcpRequest(new Request("http://localhost/api/mcp"), principal)).status).toBe(405)
   })
 

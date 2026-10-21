@@ -5,9 +5,16 @@ Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
 
 ## Tools and data sources
 
-There are 75 tools: the SDK's 18 read capabilities under their snake_case
-names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
-omitted from registration. Discovery lists only the tools the token's scopes
+There are 70 tools: 12 of the SDK's read capabilities under their snake_case
+names, plus 58 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
+omitted from registration, as are six reads Circles already syncs:
+`get_authenticated_profile` (use `circles_get_connection`), `get_activity` and
+`get_unread_activity` (the 10-minute activity sync behind `circles_list_people`,
+`circles_list_comments` and contact timelines), `get_notes` (use
+`circles_list_notes`; `get_profile_notes` reads other profiles), `get_following`
+(the daily following sweep, `circles_list_people` view `following`) and
+`get_note_engagement` (`circles_get_note_engagement`, synced likes, restacks
+and replies on one of your Notes). Discovery lists only the tools the token's scopes
 allow: a `circles_*` tool needs all its listed scopes, and the SDK reads plus
 `circles_get_tool_run` need `substack:read`. The 401 challenge advertises every
 scope, so clients that copy it (Cursor) request write access too; the consent
@@ -21,7 +28,8 @@ analytics calculations. All tools have typed inputs, structured results and
 read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
 
 - SDK names such as `get_notes`, `get_post_analytics`, `get_publication_analytics`,
-  `get_growth_sources`, subscriber and activity tools read Substack live.
+  `get_growth_sources`, subscriber and activity tools return the server's cached
+  copy of a Substack read; see below.
 - Circles tools manage contacts, CRM notes, lists/contact tags, received-comment
   triage, queue settings, Note drafts/attachments/scheduling and Note tags.
 - Sync/import tools queue the same existing background operations as the app.
@@ -30,8 +38,14 @@ read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
   timezone is the API server's (`TZ`, e.g. `Europe/Bucharest`). It generates no content or automatic reminders;
   the caller's agent/scheduler does that.
 
-Tool results use `structuredContent.data`. Every SDK call queues a paced
-`mcp:substack` job and the API waits up to 20 seconds, checking once a second.
+Tool results use `structuredContent.data`. SDK calls are served from the
+server's cache: the newest successful run of the same tool and arguments for the
+active connection (shared by all of the account's clients) is returned if it is
+under 6 hours old, with `_meta["circles/fetchedAt"]` and a text note giving its
+age. Agents pass `refresh: true` (stripped before reaching the SDK) only when
+the user explicitly needs live data; a refresh still reuses a copy under 10
+minutes old. Only a cache miss or an honoured refresh queues a paced
+`mcp:substack` job; the API waits up to 20 seconds, checking once a second.
 If the run finishes, the call returns the SDK's original `content`,
 `structuredContent` and optional `isError` directly, with credentials removed.
 Otherwise it returns `{runId,status,pollTool}` in `data`; poll

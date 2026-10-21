@@ -214,6 +214,7 @@ export type PeopleView =
   | "no-history"
   | "opportunities"
   | "follows-not-subscribed"
+  | "following"
   | "ignored"
 
 export type PeopleSort =
@@ -350,6 +351,8 @@ export async function listPeople(
     )
   } else if (options.view === "follows-not-subscribed") {
     conditions.push("(p.is_follower = true and coalesce(p.is_subscriber, false) = false)")
+  } else if (options.view === "following") {
+    conditions.push("p.is_following = true")
   }
 
   // Advanced Interaction Filters
