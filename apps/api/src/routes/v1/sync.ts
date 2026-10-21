@@ -15,6 +15,7 @@ function publicJobError(value: unknown): string | null {
 }
 
 /** Job types that run as a chain of page jobs carrying cumulative totals. */
+// sync:followers is retired (migration 035); kept so its past steps still render.
 const PAGED_STEP_TYPES = new Set(["sync:subscribers", "sync:followers"])
 
 type ProgressStep = {
@@ -218,39 +219,3 @@ syncRoutes.post("/sync/subscribers", async (c) => {
   return c.json(result)
 })
 
-syncRoutes.post("/sync/followers", async (c) => {
-  const appUser = c.get("appUser")
-  const result = await withTenant({ appUserId: appUser }, async (client) => {
-    const connRes = await client.query(
-      "select id from substack_connections where user_id = $1 and status = 'active' order by generation desc limit 1",
-      [appUser]
-    )
-    const conn = connRes.rows[0]
-    if (!conn) return { error: "No active Substack connection" }
-
-    const runStartedAt = new Date().toISOString()
-    const job = await client.query(
-      `insert into jobs (type, payload, status, run_at)
-       select 'sync:followers', json_build_object(
-         'userId', $1::text, 'connectionId', $2::text,
-         'runStartedAt', $3::text, 'fullSweep', true, 'manual', true, 'limit', 20
-       ), 'pending', now()
-       where not exists (
-         select 1 from jobs existing
-         where existing.type = 'sync:followers'
-           and existing.status in ('pending', 'running')
-           and existing.payload->>'connectionId' = $2::text
-           and existing.payload->>'fullSweep' = 'true'
-       )
-       returning id`,
-      [appUser, conn.id, runStartedAt]
-    )
-    if (!job.rows[0]) {
-      return { enqueued: false, message: "A full follower sweep is already queued or running." }
-    }
-    return { enqueued: true, jobId: job.rows[0].id }
-  })
-
-  if ("error" in result) return c.json(result, 400)
-  return c.json(result)
-})

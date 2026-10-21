@@ -6,7 +6,8 @@ import type { V1Env } from "./types.js"
 export const importsRoutes = new Hono<V1Env>()
 
 const historyStreams = ["activity", "outbound_actions", "owned_notes", "owned_posts"] as const
-const audienceStreams = ["subscribers", "followers", "following", "missing_handles"] as const
+// "followers" was retired (migration 035): Substack's list now needs a browser challenge.
+const audienceStreams = ["subscribers", "following", "missing_handles"] as const
 const allowedStreams = new Set<string>([...historyStreams, ...audienceStreams])
 
 function selectedStreams(body: any): string[] {
@@ -34,9 +35,8 @@ async function enqueueStream(
   const checkpoint = audienceCheckpoint(cursor)
   const type = stream === "subscribers"
     ? "sync:subscribers"
-    : stream === "followers" ? "sync:followers"
-      : stream === "following" ? "sync:following"
-        : stream === "missing_handles" ? "enrich:missing-handles" : "import:history"
+    : stream === "following" ? "sync:following"
+      : stream === "missing_handles" ? "enrich:missing-handles" : "import:history"
   const runStartedAt = typeof checkpoint.runStartedAt === "string"
     ? checkpoint.runStartedAt
     : new Date().toISOString()
@@ -47,9 +47,6 @@ async function enqueueStream(
     stream,
     ...(stream === "subscribers" && {
       offset: Number(checkpoint.offset ?? 0), runStartedAt,
-    }),
-    ...(stream === "followers" && {
-      runStartedAt, fullSweep: true, limit: 20,
     }),
     ...(stream === "missing_handles" && {
       afterId: typeof checkpoint.afterId === "string" ? checkpoint.afterId : null,

@@ -30,7 +30,6 @@ import {
 import { withTenant } from "../src/db/tenant.js"
 import { listComments, setCommentNotInterested } from "../src/db/comments.js"
 import {
-  applyFollowerSnapshot,
   applyFollowingSnapshot,
   ensurePerson,
   ingestActivityBatch,
@@ -1058,7 +1057,7 @@ describe("interactions", () => {
           months: 6,
           streams: [
             "activity", "outbound_actions", "owned_notes", "owned_posts",
-            "subscribers", "followers",
+            "subscribers", "following",
           ],
         }),
       })
@@ -1080,7 +1079,7 @@ describe("interactions", () => {
     expect(listImportsBody.imports[0].id).toBe(importBody.importRunId)
     expect(listImportsBody.imports[0].status).toBe("running")
     expect(listImportsBody.imports[0].streams.map((stream: any) => stream.stream)).toEqual([
-      "activity", "outbound_actions", "owned_notes", "owned_posts", "subscribers", "followers",
+      "activity", "outbound_actions", "owned_notes", "owned_posts", "subscribers", "following",
     ])
 
     // 8. POST /imports/:id/pause
@@ -1505,24 +1504,32 @@ describe("interactions", () => {
     expect(result.rows.find((row) => row.id === custom.id)?.profile_url).toBe("https://example.com/custom")
   })
 
-  test("follower import preserves a new stable ID when its handle conflicts", async () => {
-    await withTenant({ appUserId: userA }, (client) =>
-      createPerson(client, userA, {
-        name: "Original", handle: "@shared_handle", substackProfileId: "older-id",
-      })
-    )
-    const result = await withTenant({ appUserId: userA }, (client) =>
-      applyFollowerSnapshot(client, userA, [{
-        id: "newer-id", name: "New person", handle: "shared_handle", isSubscribed: false,
-      }])
-    )
-    expect(result.created).toBe(1)
-    const people = await withTenant({ appUserId: userA }, (client) =>
-      client.query("select substack_profile_id, handle, is_follower from people order by substack_profile_id")
-    )
-    expect(people.rows).toContainEqual(expect.objectContaining({
-      substack_profile_id: "newer-id", handle: null, is_follower: true,
-    }))
+  test("follower sweep retirement closes queued work without touching other streams", async () => {
+    await migrate.query(`insert into substack_connections (id,user_id,envelope_version,key_id,wrapped_key,iv,ciphertext,status)
+      values ('retire-connection',$1,1,'plain','','','synthetic-private-session','active')`, [userA])
+    await migrate.query(`insert into import_runs (id,user_id,connection_id,cutoff) values
+      ('only-followers-left',$1,'retire-connection',now()), ('still-importing',$1,'retire-connection',now())`, [userA])
+    await migrate.query(`insert into import_run_streams (import_run_id,user_id,connection_id,stream,status) values
+      ('only-followers-left',$1,'retire-connection','followers','running'),
+      ('only-followers-left',$1,'retire-connection','activity','complete'),
+      ('still-importing',$1,'retire-connection','followers','paused'),
+      ('still-importing',$1,'retire-connection','activity','running')`, [userA])
+    await migrate.query(`insert into jobs (type,payload,status) values
+      ('sync:followers','{}','pending'), ('sync:followers','{}','done'), ('sync:following','{}','pending')`)
+    await migrate.query(await readFile(new URL("../migrations/035_retire_follower_sweep.sql", import.meta.url), "utf8"))
+    const jobs = await migrate.query("select type, status from jobs order by id")
+    expect(jobs.rows).toEqual([
+      { type: "sync:followers", status: "dead" }, { type: "sync:followers", status: "done" }, { type: "sync:following", status: "pending" },
+    ])
+    const streams = await migrate.query("select import_run_id, stream, status from import_run_streams order by 1, 2")
+    expect(streams.rows).toEqual([
+      { import_run_id: "only-followers-left", stream: "activity", status: "complete" },
+      { import_run_id: "only-followers-left", stream: "followers", status: "unavailable" },
+      { import_run_id: "still-importing", stream: "activity", status: "running" },
+      { import_run_id: "still-importing", stream: "followers", status: "unavailable" },
+    ])
+    const runs = await migrate.query("select id, status from import_runs order by id")
+    expect(runs.rows).toEqual([{ id: "only-followers-left", status: "complete" }, { id: "still-importing", status: "running" }])
   })
 
   test("following sweep imports missing profiles and reconciles outbound status", async () => {
@@ -1551,6 +1558,42 @@ describe("interactions", () => {
       client.query("select is_following from people where id = $1", [existing.id])
     )
     expect(previous.rows[0]?.is_following).toBe(false)
+
+    // The ID-only feed leaves stored subscription state alone.
+    const idOnly = await withTenant({ appUserId: userA }, (client) =>
+      applyFollowingSnapshot(client, userA, [{ id: "following-1", handle: null, isSubscribed: false }], false)
+    )
+    expect(idOnly).toMatchObject({ following: 1, created: 0 })
+    const kept = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select substack_profile_id, is_following, is_subscribed_to from people order by substack_profile_id")
+    )
+    expect(kept.rows).toEqual([
+      { substack_profile_id: "following-1", is_following: true, is_subscribed_to: false },
+      { substack_profile_id: "following-2", is_following: false, is_subscribed_to: false },
+    ])
+  })
+
+  test("handle backfill names contacts created from the ID-only following feed", async () => {
+    await migrate.query(`insert into substack_connections (id,user_id,envelope_version,key_id,wrapped_key,iv,ciphertext,status)
+      values ('handle-connection',$1,1,'plain','','','synthetic-private-session','active')`, [userA])
+    await withTenant({ appUserId: userA }, (client) =>
+      applyFollowingSnapshot(client, userA, [{ id: "4242", handle: null, isSubscribed: false }], false))
+    const { processMissingHandleBackfill } = await import(new URL("../../worker/src/audience.ts", import.meta.url).href)
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+      const url = String(input instanceof Request ? input.url : input)
+      if (url.includes("/reader/feed/profile/4242")) return Response.json({ items: [{ context: { users: [{ id: 4242, handle: "tester" }] } }] })
+      if (url.includes("/public_profile")) return Response.json({ id: 4242, name: "Tester", handle: "tester", photo_url: "https://example.test/t.png" })
+      return new Response("unexpected request in test", { status: 500 })
+    }) as typeof fetch
+    const client = await db.connect()
+    try {
+      expect(await processMissingHandleBackfill(client, userA, "handle-connection")).toMatchObject({ recovered: 1 })
+    } finally { client.release(); globalThis.fetch = originalFetch }
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select name, handle, avatar_url, profile_url, is_following from people where substack_profile_id = '4242'"))
+    expect(person.rows[0]).toEqual({ name: "Tester", handle: "tester", avatar_url: "https://example.test/t.png",
+      profile_url: "https://substack.com/@tester", is_following: true })
   })
 
   test("follows-not-subscribed view, ignored isolation, and subscriber batch upsert", async () => {
@@ -1596,44 +1639,6 @@ describe("interactions", () => {
     )
     expect(followsNotSub.some((p) => p.id === follower.id)).toBe(true)
     expect(followsNotSub.some((p) => p.id === ignoredPerson.id)).toBe(false)
-
-    const formerFollower = await withTenant({ appUserId: userA }, async (client) => {
-      const p = await createPerson(client, userA, {
-        name: "Former Follower",
-        handle: "@former_follower",
-        substackProfileId: "1110003",
-      })
-      await client.query("update people set is_follower = true where id = $1", [p.id])
-      return p
-    })
-    const followerSnapshot = await withTenant({ appUserId: userA }, (client) =>
-      applyFollowerSnapshot(client, userA, [
-        { id: "1110001", handle: "follower_only", isSubscribed: false },
-        {
-          id: "1110004",
-          handle: "imported_follower",
-          name: "Imported Follower",
-          photo_url: "https://example.com/imported.png",
-          isSubscribed: false,
-        },
-      ])
-    )
-    expect(followerSnapshot.followers).toBe(2)
-    expect(followerSnapshot.created).toBe(1)
-    const importedFollower = await withTenant({ appUserId: userA }, async (client) => {
-      const result = await client.query(
-        "select id from people where substack_profile_id = $1",
-        ["1110004"],
-      )
-      return result.rows[0]?.id ? getPerson(client, result.rows[0].id) : null
-    })
-    expect(importedFollower?.person.name).toBe("Imported Follower")
-    expect(importedFollower?.person.handle).toBe("imported_follower")
-    expect(importedFollower?.person.isFollower).toBe(true)
-    const updatedFormerFollower = await withTenant({ appUserId: userA }, (client) =>
-      getPerson(client, formerFollower.id)
-    )
-    expect(updatedFormerFollower?.person.isFollower).toBe(false)
 
     // 6. Test an authoritative subscriber sweep in both directions.
     const staleSubscriber = await withTenant({ appUserId: userA }, async (client) => {
@@ -2331,7 +2336,6 @@ describe("MCP OAuth and tenant operations", () => {
       // Sync/import: queue jobs only; the worker is not run here.
       await run("circles_request_sync")
       await run("circles_sync_subscribers")
-      await run("circles_sync_followers")
       await run("circles_refetch_person", { personId: person.id })
       const started = await run("circles_start_import", { streams: ["owned_notes"], days: 7 })
       await run("circles_pause_import", { id: started.importRunId })

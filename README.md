@@ -46,7 +46,8 @@ content type.
 ### Background sync and history backfills
 
 A PostgreSQL job queue polls the notification feed, refreshes reply trees on
-your recent Notes and posts, and reconciles followers and subscribers.
+your recent Notes and posts, reconciles subscribers and who you follow, and
+records new followers from follow notifications.
 Resumable backfills import older history per source, with honest progress for
 streams Substack only partly exposes.
 

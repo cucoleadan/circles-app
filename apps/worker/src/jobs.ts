@@ -17,7 +17,6 @@ import {
 } from "./activity.js"
 import {
   processSubscriberSyncPage,
-  processFollowerSyncBatch,
   processFollowingSync,
   recordAudienceImportProgress,
   recordMissingHandleProgress,
@@ -41,7 +40,6 @@ export {
   processActivitySync,
   processScheduledHistorySync,
   processSubscriberSyncPage,
-  processFollowerSyncBatch,
   processFollowingSync,
   recordAudienceImportProgress,
   recordMissingHandleProgress,
@@ -73,13 +71,6 @@ export interface JobHandlers {
     offset: number,
     runStartedAt: unknown,
     incremental?: IncrementalSubscriberState | null,
-  ) => Promise<any>
-  onFollowerSync?: (
-    client: PoolClient,
-    userId: string,
-    connectionId: string,
-    runStartedAt: unknown,
-    limit: number,
   ) => Promise<any>
   onFollowingSync?: (
     client: PoolClient,
@@ -162,7 +153,7 @@ export async function claimAndRunJob(
     const payload = typeof job.payload === "string" ? JSON.parse(job.payload) : job.payload
     const {
       userId, connectionId, importRunId, personId, stream, outboundStage,
-      offset, runStartedAt, fullSweep, limit, afterId,
+      offset, runStartedAt, afterId,
     } = payload
 
     let jobResult: Record<string, number | boolean> | null = null
@@ -197,7 +188,7 @@ export async function claimAndRunJob(
         const repliesDue = !result.skipped && !await recentHistory("outbound_actions", "replies", "30 minutes")
         const recentAudience = result.skipped ? null : await client.query(
           `select 1 from jobs
-           where type in ('sync:subscribers', 'sync:followers', 'sync:following')
+           where type in ('sync:subscribers', 'sync:following')
              and payload->>'connectionId' = $1
              and created_at > now() - interval '23 hours'
            limit 1`,
@@ -263,18 +254,6 @@ export async function claimAndRunJob(
                 runStartedAt: new Date().toISOString(),
                 manual: false,
                 mode: recentFullSweep.rows[0] ? "incremental" : "full",
-              },
-            },
-            {
-              type: "sync:followers",
-              delay: 70,
-              payload: {
-                userId,
-                connectionId,
-                runStartedAt: new Date().toISOString(),
-                fullSweep: false,
-                manual: false,
-                limit: 50,
               },
             },
             {
@@ -374,35 +353,6 @@ export async function claimAndRunJob(
               `${totals.deactivated} unsubscribed, ${totals.invalid} skipped.`,
           )
         }
-      } else if (job.type === "sync:followers") {
-        const result = handlers?.onFollowerSync
-          ? await handlers.onFollowerSync(client, userId, connectionId, runStartedAt, Number(limit ?? 20))
-          : await processFollowerSyncBatch(client, userId, connectionId, runStartedAt, Number(limit ?? 20))
-        const totals = {
-          checked: Number(payload.checked ?? 0) + Number(result.checked ?? 0),
-          updated: Number(payload.updated ?? 0) + Number(result.updated ?? 0),
-          failed: Number(payload.failed ?? 0) + Number(result.failed ?? 0),
-        }
-        jobResult = result.skipped ? { skipped: true } : { ...totals, completed: Boolean(result.completed) }
-        const continueImport = importRunId && stream === "followers"
-          ? await recordAudienceImportProgress(client, userId, importRunId, stream, result)
-          : fullSweep === true && !result.completed && !result.skipped
-        if (continueImport) {
-          enqueue(
-            `insert into jobs (type, payload, status, run_at)
-             values ('sync:followers', $1, 'pending', now() + interval '5 seconds')`,
-            [JSON.stringify({
-              ...payload,
-              runStartedAt: result.runStartedAt ?? runStartedAt,
-              ...totals,
-            })],
-          )
-        } else if (!result.skipped) {
-          console.log(
-            `[Circles Worker] Follower sync ${fullSweep === true ? "complete" : "batch complete"}: ` +
-              `${totals.checked} checked, ${totals.updated} updated, ${totals.failed} unverifiable.`,
-          )
-        }
       } else if (job.type === "sync:following") {
         const result = handlers?.onFollowingSync
           ? await handlers.onFollowingSync(client, userId, connectionId)
@@ -415,6 +365,16 @@ export async function claimAndRunJob(
             `[Circles Worker] Following sync complete: ${result.checked} checked, ` +
               `${result.updated} followed, ${result.subscribed ?? 0} subscribed, ` +
               `${result.created ?? 0} new contacts.`,
+          )
+        }
+        // The following list is ID-only; resolve names/handles for contacts it created.
+        if (!result.skipped && (result.created ?? 0) > 0) {
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             select 'enrich:missing-handles', $1::jsonb, 'pending', now() + interval '1 minute'
+             where not exists (select 1 from jobs where type = 'enrich:missing-handles'
+               and status in ('pending', 'running') and payload->>'connectionId' = $2)`,
+            [JSON.stringify({ userId, connectionId }), connectionId],
           )
         }
         jobResult = result.skipped
@@ -544,8 +504,7 @@ export async function claimAndRunJob(
       const isUpstreamChallenge = /^(sync|import):/.test(job.type) && (
         jobError?.status === 403 || jobError?.statusCode === 403 || /\b403\b/.test(errorMessage)
       )
-      const isAudienceDenied = isUpstreamChallenge &&
-        (job.type === "sync:followers" || job.type === "sync:following")
+      const isAudienceDenied = isUpstreamChallenge && job.type === "sync:following"
       const failureMessage = sessionExpired
         ? SESSION_EXPIRED_MESSAGE
         : isAudienceDenied

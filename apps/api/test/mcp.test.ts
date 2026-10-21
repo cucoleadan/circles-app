@@ -159,8 +159,8 @@ describe("Circles MCP protocol and tool boundaries", () => {
       const listed = (await client.listTools()).tools
       const original = await discoverSubstackTools()
       expect(original).toHaveLength(36)
-      expect(listed).toHaveLength(70)
-      expect(listed.filter((tool) => tool.name.startsWith("circles_"))).toHaveLength(58)
+      expect(listed).toHaveLength(69)
+      expect(listed.filter((tool) => tool.name.startsWith("circles_"))).toHaveLength(57)
       expect(new Set(listed.map((tool) => tool.name)).size).toBe(listed.length)
       for (const upstream of original) {
         const canonical = upstream.name.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`)
@@ -233,7 +233,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
     }), principal)
     expect(legacy.headers.get("content-type")).toContain("application/json")
     expect(legacy.headers.get("mcp-session-id")).toBeNull()
-    expect((await legacy.json()).result.tools).toHaveLength(70)
+    expect((await legacy.json()).result.tools).toHaveLength(69)
     const modern = await handleMcpRequest(new Request("http://localhost/api/mcp", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json", "mcp-protocol-version": "2026-07-28", "mcp-method": "server/discover" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: {
@@ -252,7 +252,7 @@ describe("Circles MCP protocol and tool boundaries", () => {
       } } }),
     }), principal)
     expect(modernTools.status).toBe(200)
-    expect((await modernTools.json()).result.tools).toHaveLength(70)
+    expect((await modernTools.json()).result.tools).toHaveLength(69)
     expect((await handleMcpRequest(new Request("http://localhost/api/mcp"), principal)).status).toBe(405)
   })
 

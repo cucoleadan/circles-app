@@ -58,7 +58,7 @@ private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
 It uses local signing-key verification and finite JSON transport responses.
-Discovery lists up to 70 tools (12 canonical SDK reads plus 58 Circles
+Discovery lists up to 69 tools (12 canonical SDK reads plus 57 Circles
 operations), omitting duplicate camelCase SDK names, the six SDK reads Circles already
 syncs (profile, activity, unread activity, own Notes, following, Note
 engagement), and any tool the grant's
@@ -174,10 +174,15 @@ Connecting rejects a session Substack does not verify, keeping the current
 connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
 set; always read them through `openSessionToken`, never `ciphertext` directly.
 The activity sync re-seals a legacy `plain` session once the key is configured.
-Subscriber and follower audience sweeps import missing people into the CRM and
+Subscriber and following audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
-Scheduled audience sweeps (subscribers, followers, following) run at most once
-per ~23 hours per connection. The daily subscriber refresh reads only new
+Scheduled audience sweeps (subscribers, following) run at most once per ~23
+hours per connection. Following reads the ID-only `/api/v1/feed/following` and
+queues the missing-handle backfill to name new contacts. There is no follower
+sweep: Substack's follower list (`subscriber-lists`) answers non-browser
+clients with a Cloudflare challenge, so `is_follower` comes only from follow
+notifications in the activity sync. It is never cleared, because Substack
+sends no unfollow notification. The daily subscriber refresh reads only new
 subscribers (incremental, stopping at the stored checkpoint, never reconciling);
 the full reconciling sweep that detects unsubscribes runs at most once per 7 days.
 Historical cursors belong to backfill jobs, not incremental sync. Activity,

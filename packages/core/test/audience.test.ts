@@ -1,46 +1,19 @@
 import { describe, expect, test } from "bun:test"
 
 import {
-  parseFollowerList,
   parseFollowerRunStartedAt,
+  parseFollowingIds,
   parseSubscriberStatsPage,
   shouldAbortFollowerSweep,
 } from "../src/audience.js"
 
 describe("audience sync response normalization", () => {
-  test("parses and deduplicates the authenticated follower list", () => {
-    const page = parseFollowerList({
-      subscriberLists: [{
-        id: "followers",
-        groups: [{ users: [
-          { id: 42, handle: "reader", name: "Reader", photo_url: "https://example.com/reader.png", email: "private@example.com" },
-          { id: 42, handle: "reader" },
-          { handle: "missing-id" },
-        ] }],
-      }],
+  test("parses the ID-only following feed and rejects other shapes", () => {
+    expect(parseFollowingIds([42, "7", 42, "x", null])).toEqual({
+      followers: [{ id: "42", handle: null, isSubscribed: false }, { id: "7", handle: null, isSubscribed: false }],
+      skipped: 2,
     })
-    expect(page.followers).toEqual([{
-      id: "42",
-      handle: "reader",
-      name: "Reader",
-      photo_url: "https://example.com/reader.png",
-      isSubscribed: false,
-    }])
-    expect(page.skipped).toBe(1)
-    expect(page.followers[0]).not.toHaveProperty("email")
-  })
-
-  test("keeps outbound subscription state separate when parsing following", () => {
-    const page = parseFollowerList({
-      subscriberLists: [{ groups: [{ users: [
-        { id: 1, handle: "free-follow", is_following: true, is_subscribed: false },
-        { id: 2, handle: "newsletter", is_following: true, is_subscribed: true },
-      ] }] }],
-    })
-    expect(page.followers).toEqual([
-      { id: "1", handle: "free-follow", name: null, photo_url: null, isSubscribed: false },
-      { id: "2", handle: "newsletter", name: null, photo_url: null, isSubscribed: true },
-    ])
+    expect(() => parseFollowingIds({ subscriberLists: [] })).toThrow("invalid following response")
   })
 
   test("parses the current subscriber shape without retaining private fields", () => {

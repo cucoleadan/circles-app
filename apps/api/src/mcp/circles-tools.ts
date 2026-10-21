@@ -88,10 +88,9 @@ export const circlesTools: CirclesTool[] = [
   tool("get_sync_progress", "Read recent queued sync progress and safe counters.", "GET", "/sync/progress", {}, read),
   tool("request_sync", "Queue activity sync; never blocks for a full backfill.", "POST", "/sync", {}, sync),
   tool("sync_subscribers", "Queue the existing full reconciling subscriber sweep.", "POST", "/sync/subscribers", {}, sync),
-  tool("sync_followers", "Queue the existing full follower sweep.", "POST", "/sync/followers", {}, sync),
   tool("list_imports", "Read historical import streams, checkpoints and completeness limits.", "GET", "/imports", {}, read),
   tool("start_import", "Start a paced historical import using existing queue rules; a running import may be paused by the app.", "POST", "/imports", {
-    streams: z.array(z.enum(["activity", "outbound_actions", "owned_notes", "owned_posts", "subscribers", "followers", "following", "missing_handles"])).min(1).max(8),
+    streams: z.array(z.enum(["activity", "outbound_actions", "owned_notes", "owned_posts", "subscribers", "following", "missing_handles"])).min(1).max(8),
     days: z.number().int().min(1).max(92).optional(), months: z.number().int().min(1).max(3).optional(), cutoffDate: dateTime.optional(),
   }, sync),
   ...(["pause", "resume", "cancel"] as const).map((action) => tool(`${action}_import`, `${action} an existing historical import.`, "POST", `/imports/:id/${action}`, noteIds, sync)),

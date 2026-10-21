@@ -5,8 +5,8 @@ Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
 
 ## Tools and data sources
 
-There are 70 tools: 12 of the SDK's read capabilities under their snake_case
-names, plus 58 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
+There are 69 tools: 12 of the SDK's read capabilities under their snake_case
+names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
 omitted from registration, as are six reads Circles already syncs:
 `get_authenticated_profile` (use `circles_get_connection`), `get_activity` and
 `get_unread_activity` (the 10-minute activity sync behind `circles_list_people`,

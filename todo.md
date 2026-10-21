@@ -3,20 +3,17 @@
 Open items only; completed work is in git history. Update this file when scope
 or status changes. Last updated: 2026-10-21.
 
-## Substack audience endpoints (blocking follower/following sync)
+## Substack audience endpoints
 
-- [ ] Since 2026-10-13 every `sync:followers` and `sync:following` job
-      dead-letters on HTTP 403 from `GET /api/v1/user/{id}/subscriber-lists`
-      (`?lists=followers` on substack.com, `?lists=following` on the
-      publication host). The SDK's MCP `get_following` fails on the same
-      endpoint ("Substack authentication failed"), and `get_subscriptions`
-      without arguments returns 400 from `/subscriptions`. Subscriber sync and
-      activity sync are healthy. Next: capture the live response (status,
-      content type, `cf-mitigated`) to tell a Cloudflare challenge from a
-      changed or retired endpoint, then fix it in `unofficial-substack-sdk`.
-- [ ] Re-check that CRM "following" matches upstream once the endpoint works
-      again. MCP now serves following only from this sweep (`circles_list_people`
-      view `following`), so it stays stale until the sweep recovers.
+- [ ] Verify after deploy: migration 035 retires queued `sync:followers` work,
+      the following sweep (`/api/v1/feed/following`) completes, and
+      `enrich:missing-handles` names the contacts it creates.
+- [ ] Followers come only from follow notifications (Substack's
+      `subscriber-lists` endpoint answers non-browser clients with a Cloudflare
+      challenge since 2026-10-13). Unfollows are not detected. If a full list
+      is needed again, capture it passively in the extension when the user
+      opens their Followers page. The SDK's `getFollowing` still uses the
+      challenged endpoint.
 
 ## MCP
 

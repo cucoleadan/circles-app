@@ -1,10 +1,9 @@
 import type { PoolClient } from "pg"
 import {
-  applyFollowerSnapshot,
   applyFollowingSnapshot,
   createSubstackClient,
   parseFollowerRunStartedAt,
-  parseFollowerList,
+  parseFollowingIds,
   parseSubscriberStatsPage,
   reconcileSubscriberSnapshot,
   shouldAbortFollowerSweep,
@@ -195,50 +194,6 @@ export async function processSubscriberSyncPage(
   })
 }
 
-export async function processFollowerSyncBatch(
-  client: PoolClient,
-  userId: string,
-  connectionId: string,
-  runStartedAtValue: unknown,
-  limit = 20,
-) {
-  const runStartedAt = parseFollowerRunStartedAt(runStartedAtValue)
-  const conn = await withTenant(client, userId, async () => {
-    const connection = await client.query(
-      `select key_id, iv, ciphertext, profile_id, status
-       from substack_connections where id = $1 and user_id = $2`,
-      [connectionId, userId],
-    )
-    return connection.rows[0]
-  })
-  if (!conn || conn.status !== "active") {
-    return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0, remaining: 0 }
-  }
-  if (!conn.profile_id) throw new Error("Substack profile ID is missing from the active connection")
-
-  const response = await fetch(
-    `https://substack.com/api/v1/user/${encodeURIComponent(conn.profile_id)}/subscriber-lists?lists=followers`,
-    { headers: { cookie: `substack.sid=${openSessionToken(conn)}`, accept: "application/json" } },
-  )
-  if (!response.ok) throw substackResponseError("Substack follower-list API failed", response.status)
-  const page = parseFollowerList(await response.json())
-
-  return withTenant(client, userId, async () => {
-    const result = await applyFollowerSnapshot(client, userId, page.followers)
-    return {
-      completed: true,
-      skipped: false,
-      checked: result.processed,
-      updated: result.followers,
-      created: result.created,
-      matched: result.matched,
-      failed: page.skipped,
-      remaining: 0,
-      runStartedAt: runStartedAt.toISOString(),
-    }
-  })
-}
-
 export async function processFollowingSync(
   client: PoolClient,
   userId: string,
@@ -246,7 +201,7 @@ export async function processFollowingSync(
 ) {
   const conn = await withTenant(client, userId, async () => {
     const connection = await client.query(
-      `select key_id, iv, ciphertext, publication_url, profile_id, status
+      `select key_id, iv, ciphertext, status
        from substack_connections where id = $1 and user_id = $2`,
       [connectionId, userId],
     )
@@ -256,15 +211,15 @@ export async function processFollowingSync(
     return { completed: true, skipped: true, checked: 0, updated: 0, failed: 0 }
   }
 
-  const sdk = createSubstackClient({
-    sessionToken: openSessionToken(conn),
-    publicationUrl: conn.publication_url,
+  // subscriber-lists?lists=following now gets a Cloudflare challenge; Substack's own
+  // "is following" state comes from this ID list. The handle backfill names new contacts.
+  const response = await fetch("https://substack.com/api/v1/feed/following", {
+    headers: { cookie: `substack.sid=${openSessionToken(conn)}`, accept: "application/json" },
   })
-  const page = parseFollowerList(
-    await sdk.getFollowing(conn.profile_id ? { profileId: conn.profile_id } : undefined),
-  )
+  if (!response.ok) throw substackResponseError("Substack following API failed", response.status)
+  const page = parseFollowingIds(await response.json())
   return withTenant(client, userId, async () => {
-    const result = await applyFollowingSnapshot(client, userId, page.followers)
+    const result = await applyFollowingSnapshot(client, userId, page.followers, false)
     return {
       completed: true,
       skipped: false,
@@ -281,12 +236,12 @@ export async function recordAudienceImportProgress(
   client: PoolClient,
   userId: string,
   importRunId: string,
-  stream: "subscribers" | "followers" | "following",
+  stream: "subscribers" | "following",
   result: any,
 ) {
   return withTenant(client, userId, async () => {
     const checked = Number(stream === "subscribers" ? result.processed : result.checked) || 0
-    const newPeople = Number(stream === "subscribers" || stream === "followers" ? result.created : 0) || 0
+    const newPeople = Number(stream === "subscribers" ? result.created : 0) || 0
     const invalid = Number(stream === "subscribers" ? result.invalid : result.failed) || 0
     const cursor = JSON.stringify({
       runStartedAt: result.runStartedAt,
@@ -312,6 +267,11 @@ export async function recordAudienceImportProgress(
     await finishImportIfReady(client, importRunId)
     return updated.rows[0]?.status === "running"
   })
+}
+
+function profileText(profile: any, key: string) {
+  const value = profile?.[key] ?? profile?.profile?.[key]
+  return typeof value === "string" && value.trim() ? value.trim() : null
 }
 
 export function profileHandle(profile: any) {
@@ -361,12 +321,14 @@ export async function processMissingHandleBackfill(
   }
 
   let handle: string | null = null
+  let profile: any = null
   try {
     const sdk = createSubstackClient({
       sessionToken: openSessionToken(state.connection),
       publicationUrl: state.connection.publication_url,
     })
-    handle = profileHandle(await sdk.getProfileById(state.person.substack_profile_id))
+    profile = await sdk.getProfileById(state.person.substack_profile_id)
+    handle = profileHandle(profile)
   } catch (error) {
     if (shouldAbortFollowerSweep(error)) throw error
     // Continue the repair run; this profile can be retried in a later run.
@@ -376,14 +338,19 @@ export async function processMissingHandleBackfill(
     if (!handle) return 0
     const normalized = handle.toLowerCase()
     const result = await client.query(
-      `update people p set handle = $3, normalized_handle = $4, updated_at = now()
+      `update people p set handle = $3, normalized_handle = $4,
+         profile_url = coalesce(p.profile_url, 'https://substack.com/@' || $4),
+         -- Audience sweeps name ID-only contacts "Following <id>"/"Follower <id>".
+         name = case when p.name in ('Following ' || p.substack_profile_id, 'Follower ' || p.substack_profile_id)
+           then coalesce($5, $3) else p.name end,
+         avatar_url = coalesce(p.avatar_url, $6), updated_at = now()
        where p.id = $1 and p.user_id = $2 and p.normalized_handle is null
          and not exists (
            select 1 from people other
            where other.user_id = $2 and other.archived_at is null
              and other.normalized_handle = $4 and other.id <> p.id
          )`,
-      [state.person.id, userId, handle, normalized],
+      [state.person.id, userId, handle, normalized, profileText(profile, "name"), profileText(profile, "photo_url")],
     )
     return result.rowCount ?? 0
   })

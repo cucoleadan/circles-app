@@ -28,37 +28,21 @@ export interface FollowerListItem {
   isSubscribed: boolean
 }
 
-/** Normalize the authenticated owner's complete follower list. */
-export function parseFollowerList(payload: unknown) {
-  if (!isRecord(payload) || !Array.isArray(payload.subscriberLists)) {
-    throw new Error("Substack returned an invalid follower-list response")
-  }
-
-  const followers = new Map<string, FollowerListItem>()
+/**
+ * Normalize `/api/v1/feed/following`: the IDs of every user the session follows.
+ * It replaces `subscriber-lists?lists=following`, which Cloudflare now challenges
+ * for non-browser clients. It carries no names, handles or subscription state.
+ */
+export function parseFollowingIds(payload: unknown): { followers: FollowerListItem[]; skipped: number } {
+  if (!Array.isArray(payload)) throw new Error("Substack returned an invalid following response")
+  const ids = new Set<string>()
   let skipped = 0
-  for (const list of payload.subscriberLists) {
-    if (!isRecord(list) || !Array.isArray(list.groups)) continue
-    for (const group of list.groups) {
-      if (!isRecord(group) || !Array.isArray(group.users)) continue
-      for (const user of group.users) {
-        if (!isRecord(user)) { skipped++; continue }
-        const rawId = user.id
-        const id = typeof rawId === "number" || typeof rawId === "string"
-          ? String(rawId).trim()
-          : ""
-        if (!id) { skipped++; continue }
-        const previous = followers.get(id)
-        followers.set(id, {
-          id,
-          handle: optionalString(user.handle) ?? previous?.handle ?? null,
-          name: optionalString(user.name ?? user.user_name) ?? previous?.name ?? null,
-          photo_url: optionalString(user.photo_url ?? user.user_photo_url) ?? previous?.photo_url ?? null,
-          isSubscribed: optionalBoolean(user.is_subscribed) || previous?.isSubscribed === true,
-        })
-      }
-    }
+  for (const value of payload) {
+    const id = typeof value === "number" || typeof value === "string" ? String(value).trim() : ""
+    if (/^\d+$/.test(id)) ids.add(id)
+    else skipped++
   }
-  return { followers: [...followers.values()], skipped }
+  return { followers: [...ids].map((id) => ({ id, handle: null, isSubscribed: false })), skipped }
 }
 
 /** Apply the owner's complete following list without conflating it with inbound followers. */
@@ -66,6 +50,8 @@ export async function applyFollowingSnapshot(
   client: PoolClient,
   userId: string,
   following: FollowerListItem[],
+  // An ID-only snapshot says nothing about paid/free subscriptions; keep what is stored.
+  subscriptionsKnown = true,
 ) {
   const profileIds = following.map((person) => person.id)
   const handles = following
@@ -148,10 +134,10 @@ export async function applyFollowingSnapshot(
              (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
              or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
            ),
-           is_subscribed_to = (
+           is_subscribed_to = case when $6 then (
              (p.substack_profile_id is not null and p.substack_profile_id = any($4::text[]))
              or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($5::text[]))
-           ),
+           ) else coalesce(p.is_subscribed_to, false) end,
            following_checked_at = now(),
            updated_at = now()
        where p.user_id = $1 and p.archived_at is null
@@ -162,135 +148,12 @@ export async function applyFollowingSnapshot(
             count(*) filter (where is_following)::int as following,
             count(*) filter (where is_subscribed_to)::int as subscribed
      from updated`,
-    [userId, profileIds, handles, subscribedProfileIds, subscribedHandles],
+    [userId, profileIds, handles, subscribedProfileIds, subscribedHandles, subscriptionsKnown],
   )
   return {
     checked: result.rows[0]?.checked ?? 0,
     following: result.rows[0]?.following ?? 0,
     subscribed: result.rows[0]?.subscribed ?? 0,
-    created,
-  }
-}
-
-/** Import and apply the owner's complete follower snapshot atomically. */
-export async function applyFollowerSnapshot(
-  client: PoolClient,
-  userId: string,
-  followers: FollowerListItem[],
-) {
-  const profileIds = followers.map((follower) => follower.id)
-  const handles = followers
-    .map((follower) => follower.handle ? normalizeHandle(follower.handle) : null)
-    .filter((handle): handle is string => Boolean(handle))
-  await client.query("select pg_advisory_xact_lock(hashtext($1))", [`audience:${userId}`])
-
-  let matched = 0
-  let created = 0
-  for (const follower of followers) {
-    const profileId = follower.id.trim()
-    if (!profileId) continue
-    const rawHandle = follower.handle?.trim().replace(/^@/, "") || null
-    const normalized = rawHandle ? normalizeHandle(rawHandle) : null
-    const existing = await client.query(
-      `select id from people
-       where user_id = $1 and archived_at is null
-         and (substack_profile_id = $2
-           or ($3::text is not null and normalized_handle = $3
-             and (substack_profile_id is null or substack_profile_id = $2)))
-       order by case when substack_profile_id = $2 then 0 else 1 end
-       limit 1`,
-      [userId, profileId, normalized],
-    )
-
-    if (existing.rows[0]) {
-      await client.query(
-        `update people
-         set is_follower = true,
-             substack_profile_id = coalesce(substack_profile_id, $2),
-             avatar_url = coalesce(avatar_url, $3),
-             follower_checked_at = now(),
-             updated_at = now()
-         where id = $1`,
-        [existing.rows[0].id, profileId, follower.photo_url ?? null],
-      )
-      matched++
-      continue
-    }
-
-    const personId = randomUUID()
-    const conflictingHandle = normalized ? await client.query(
-      `select 1 from people where user_id = $1 and archived_at is null
-       and normalized_handle = $2 and substack_profile_id is distinct from $3
-       limit 1`,
-      [userId, normalized, profileId],
-    ) : null
-    const safeHandle = conflictingHandle?.rows[0] ? null : rawHandle
-    const safeNormalized = safeHandle ? normalized : null
-    const inserted = await client.query(
-      `insert into people
-          (id, user_id, name, handle, normalized_handle, profile_url,
-           substack_profile_id, avatar_url, is_follower, follower_checked_at, source)
-       values ($1, $2, $3, $4, $5, $6, $7, $8, true, now(), 'followers')
-       on conflict do nothing`,
-      [
-        personId,
-        userId,
-        follower.name?.trim() || rawHandle || `Follower ${profileId}`,
-        safeHandle,
-        safeNormalized,
-        safeNormalized ? `https://substack.com/@${encodeURIComponent(safeNormalized)}` : null,
-        profileId,
-        follower.photo_url ?? null,
-      ],
-    )
-    if (!inserted.rowCount) {
-      const raced = await client.query(
-        `update people
-         set is_follower = true, follower_checked_at = now(), updated_at = now()
-         where user_id = $1 and archived_at is null
-           and (substack_profile_id = $2
-           or ($3::text is not null and normalized_handle = $3
-             and (substack_profile_id is null or substack_profile_id = $2)))`,
-        [userId, profileId, normalized],
-      )
-      matched += raced.rowCount ?? 0
-      continue
-    }
-    await client.query(
-      `insert into relationship_stats (person_id, user_id, drift_status, updated_at)
-       values ($1, $2, 'new', now())
-       on conflict (person_id) do nothing`,
-      [personId, userId],
-    )
-    created++
-  }
-
-  const result = await client.query(
-    `with updated as (
-       update people p
-       set is_follower = (
-             (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
-             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
-           ),
-           follower_checked_at = now(),
-           updated_at = case when p.is_follower is distinct from (
-             (p.substack_profile_id is not null and p.substack_profile_id = any($2::text[]))
-             or (p.substack_profile_id is null and p.normalized_handle is not null and p.normalized_handle = any($3::text[]))
-           ) then now() else p.updated_at end
-       where p.user_id = $1 and p.archived_at is null
-         and (p.normalized_handle is not null or p.substack_profile_id is not null)
-       returning is_follower
-     )
-     select count(*)::int as checked,
-            count(*) filter (where is_follower)::int as followers
-     from updated`,
-    [userId, profileIds, handles],
-  )
-  return {
-    checked: result.rows[0]?.checked ?? 0,
-    followers: result.rows[0]?.followers ?? 0,
-    processed: followers.length,
-    matched,
     created,
   }
 }

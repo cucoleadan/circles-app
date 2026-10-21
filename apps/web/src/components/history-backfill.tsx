@@ -52,7 +52,6 @@ const streamOptions = [
   { id: "owned_notes", description: "Notes and their conversations", history: true },
   { id: "owned_posts", description: "Posts and their comments", history: true },
   { id: "subscribers", description: "Who subscribes to your publication", history: false },
-  { id: "followers", description: "Who follows your Substack profile", history: false },
   { id: "following", description: "Who you follow and subscribe to", history: false },
   { id: "missing_handles", description: "Recover handles from stable profile IDs", history: false },
 ] as const
