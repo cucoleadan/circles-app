@@ -187,7 +187,7 @@ export function useWorkspaceFilters({
 
   // Refetch people when filters change
   useEffect(() => {
-    if (currentView === "comments") return
+    if (currentView === "comments" || currentView === "newsletter") return
     const query = new URLSearchParams()
     if (currentView && currentView !== "all") {
       query.set("view", currentView)

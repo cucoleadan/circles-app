@@ -228,6 +228,23 @@ contact tags; tagging a published Note listed from `owned_content`
 (`note:<id>`) creates a published mirror row to hold them. Design notes:
 `plans/note-scheduling.md`.
 
+## Newsletter Signals
+
+The Newsletter Signals view computes per-post and per-subscriber email open
+rates from Substack's publication export. It runs only when the user clicks
+"Request new export" (`POST /api/v1/newsletter/exports`); never schedule it.
+The `export:newsletter` worker job calls `POST /api/v1/publication_export` on
+the publication host, polls `GET /api/v1/publication_export` every 20 s until
+the export has a `url`, then reads `/api/v1/publication_export/<id>/file`. That
+route 302s to a presigned S3 URL, which is fetched without the session cookie.
+`packages/core/src/newsletter-export.ts` reads the zip in memory and computes
+the signals. Each run replaces the connection's rows in
+`newsletter_post_signals` and `newsletter_subscriber_signals`. Only email, plan
+and delivery/open counts are stored. Open locations, devices, user agents and
+the zip are discarded. Subscriber emails are personal data: the routes are
+browser-only (not in `tenantOperations`/MCP), and test fixtures must stay
+synthetic.
+
 ## Extension workflow
 
 The extension version must match in `extension/manifest.json` and

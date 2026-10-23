@@ -19,6 +19,7 @@ import { CirclesMetricsRibbon } from "./circles-metrics-ribbon"
 import { CirclesSidebar } from "./circles-sidebar"
 import { ContactDrawer } from "./contact-drawer"
 import { CommentsView } from "./comments-view"
+import { NewsletterView } from "./newsletter-view"
 import { SettingsDialog } from "./settings-dialog"
 import { SyncProgressPanel } from "./sync-progress-panel"
 import { CirclesContactsGrid } from "./workspace/circles-contacts-grid"
@@ -186,7 +187,7 @@ export function CirclesWorkspace({
     <main className="min-h-screen bg-[#f7f5f1] text-[#191817] dark:bg-stone-950 dark:text-stone-100 flex flex-col">
       <CirclesNavbar
         search={filters.search}
-        searchPlaceholder={filters.currentView === "comments" ? "Search comments or authors…" : undefined}
+        searchPlaceholder={filters.currentView === "comments" ? "Search comments or authors…" : filters.currentView === "newsletter" ? "Search subscriber emails…" : undefined}
         onSearchChange={filters.setSearch}
         onOpenGuide={() => setIsBadgeGuideOpen(true)}
         onOpenSettings={(tab) => {
@@ -241,6 +242,8 @@ export function CirclesWorkspace({
           <section className="flex-1 w-full min-w-0">
             {filters.currentView === "comments" ? (
               <CommentsView search={filters.search} refreshKey={refreshKey + syncRefreshKey} />
+            ) : filters.currentView === "newsletter" ? (
+              <NewsletterView search={filters.search} />
             ) : <>
             <CirclesToolbar
               viewHeading={filters.viewHeading}

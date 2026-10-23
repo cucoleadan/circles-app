@@ -1,7 +1,7 @@
 # Circles CRM — open work
 
 Open items only; completed work is in git history. Update this file when scope
-or status changes. Last updated: 2026-10-21.
+or status changes. Last updated: 2026-10-23.
 
 ## Substack audience endpoints
 
@@ -15,6 +15,14 @@ or status changes. Last updated: 2026-10-21.
       is needed again, capture it passively in the extension when the user
       opens their Followers page. The SDK's `getFollowing` still uses the
       challenged endpoint.
+
+## Newsletter Signals
+
+- [ ] Apply migration `036_newsletter_signals` on a test DB, then run one live
+      export from the Newsletter Signals view (create → poll → download → store).
+- [ ] Subscriber signals are keyed by email and not linked to CRM contacts
+      (`people` has no email). Link them if Substack exposes email → profile ID.
+- [ ] Very large exports: the zip is read in memory and zip64 is rejected.
 
 ## MCP
 

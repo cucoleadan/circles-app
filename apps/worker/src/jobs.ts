@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
+import { failNewsletterExport, NEWSLETTER_POLL_SECONDS, processNewsletterExport } from "./newsletter.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
 import { withTenant, substackResponseError, SESSION_EXPIRED_MESSAGE } from "./tenant.js"
@@ -459,6 +460,19 @@ export async function claimAndRunJob(
         }
       } else if (job.type === "mcp:substack") {
         jobResult = await processMcpTool(client, userId, payload.runId)
+      } else if (job.type === "export:newsletter") {
+        const step = await processNewsletterExport(
+          client, userId, connectionId, payload.runId, payload.exportId ?? null, Number(payload.polls ?? 0),
+        )
+        if (step.done) {
+          jobResult = numericSummary(step, ["posts", "subscribers"])
+        } else {
+          enqueue(
+            `insert into jobs (type, payload, status, run_at, max_attempts)
+             values ('export:newsletter', $1, 'pending', now() + ($2 || ' seconds')::interval, 3)`,
+            [JSON.stringify({ ...payload, exportId: step.exportId, polls: step.polls }), NEWSLETTER_POLL_SECONDS],
+          )
+        }
       } else {
         throw new Error(`Unknown job type: ${job.type}`)
       }
@@ -553,6 +567,9 @@ export async function claimAndRunJob(
           "update jobs set status = 'dead', last_error = $2, updated_at = now() where id = $1",
           [job.id, failureMessage]
         )
+        if (job.type === "export:newsletter" && userId && payload.runId) {
+          await failNewsletterExport(client, userId, payload.runId, failureMessage)
+        }
         if (importRunId && stream && userId) {
           await withTenant(client, userId, async () => {
             await client.query(

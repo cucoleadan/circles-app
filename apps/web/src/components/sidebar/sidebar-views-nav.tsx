@@ -5,6 +5,7 @@ import {
   EyeOff,
   HelpCircle,
   Inbox,
+  Mail,
   MessageSquare,
   RefreshCw,
   Send,
@@ -25,6 +26,12 @@ export const actionViews: { id: PeopleView; label: string; icon: any; desc: stri
     label: "Comments",
     icon: MessageSquare,
     desc: "Comments received on your Notes and articles, with recorded replies, Likes, and per-comment Not interested choices.",
+  },
+  {
+    id: "newsletter",
+    label: "Newsletter Signals",
+    icon: Mail,
+    desc: "Newsletter Signals: Email open rates per post and per subscriber, calculated from a Substack export you request.",
   },
   {
     id: "priority",
