@@ -84,22 +84,28 @@ newsletterRoutes.get("/newsletter/signals", async (c) => {
       scope,
     )).rows
     const where = {
-      engaged: "opened > 0 and sends_since_open < $3",
-      cold: "opened > 0 and sends_since_open >= $3",
-      never: "delivered > 0 and opened = 0",
+      engaged: "s.opened > 0 and s.sends_since_open < $3",
+      cold: "s.opened > 0 and s.sends_since_open >= $3",
+      never: "s.delivered > 0 and s.opened = 0",
       all: "true",
     }[filter]
-    const order = filter === "cold" ? "last_opened_at desc" : filter === "never" ? "delivered desc" : `opened::numeric / nullif(delivered, 0) desc nulls last, opened desc`
+    const order = filter === "cold" ? "s.last_opened_at desc" : filter === "never" ? "s.delivered desc" : `s.opened::numeric / nullif(s.delivered, 0) desc nulls last, s.opened desc`
+    // The subscriber sweep's email -> profile ID pairs link each reader to their contact.
     const subscribers = (await client.query(
-      `select email, in_email_list as "inEmailList", active_subscription as "activeSubscription", plan,
-              subscribed_at as "subscribedAt", delivered, opened,
-              round(opened::numeric / nullif(delivered, 0), 4)::float as "openRate",
-              last_opened_at as "lastOpenedAt", last_delivered_at as "lastDeliveredAt",
-              sends_since_open as "sendsSinceOpen"
-       from newsletter_subscriber_signals
-       where user_id = $1 and connection_id = $2 and ${where}
-         and ($4::text is null or email ilike '%' || $4 || '%')
-       order by ${order}, email
+      `select s.email, s.in_email_list as "inEmailList", s.active_subscription as "activeSubscription", s.plan,
+              s.subscribed_at as "subscribedAt", s.delivered, s.opened,
+              round(s.opened::numeric / nullif(s.delivered, 0), 4)::float as "openRate",
+              s.last_opened_at as "lastOpenedAt", s.last_delivered_at as "lastDeliveredAt",
+              s.sends_since_open as "sendsSinceOpen",
+              p.id as "personId", p.name as "personName", p.handle as "personHandle", p.avatar_url as "personAvatarUrl"
+       from newsletter_subscriber_signals s
+       left join subscriber_emails e on e.user_id = s.user_id and e.email = s.email
+       left join people p on p.user_id = s.user_id and p.substack_profile_id = e.substack_profile_id
+         and p.archived_at is null
+       where s.user_id = $1 and s.connection_id = $2 and ${where}
+         and ($4::text is null or s.email ilike '%' || $4 || '%' or p.name ilike '%' || $4 || '%'
+           or p.handle ilike '%' || $4 || '%')
+       order by ${order}, s.email
        limit $5`,
       [...scope, NEWSLETTER_COLD_AFTER_SENDS, search || null, limit],
     )).rows

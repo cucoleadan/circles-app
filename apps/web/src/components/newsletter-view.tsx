@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react"
 import { Download, Loader2 } from "lucide-react"
+import { Avatar, AvatarFallback, AvatarImage } from "@workspace/ui/components/avatar"
 import { Badge } from "@workspace/ui/components/badge"
 import { Button } from "@workspace/ui/components/button"
 import { Card, CardContent, CardHeader } from "@workspace/ui/components/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@workspace/ui/components/select"
 import { Skeleton } from "@workspace/ui/components/skeleton"
+import { initials } from "./contact-card/contact-card-badges"
 import { formatDate } from "./timeline/timeline-item"
 
 interface ExportRun {
@@ -30,12 +32,16 @@ interface NewsletterSignals {
     openRate: number | null
     lastOpenedAt: string | null
     sendsSinceOpen: number
+    personId: string | null
+    personName: string | null
+    personHandle: string | null
+    personAvatarUrl: string | null
   }>
 }
 
 const percent = (value: number | null) => value === null ? "–" : `${Math.round(value * 100)}%`
 
-export function NewsletterView({ search }: { search: string }) {
+export function NewsletterView({ search, onSelectPerson }: { search: string; onSelectPerson: (id: string) => void }) {
   const [data, setData] = useState<NewsletterSignals | null>(null)
   const [filter, setFilter] = useState("engaged")
   const [reload, setReload] = useState(0)
@@ -138,17 +144,37 @@ export function NewsletterView({ search }: { search: string }) {
           <CardContent className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead className="text-left text-xs text-muted-foreground">
-                <tr><th className="py-1.5 pr-3 font-medium">Email</th><th className="pr-3 font-medium">Open rate</th><th className="pr-3 font-medium">Opened</th><th className="pr-3 font-medium">Last open</th><th className="font-medium">Unopened since</th></tr>
+                <tr><th className="py-1.5 pr-3 font-medium">Subscriber</th><th className="pr-3 font-medium">Open rate</th><th className="pr-3 font-medium">Opened</th><th className="pr-3 font-medium">Last open</th><th className="font-medium">Unopened since</th></tr>
               </thead>
               <tbody>
                 {data.subscribers.length === 0 ? (
                   <tr><td colSpan={5} className="py-4 text-center text-muted-foreground">No subscribers match this view.</td></tr>
                 ) : data.subscribers.map((subscriber) => (
                   <tr key={subscriber.email} className="border-t border-stone-100 dark:border-stone-800">
-                    <td className="max-w-64 truncate py-1.5 pr-3">
-                      {subscriber.email}
-                      {!subscriber.inEmailList && <Badge variant="outline" className="ml-2">Left list</Badge>}
-                      {subscriber.plan && subscriber.plan !== "other" && <Badge variant="secondary" className="ml-2">{subscriber.plan}</Badge>}
+                    <td className="max-w-80 py-1.5 pr-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        {subscriber.personId ? (
+                          <button
+                            type="button"
+                            onClick={() => onSelectPerson(subscriber.personId!)}
+                            className="flex min-w-0 items-center gap-2.5 rounded-md text-left hover:underline"
+                          >
+                            <Avatar className="size-7 shrink-0">
+                              {subscriber.personAvatarUrl && <AvatarImage src={subscriber.personAvatarUrl} alt="" referrerPolicy="no-referrer" />}
+                              <AvatarFallback className="text-[10px]">{initials(subscriber.personName ?? subscriber.email)}</AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">
+                                {subscriber.personName}
+                                {subscriber.personHandle && <span className="ml-1.5 font-normal text-muted-foreground">@{subscriber.personHandle}</span>}
+                              </span>
+                              <span className="block truncate text-xs text-muted-foreground">{subscriber.email}</span>
+                            </span>
+                          </button>
+                        ) : <span className="truncate">{subscriber.email}</span>}
+                        {!subscriber.inEmailList && <Badge variant="outline">Left list</Badge>}
+                        {subscriber.plan && subscriber.plan !== "other" && <Badge variant="secondary">{subscriber.plan}</Badge>}
+                      </div>
                     </td>
                     <td className="pr-3 tabular-nums">{percent(subscriber.openRate)}</td>
                     <td className="pr-3 tabular-nums">{subscriber.opened}/{subscriber.delivered}</td>

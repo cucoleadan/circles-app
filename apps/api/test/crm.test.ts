@@ -1415,6 +1415,20 @@ describe("interactions", () => {
     expect(conflict.person).toMatchObject({ handle: null, substack_profile_id: "stable-3" })
   })
 
+  test("subscriber sweep keeps the email to profile ID pair per tenant", async () => {
+    const pair = (email: string) => ({ id: "email-profile", name: "Reader", email })
+    await withTenant({ appUserId: userA }, (client) => upsertSubscribersBatch(client, userA, [pair("old@example.com")]))
+    await withTenant({ appUserId: userA }, (client) => upsertSubscribersBatch(client, userA, [pair("old@example.com"), pair("new@example.com")]))
+    const own = await withTenant({ appUserId: userA }, (client) =>
+      client.query("select email, substack_profile_id from subscriber_emails order by email"))
+    expect(own.rows).toEqual([
+      { email: "new@example.com", substack_profile_id: "email-profile" },
+      { email: "old@example.com", substack_profile_id: "email-profile" },
+    ])
+    const other = await withTenant({ appUserId: userB }, (client) => client.query("select 1 from subscriber_emails"))
+    expect(other.rows).toHaveLength(0)
+  })
+
   test("interaction ingestion keeps distinct stable IDs separate despite a shared name and avatar", async () => {
     const people = await withTenant({ appUserId: userA }, async (client) => {
       const cache = new Map<string, string>()

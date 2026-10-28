@@ -11,6 +11,8 @@ export interface SubscriberItem {
   handle?: string | null
   subscription_type?: string | null
   subscription_created_at?: string | null
+  /** Lowercased; kept only to link Newsletter Signals to the contact. */
+  email?: string | null
 }
 
 export interface SubscriberStatsPage {
@@ -180,7 +182,7 @@ function subscriptionTier(record: UnknownRecord) {
   return "free"
 }
 
-/** Normalize only non-sensitive subscriber identity and membership fields. */
+/** Normalize subscriber identity and membership; the email is the only private field kept. */
 export function parseSubscriberStatsPage(payload: unknown): SubscriberStatsPage {
   if (!isRecord(payload)) throw new Error("Substack returned an invalid subscriber response")
 
@@ -224,6 +226,7 @@ export function parseSubscriberStatsPage(payload: unknown): SubscriberStatsPage 
       handle: optionalString(value.user_handle ?? value.handle),
       subscription_type: subscriptionTier(value),
       subscription_created_at: optionalString(value.subscription_created_at),
+      email: optionalString(value.user_email_address ?? value.email)?.toLowerCase() ?? null,
     })
   }
 
@@ -293,6 +296,18 @@ export async function upsertSubscribersBatch(
     })
   }
   if (rows.length === 0) return { matched, created, skipped }
+
+  const emails = new Map<string, string>()
+  for (const sub of subscribers) if (sub.email && sub.id) emails.set(sub.email, String(sub.id).trim())
+  if (emails.size > 0) {
+    await client.query(
+      `insert into subscriber_emails (user_id, email, substack_profile_id)
+       select $1, email, profile_id from unnest($2::text[], $3::text[]) as v(email, profile_id)
+       on conflict (user_id, email) do update
+         set substack_profile_id = excluded.substack_profile_id, updated_at = now()`,
+      [userId, [...emails.keys()], [...emails.values()]],
+    )
+  }
 
   // Resolve the whole page in one lookup. Stable profile ID wins; a handle only
   // matches a contact that has no conflicting profile ID.

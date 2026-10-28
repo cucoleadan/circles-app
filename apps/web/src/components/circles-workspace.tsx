@@ -151,8 +151,22 @@ export function CirclesWorkspace({
     }
   }
 
+  // A contact opened from outside the loaded list (Newsletter Signals, a ?person= link) is fetched on its own.
+  const [fetchedPerson, setFetchedPerson] = useState<Person | null>(null)
+  const drawerPerson = filters.activePerson ?? (fetchedPerson?.id === selectedPersonId ? fetchedPerson : null)
+  useEffect(() => {
+    if (!selectedPersonId || filters.activePerson) return
+    const controller = new AbortController()
+    fetch(`/api/v1/people/${encodeURIComponent(selectedPersonId)}`, { signal: controller.signal })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((body) => setFetchedPerson(body?.person ?? null))
+      .catch(() => {})
+    return () => controller.abort()
+  }, [selectedPersonId, filters.activePerson])
+
   function handlePersonUpdated(updated: Person) {
     filters.setPeople((prev) => prev.map((p) => (p.id === updated.id ? updated : p)))
+    setFetchedPerson((prev) => (prev?.id === updated.id ? updated : prev))
   }
 
   function handlePersonArchived(id: string) {
@@ -243,7 +257,7 @@ export function CirclesWorkspace({
             {filters.currentView === "comments" ? (
               <CommentsView search={filters.search} refreshKey={refreshKey + syncRefreshKey} />
             ) : filters.currentView === "newsletter" ? (
-              <NewsletterView search={filters.search} />
+              <NewsletterView search={filters.search} onSelectPerson={handleSelectPerson} />
             ) : <>
             <CirclesToolbar
               viewHeading={filters.viewHeading}
@@ -287,8 +301,8 @@ export function CirclesWorkspace({
       </div>
 
       <ContactDrawer
-        person={filters.activePerson}
-        open={Boolean(selectedPersonId && filters.activePerson)}
+        person={drawerPerson}
+        open={Boolean(selectedPersonId && drawerPerson)}
         onOpenChange={(open) => {
           if (!open) handleSelectPerson(null)
         }}

@@ -241,7 +241,9 @@ route 302s to a presigned S3 URL, which is fetched without the session cookie.
 the signals. Each run replaces the connection's rows in
 `newsletter_post_signals` and `newsletter_subscriber_signals`. Only email, plan
 and delivery/open counts are stored. Open locations, devices, user agents and
-the zip are discarded. Subscriber emails are personal data: the routes are
+the zip are discarded. The subscriber sweep stores each subscriber's email and
+profile ID in `subscriber_emails`, which links a signal row to its contact.
+Subscriber emails are personal data: the routes are
 browser-only (not in `tenantOperations`/MCP), and test fixtures must stay
 synthetic.
 

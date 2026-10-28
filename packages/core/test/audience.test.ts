@@ -16,7 +16,7 @@ describe("audience sync response normalization", () => {
     expect(() => parseFollowingIds({ subscriberLists: [] })).toThrow("invalid following response")
   })
 
-  test("parses the current subscriber shape without retaining private fields", () => {
+  test("parses the current subscriber shape, keeping only the email as a private field", () => {
     const page = parseSubscriberStatsPage({
       count: 2,
       subscribers: [
@@ -39,8 +39,10 @@ describe("audience sync response normalization", () => {
       id: "101",
       name: "Free Reader",
       subscription_type: "free",
+      email: "private@example.com",
     })
     expect(page.subscribers[1]?.subscription_type).toBe("founding")
+    expect(page.subscribers[1]?.email).toBeNull()
     expect(page.subscribers[0]).not.toHaveProperty("user_email_address")
     expect(page.subscribers[0]).not.toHaveProperty("is_subscribed")
   })
