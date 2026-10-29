@@ -1,3 +1,5 @@
+<img alt="Circles: know who's really in your Substack circle." src="docs/header.png">
+
 # Circles CRM
 
 A private, self-hosted relationship CRM for Substack writers. Circles turns your
