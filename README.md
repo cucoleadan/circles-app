@@ -4,7 +4,8 @@ A private, self-hosted relationship CRM for Substack writers. Circles turns your
 Substack activity — Likes, restacks, comments, replies, follows and
 subscriptions, on your Notes and posts and on other people's — into contacts,
 interaction timelines and relationship scores, so you can see who engages with
-you, who you engage with, and who is waiting on a reply.
+you, who you engage with, and who is waiting on a reply. Built by
+[Chillital](https://chillital.com).
 
 > **Unofficial.** Circles is not affiliated with or endorsed by Substack. It
 > reads Substack through an unofficial API client using **your own browser
@@ -158,4 +159,4 @@ bun run test           # needs DATABASE_URL (admin) + APP_DB_PASSWORD/MIGRATE_DB
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Made by [Chillital](https://chillital.com).

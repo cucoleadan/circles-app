@@ -204,6 +204,11 @@ button, input, a, label {
   color: var(--text-dim);
 }
 
+.version-tag a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
 /* Profile Box */
 .profile-box {
   display: flex;
