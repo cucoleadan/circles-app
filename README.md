@@ -16,6 +16,8 @@ you, who you engage with, and who is waiting on a reply. Built by
 > terms and could affect your account; use it at your own risk, for your own
 > account only.
 
+https://github.com/user-attachments/assets/672cb069-f317-4a2c-836b-433ece799f46
+
 ## Features
 
 Screenshots show generated sample data.
