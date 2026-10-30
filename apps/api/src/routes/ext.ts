@@ -2,11 +2,16 @@ import { createHash, randomUUID } from "node:crypto"
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import {
+  applyFollowingSnapshot,
   createSubstackClient,
   ingestActivityBatch,
   ingestConversationReplies,
   normalizeActivityPage,
   openSessionToken,
+  parseFollowingIds,
+  parseSubscriberStatsPage,
+  reconcileSubscriberSnapshot,
+  upsertSubscribersBatch,
   type ActivityItemInput,
 } from "@workspace/core"
 
@@ -149,6 +154,13 @@ ext.get("/companion", async (c) => {
       [userId]
     )
     const conn = connRes.rows[0]
+    // The extension's notifications poll reads back to the same checkpoint the worker uses.
+    const checkpoint = conn
+      ? await client.query(
+          "select last_synced_at from sync_stream_state where connection_id = $1 and stream = 'activity'",
+          [conn.id],
+        )
+      : null
     const connection = conn
       ? {
           id: conn.id,
@@ -194,6 +206,7 @@ ext.get("/companion", async (c) => {
           email: c.get("userEmail"),
         },
         connection,
+        activitySyncedAt: checkpoint?.rows[0]?.last_synced_at ?? null,
         lists: lists.map((l) => ({ id: l.id, name: l.name, description: null })),
         handles,
         members,
@@ -369,6 +382,103 @@ ext.post("/activity", captureBodyLimit, async (c) => {
       console.error("[Circles API] Extension capture ingestion failed:", errorMessage)
       return c.json({ ok: false, message: "Capture ingestion failed" }, 500)
     }
+  })
+})
+
+/** Mirrors the worker's full subscriber sweep (apps/worker/src/audience.ts). */
+const SUBSCRIBER_PAGE_OVERLAP = 10
+const MAX_BROWSER_RUN_MS = 6 * 60 * 60 * 1000
+
+/**
+ * Reads the extension made with the user's own Substack session. Activity
+ * pages arrive through /activity like any capture; this records that a poll
+ * finished and applies the audience lists. Each one tells the worker to skip
+ * its own read (apps/worker/src/jobs.ts).
+ */
+ext.post("/browser-reads", captureBodyLimit, async (c) => {
+  const userId = c.get("appUser")
+  const body = await c.req.json().catch(() => null) as
+    | { kind?: string; connectionId?: string; payload?: unknown; offset?: unknown; runStartedAt?: unknown }
+    | null
+  if (!body || typeof body.connectionId !== "string") return c.json({ ok: false, message: "Invalid request" }, 400)
+  const connectionId = body.connectionId
+
+  return withTenant({ appUserId: userId }, async (client) => {
+    const conn = (await client.query(
+      `select id, browser_subscriber_run from substack_connections
+       where id = $1 and user_id = $2 and status = 'active' for update`,
+      [connectionId, userId],
+    )).rows[0]
+    if (!conn) return c.json({ ok: false, rejected: true, message: "This Substack connection is no longer active." }, 409)
+
+    if (body.kind === "activity") {
+      // The extension read newest-first back to this connection's checkpoint.
+      await client.query(
+        `insert into sync_stream_state
+            (connection_id, user_id, stream, status, last_synced_at, completeness, error, updated_at)
+         values ($1, $2, 'activity', 'idle', now(), 'partial', null, now())
+         on conflict (connection_id, stream) do update
+           set status = 'idle', last_synced_at = now(), error = null, updated_at = now()`,
+        [connectionId, userId],
+      )
+      await client.query(
+        "update sync_state set last_synced_at = now(), status = 'idle', error = null, updated_at = now() where connection_id = $1",
+        [connectionId],
+      )
+      await client.query("update substack_connections set browser_activity_at = now() where id = $1", [connectionId])
+      return c.json({ ok: true })
+    }
+
+    if (body.kind === "following") {
+      let page: ReturnType<typeof parseFollowingIds>
+      try { page = parseFollowingIds(body.payload) } catch { return c.json({ ok: false, message: "Invalid following list" }, 400) }
+      const result = await applyFollowingSnapshot(client, userId, page.followers, false)
+      await client.query("update substack_connections set browser_following_at = now() where id = $1", [connectionId])
+      // Like the worker's sweep: name the ID-only contacts it created.
+      if (result.created > 0) {
+        await client.query(
+          `insert into jobs (type, payload, status, run_at)
+           select 'enrich:missing-handles', $1::jsonb, 'pending', now() + interval '1 minute'
+           where not exists (select 1 from jobs where type = 'enrich:missing-handles'
+             and status in ('pending', 'running') and payload->>'connectionId' = $2)`,
+          [JSON.stringify({ userId, connectionId, placeholdersOnly: true }), connectionId],
+        )
+      }
+      return c.json({ ok: true, checked: result.checked, created: result.created })
+    }
+
+    if (body.kind === "subscribers") {
+      const runStartedAt = typeof body.runStartedAt === "string" ? Date.parse(body.runStartedAt) : Number.NaN
+      const offset = Number(body.offset)
+      if (!Number.isFinite(runStartedAt) || runStartedAt > Date.now() || Date.now() - runStartedAt > MAX_BROWSER_RUN_MS ||
+        !Number.isInteger(offset) || offset < 0) {
+        return c.json({ ok: false, message: "Invalid subscriber sweep" }, 400)
+      }
+      const run = new Date(runStartedAt).toISOString()
+      // Pages must arrive in order from one sweep; anything else restarts it.
+      const current = conn.browser_subscriber_run as { runStartedAt?: string; nextOffset?: number } | null
+      if (offset !== 0 && (current?.runStartedAt !== run || current?.nextOffset !== offset)) {
+        return c.json({ ok: false, restart: true, message: "Subscriber sweep out of order; start again." }, 409)
+      }
+      let page: ReturnType<typeof parseSubscriberStatsPage>
+      try { page = parseSubscriberStatsPage(body.payload) } catch { return c.json({ ok: false, message: "Invalid subscriber page" }, 400) }
+      const batch = await upsertSubscribersBatch(client, userId, page.subscribers, new Date().toISOString())
+      const completed = page.received === 0 || offset + page.received >= page.total
+      // Overlap pages so a subscriber who leaves mid-sweep cannot shift someone past a page boundary.
+      const nextOffset = completed ? offset + page.received : offset + Math.max(1, page.received - SUBSCRIBER_PAGE_OVERLAP)
+      // A sweep that saw nobody (an empty first page) never clears anyone.
+      const deactivated = completed && offset + page.received > 0 ? await reconcileSubscriberSnapshot(client, userId, run) : 0
+      await client.query(
+        `update substack_connections
+         set browser_subscriber_run = $2::jsonb,
+             browser_subscribers_at = case when $3 then now() else browser_subscribers_at end
+         where id = $1`,
+        [connectionId, completed ? null : JSON.stringify({ runStartedAt: run, nextOffset }), completed],
+      )
+      return c.json({ ok: true, completed, nextOffset, matched: batch.matched, created: batch.created, deactivated })
+    }
+
+    return c.json({ ok: false, message: "Unknown read" }, 400)
   })
 })
 

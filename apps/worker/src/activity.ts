@@ -51,6 +51,14 @@ export const MAX_ACTIVITY_SYNC_PAGES = 5
 /** Bound after an outage, so notifications past page 5 are not skipped. */
 export const MAX_CATCH_UP_PAGES = 20
 const CATCH_UP_AFTER_MS = 60 * 60 * 1000
+/** A browser poll this recent stands in for the worker's own (the extension polls about every 10 min). */
+const BROWSER_POLL_FRESH_MS = 15 * 60 * 1000
+
+/** When the extension last finished each read for this connection, if ever. */
+export interface BrowserReads {
+  subscribersAt: Date | null
+  followingAt: Date | null
+}
 const ACTIVITY_PAGE_PAUSE_MS = 2_000
 
 function activityItemTime(item: ActivityItemInput): number | null {
@@ -87,7 +95,8 @@ export async function processActivitySync(
   // 1. Read the connection and the last successful sync in a short transaction.
   const state = await withTenant(client, userId, async () => {
     const connRes = await client.query(
-      `select id, key_id, iv, ciphertext, publication_url, profile_id, profile_handle, status
+      `select id, key_id, iv, ciphertext, publication_url, profile_id, profile_handle, status,
+              browser_activity_at, browser_subscribers_at, browser_following_at
        from substack_connections
        where id = $1 and user_id = $2`,
       [connectionId, userId]
@@ -114,6 +123,17 @@ export async function processActivitySync(
   if (!conn || conn.status !== "active") {
     console.log(`[Circles Worker] Connection ${connectionId} is no longer active; skipping sync.`)
     return { skipped: true, expired: conn?.status === "expired" }
+  }
+
+  const browser: BrowserReads = {
+    subscribersAt: conn.browser_subscribers_at ? new Date(conn.browser_subscribers_at) : null,
+    followingAt: conn.browser_following_at ? new Date(conn.browser_following_at) : null,
+  }
+  // While the extension polls with the user's own session, skip the server's
+  // read; the chain keeps running so it takes over when the browser closes.
+  if (conn.browser_activity_at && Date.now() - new Date(conn.browser_activity_at).getTime() < BROWSER_POLL_FRESH_MS) {
+    console.log(`[Circles Worker] Connection ${connectionId} was polled by the browser; skipping the server read.`)
+    return { skipped: false, browserPolled: true, browser, stats: { processedItems: 0, newInteractions: 0, newPeople: 0 } }
   }
 
   const ownerHandle = conn.profile_handle
@@ -196,7 +216,7 @@ export async function processActivitySync(
         `${stats.newInteractions} new interactions, ${stats.newPeople} new contacts.`
     )
 
-    return { skipped: false, stats }
+    return { skipped: false, browser, stats }
   })
 }
 

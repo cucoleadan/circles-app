@@ -182,7 +182,10 @@ The activity sync re-seals a legacy `plain` session once the key is configured.
 Subscriber and following audience sweeps import missing people into the CRM and
 reconcile current membership after the complete upstream snapshot is applied.
 Scheduled audience sweeps (subscribers, following) run at most once per ~23
-hours per connection. Following reads the ID-only `/api/v1/feed/following` and
+hours per connection. While Chrome is open the extension makes these reads
+itself (see "Extension workflow"); the worker skips its notifications read
+while `browser_activity_at` is under 15 minutes old (keeping the chain) and
+each audience sweep while its `browser_*_at` is under 48 hours old. Following reads the ID-only `/api/v1/feed/following` and
 queues the missing-handle backfill to name new contacts. There is no follower
 sweep: Substack's follower list (`subscriber-lists`) answers non-browser
 clients with a Cloudflare challenge, so `is_follower` comes only from follow
@@ -283,7 +286,16 @@ extension for a web/API-only change unless requested or required for
 compatibility.
 
 The passive page observer must not introduce extra Substack reads merely to
-capture normal browsing. Mutation capture may resolve a missing target author
+capture normal browsing. The background's browser reads
+(`lib/browser-reads.ts`, on the 1-minute alarm) are the one exception: with the
+user's own session they poll notifications about every 10 minutes from the
+server's checkpoint minus 30 minutes, and sweep following and subscribers about
+daily, reporting through `/api/ext/activity` and `/api/ext/browser-reads`. They
+read only when Chrome's Substack account (`/api/v1/handle/options`) matches the
+connected profile. A 401/403 hands every read back to the server for ~6 hours.
+Publications on a custom domain keep the server subscriber sweep. The server takes
+subscriber pages only in order (`browser_subscriber_run`) and never reconciles
+a sweep that saw nobody. Mutation capture may resolve a missing target author
 through the authenticated API route. Treat all page-world messages as untrusted:
 validate type, shape, length, origin, and account connection before queueing or
 ingesting them.

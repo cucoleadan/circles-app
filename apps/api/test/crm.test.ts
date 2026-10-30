@@ -773,6 +773,59 @@ describe("interactions", () => {
     expect(eve[0].engagementScore).toBe(3)
   })
 
+  test("POST /browser-reads takes subscriber pages only in order and records each read", async () => {
+    let connectionId = (await migrate.query(
+      "select id from substack_connections where user_id = $1 and status = 'active'", [userA],
+    )).rows[0]?.id
+    if (!connectionId) {
+      connectionId = "browser-reads-connection"
+      await migrate.query(
+        `insert into substack_connections (id, user_id, envelope_version, key_id, wrapped_key, iv, ciphertext)
+         values ($1, $2, 1, 'test', 'test', 'test', 'test')`,
+        [connectionId, userA],
+      )
+    }
+    const read = async (body: Record<string, unknown>) => {
+      const res = await ext.fetch(new Request("http://localhost:3000/browser-reads", {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: signedCookieA },
+        body: JSON.stringify({ connectionId, ...body }),
+      }))
+      return { status: res.status, body: await res.json() as any }
+    }
+    const runStartedAt = new Date(Date.now() - 1000).toISOString()
+    const reader = { user_id: 77001, user_name: "Reader", user_email_address: "reader@example.com", subscription_created_at: runStartedAt }
+
+    expect(await read({ kind: "following", payload: [] })).toMatchObject({ status: 200, body: { ok: true } })
+    expect(await read({ kind: "activity" })).toMatchObject({ status: 200, body: { ok: true } })
+
+    const first = await read({ kind: "subscribers", runStartedAt, offset: 0, payload: { subscribers: [reader], count: 300 } })
+    expect(first).toMatchObject({ status: 200, body: { completed: false, nextOffset: 1, created: 1 } })
+    // A skipped page would hide subscribers from the reconcile, so it restarts the sweep.
+    expect(await read({ kind: "subscribers", runStartedAt, offset: 5, payload: { subscribers: [], count: 300 } }))
+      .toMatchObject({ status: 409, body: { restart: true } })
+    expect(await read({ kind: "subscribers", runStartedAt, offset: 1, payload: { subscribers: [], count: 300 } }))
+      .toMatchObject({ status: 200, body: { completed: true } })
+    // A sweep that saw nobody never marks anyone unsubscribed.
+    expect(await read({ kind: "subscribers", runStartedAt: new Date().toISOString(), offset: 0, payload: { subscribers: [], count: 0 } }))
+      .toMatchObject({ status: 200, body: { completed: true, deactivated: 0 } })
+
+    const conn = (await migrate.query(
+      `select browser_activity_at, browser_following_at, browser_subscribers_at, browser_subscriber_run
+       from substack_connections where id = $1`, [connectionId],
+    )).rows[0]
+    expect(conn.browser_activity_at).not.toBeNull()
+    expect(conn.browser_following_at).not.toBeNull()
+    expect(conn.browser_subscribers_at).not.toBeNull()
+    expect(conn.browser_subscriber_run).toBeNull()
+    const subscriber = (await migrate.query(
+      "select is_subscriber from people where user_id = $1 and substack_profile_id = '77001'", [userA],
+    )).rows[0]
+    expect(subscriber?.is_subscriber).toBe(true)
+
+    expect(await read({ kind: "activity", connectionId: "not-this-account" })).toMatchObject({ status: 409, body: { rejected: true } })
+  })
+
   test("POST /community adds person to CRM and lists from extension form", async () => {
     const list = await withTenant({ appUserId: userA }, (client) =>
       createList(client, userA, "Newsletter")

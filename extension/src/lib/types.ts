@@ -31,6 +31,8 @@ export type AppState = {
   handles?: string[];
   members?: CompanionMember[];
   user?: { id: string; email: string };
+  /** Last finished notifications sync, from the server or the browser. */
+  activitySyncedAt?: string | null;
 };
 
 export type DetectedProfile = {

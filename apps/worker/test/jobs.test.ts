@@ -148,6 +148,30 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(await runPoll("audience")).toEqual({ history: true, replies: true, audience: false, poll: true })
   })
 
+  test("a recent browser sweep replaces only that server audience sweep", async () => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-103", type: "sync:activity", attempts: 0, max_attempts: 5,
+          payload: { userId: "user-1", connectionId: "conn-1" },
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "test-worker-1", {
+      onSync: async () => ({
+        skipped: false,
+        browser: { subscribersAt: new Date(Date.now() - 3600_000), followingAt: new Date(Date.now() - 72 * 3600_000) },
+      }),
+    })
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:subscribers")).toBe(false)
+    expect(executedQueries.some((q) => q.params?.[0] === "sync:following")).toBe(true)
+    expect(executedQueries.some((q) => q.sql.includes("select 'sync:activity'"))).toBe(true)
+  })
+
   test("schedules next page when import:history job is not yet completed", async () => {
     const executedQueries: { sql: string; params?: any[] }[] = []
 

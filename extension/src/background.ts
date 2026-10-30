@@ -17,6 +17,7 @@ import {
 } from "./lib/app-origin";
 import { recoveredFlow } from "./lib/connection-status";
 import { ACTIVITY_RETRY_ALARM, drainActivity, enqueueActivity, rememberActivityConnection } from "./lib/activity-queue";
+import { runBrowserReads } from "./lib/browser-reads";
 import type {
   BackgroundResponse,
   BridgeRequest,
@@ -509,6 +510,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === ACTIVITY_RETRY_ALARM) {
     void drainActivity(requestViaBridge).catch((error) => console.warn("[Circles Activity] Queue retry interrupted.", error));
+    void runBrowserReads();
   }
 });
 

@@ -14,6 +14,7 @@ import {
   preserveActivityEvidence,
   processActivitySync,
   processScheduledHistorySync,
+  type BrowserReads,
   type HistoryStream,
   type ScheduledHistoryStream,
 } from "./activity.js"
@@ -55,7 +56,7 @@ export {
 }
 
 export interface JobHandlers {
-  onSync?: (client: PoolClient, userId: string, connectionId: string) => Promise<{ skipped: boolean }>
+  onSync?: (client: PoolClient, userId: string, connectionId: string) => Promise<{ skipped: boolean; browser?: BrowserReads }>
   onHistorySync?: (
     client: PoolClient,
     userId: string,
@@ -100,6 +101,9 @@ export function jittered(seconds: number) {
 function spread(cadenceSeconds: number) {
   return Math.round(Math.random() * cadenceSeconds * 0.2)
 }
+
+/** A browser audience sweep this recent replaces the server's own. */
+const BROWSER_AUDIENCE_FRESH_MS = 48 * 60 * 60 * 1000
 
 /** Shown in the sync panel while a challenged sweep waits. */
 export const CHALLENGE_PAUSED_MESSAGE = "Substack challenged this request; paused for a few hours"
@@ -269,6 +273,9 @@ export async function claimAndRunJob(
              limit 1`,
             [connectionId, jittered(7 * 86400)],
           )
+          const browserFresh = (at: Date | null | undefined) =>
+            Boolean(at && Date.now() - at.getTime() < BROWSER_AUDIENCE_FRESH_MS)
+          const browser = "browser" in result ? result.browser : undefined
           const audienceJobs = [
             // Independent offsets keep the two sweeps from running back to back.
             {
@@ -288,7 +295,7 @@ export async function claimAndRunJob(
               delay: 80 + spread(23 * 3600),
               payload: { userId, connectionId, manual: false },
             },
-          ]
+          ].filter((audience) => !browserFresh(audience.type === "sync:subscribers" ? browser?.subscribersAt : browser?.followingAt))
           for (const audience of audienceJobs) {
             enqueue(
               `insert into jobs (type, payload, status, run_at)
