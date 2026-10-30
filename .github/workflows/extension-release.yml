@@ -69,5 +69,6 @@ jobs:
             state=$(curl -sS -H "$auth" "https://chromewebstore.googleapis.com/v2/$item:fetchStatus" | jq -r .lastAsyncUploadState)
           done
           if [ "$state" != "SUCCEEDED" ]; then echo "Upload state: $state"; exit 1; fi
-          curl -sSf -H "$auth" -X POST "https://chromewebstore.googleapis.com/v2/$item:publish"
+          # --fail-with-body prints the Store's reason, e.g. a new permission without a dashboard justification.
+          curl -sS --fail-with-body -H "$auth" -X POST "https://chromewebstore.googleapis.com/v2/$item:publish"
           echo "Submitted $VERSION for Chrome Web Store review."
