@@ -295,8 +295,9 @@ daily, reporting through `/api/ext/activity` and `/api/ext/browser-reads`. They
 read only when Chrome's Substack account (`/api/v1/handle/options`) matches the
 connected profile. A 401/403 hands every read back to the server for ~6 hours.
 Publications on a custom domain keep the server subscriber sweep. The server takes
-subscriber pages only in order (`browser_subscriber_run`) and never reconciles
-a sweep that saw nobody. Mutation capture may resolve a missing target author
+subscriber pages only in order (`browser_subscriber_run`, whose start time
+the server stamps) and never reconciles a sweep that saw nobody. The side panel
+shows why browser reads stopped (wrong account, signed out, challenged). Mutation capture may resolve a missing target author
 through the authenticated API route. Treat all page-world messages as untrusted:
 validate type, shape, length, origin, and account connection before queueing or
 ingesting them.

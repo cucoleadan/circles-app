@@ -793,21 +793,23 @@ describe("interactions", () => {
       }))
       return { status: res.status, body: await res.json() as any }
     }
-    const runStartedAt = new Date(Date.now() - 1000).toISOString()
-    const reader = { user_id: 77001, user_name: "Reader", user_email_address: "reader@example.com", subscription_created_at: runStartedAt }
+    const reader = { user_id: 77001, user_name: "Reader", user_email_address: "reader@example.com", subscription_created_at: "2026-01-01T00:00:00.000Z" }
 
     expect(await read({ kind: "following", payload: [] })).toMatchObject({ status: 200, body: { ok: true } })
     expect(await read({ kind: "activity" })).toMatchObject({ status: 200, body: { ok: true } })
 
-    const first = await read({ kind: "subscribers", runStartedAt, offset: 0, payload: { subscribers: [reader], count: 300 } })
+    // The server stamps the run's start; a browser clock ahead of it changes nothing.
+    const first = await read({ kind: "subscribers", runStartedAt: "2999-01-01T00:00:00.000Z", offset: 0, payload: { subscribers: [reader], count: 300 } })
     expect(first).toMatchObject({ status: 200, body: { completed: false, nextOffset: 1, created: 1 } })
+    const runStartedAt = first.body.runStartedAt
+    expect(Date.parse(runStartedAt)).toBeLessThanOrEqual(Date.now())
     // A skipped page would hide subscribers from the reconcile, so it restarts the sweep.
     expect(await read({ kind: "subscribers", runStartedAt, offset: 5, payload: { subscribers: [], count: 300 } }))
       .toMatchObject({ status: 409, body: { restart: true } })
     expect(await read({ kind: "subscribers", runStartedAt, offset: 1, payload: { subscribers: [], count: 300 } }))
       .toMatchObject({ status: 200, body: { completed: true } })
     // A sweep that saw nobody never marks anyone unsubscribed.
-    expect(await read({ kind: "subscribers", runStartedAt: new Date().toISOString(), offset: 0, payload: { subscribers: [], count: 0 } }))
+    expect(await read({ kind: "subscribers", offset: 0, payload: { subscribers: [], count: 0 } }))
       .toMatchObject({ status: 200, body: { completed: true, deactivated: 0 } })
 
     const conn = (await migrate.query(

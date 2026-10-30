@@ -36,7 +36,14 @@ describe("browser reads", () => {
       if (url.endsWith("/api/ext/companion")) return json({ ok: true, appState: { connection, activitySyncedAt: syncedAt, lists: [] } });
       if (url === "https://substack.com/api/v1/handle/options") return handleOptions("Owner");
       if (url.startsWith("https://substack.com/api/v1/activity-feed-web")) {
-        return json({ activityItems: [{ id: "new", updated_at: new Date().toISOString() }], more: false });
+        const now = Date.now();
+        if (!url.includes("after=")) {
+          return json({ activityItems: [
+            { id: "new", updated_at: new Date(now - 60_000).toISOString() },
+            { id: "bumped", updated_at: new Date(now).toISOString(), created_at: new Date(now - 86_400_000).toISOString() },
+          ], more: true });
+        }
+        return json({ activityItems: [{ id: "old", updated_at: new Date(now - 3_600_000).toISOString() }], more: true });
       }
       if (url === "https://substack.com/api/v1/feed/following") return json([1, 2]);
       if (url === "https://example-pub.substack.com/api/v1/subscriber-stats") return json({ subscribers: [], count: 0 });
@@ -49,12 +56,13 @@ describe("browser reads", () => {
     expect(circles.map((call) => call.url.replace("https://circles.example", "") + (call.body?.kind ? `:${call.body.kind}` : ""))).toEqual([
       "/api/ext/companion",
       "/api/ext/activity",
+      "/api/ext/activity",
       "/api/ext/browser-reads:activity",
       "/api/ext/browser-reads:following",
       "/api/ext/browser-reads:subscribers",
     ]);
-    expect(circles[1]!.body).toMatchObject({ expectedConnectionId: "connection-a", activityItems: [{ id: "new" }] });
-    expect(circles[4]!.body).toMatchObject({ connectionId: "connection-a", offset: 0, payload: { count: 0 } });
+    expect(circles[1]!.body).toMatchObject({ expectedConnectionId: "connection-a", activityItems: [{ id: "new" }, { id: "bumped" }] });
+    expect(circles[5]!.body).toMatchObject({ connectionId: "connection-a", offset: 0, payload: { count: 0 } });
     const state = storage.browserReadsV1 as { next: Record<string, number>; subscriberRun?: unknown };
     expect(state.subscriberRun).toBeUndefined();
     expect(state.next.subscribers! - Date.now()).toBeGreaterThan(19 * 3600_000);
@@ -72,7 +80,11 @@ describe("browser reads", () => {
       if (url.endsWith("/api/ext/companion")) return json({ ok: true, appState: { connection, lists: [] } });
       if (url === "https://substack.com/api/v1/handle/options") return handleOptions("owner");
       if (url.endsWith("/subscriber-stats")) return ++pages === 1 ? json({ subscribers: [], count: 250 }) : json({}, 403);
-      if (url.endsWith("/api/ext/browser-reads")) return json({ ok: true, completed: false, nextOffset: body.offset + 90 });
+      if (url.endsWith("/api/ext/browser-reads")) {
+        // The server stamps the run on the first page; later pages must echo it.
+        expect(body.runStartedAt).toBe(body.offset === 0 ? undefined : "2026-01-01T00:00:00.000Z");
+        return json({ ok: true, completed: false, nextOffset: body.offset + 90, runStartedAt: "2026-01-01T00:00:00.000Z" });
+      }
       return json({ ok: true });
     });
     await (await fresh()).runBrowserReads();
@@ -80,6 +92,7 @@ describe("browser reads", () => {
     const state = storage.browserReadsV1 as { pausedUntil: number; subscriberRun: { offset: number; connectionId: string } };
     expect(state.subscriberRun).toMatchObject({ connectionId: "connection-a", offset: 90 });
     expect(state.pausedUntil).toBeGreaterThan(Date.now() + 4 * 3600_000);
+    expect(storage.browserReadsV1).toMatchObject({ issue: { kind: "challenged" } });
     expect(calls.filter((call) => call.url.endsWith("/subscriber-stats")).map((call) => call.body.offset)).toEqual([0, 90]);
   });
 
@@ -92,5 +105,11 @@ describe("browser reads", () => {
     await (await fresh()).runBrowserReads();
     expect(calls.map((call) => new URL(call.url).pathname)).toEqual(["/api/ext/companion", "/api/v1/handle/options"]);
     expect((storage.browserReadsV1 as { pausedUntil: number }).pausedUntil).toBeGreaterThan(Date.now() + 50 * 60_000);
+    expect((storage.browserReadsV1 as { issue: unknown }).issue).toEqual({ kind: "account", browserHandle: "someone-else", connectedHandle: "owner" });
+
+    // "Check again" lifts the pause; the next run reads again once the accounts match.
+    await (await fresh()).retryBrowserReads();
+    expect(storage.browserReadsV1).not.toHaveProperty("issue");
+    expect(storage.browserReadsV1).not.toHaveProperty("pausedUntil");
   });
 });

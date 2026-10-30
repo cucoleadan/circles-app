@@ -7,6 +7,7 @@ import {
 } from "@workspace/ui/components/dropdown-menu"
 import { grantedAppOrigin } from "../lib/app-origin"
 import { pendingActivityCount } from "../lib/activity-queue"
+import { BROWSER_READS_KEY, retryBrowserReads, type BrowserReadsIssue, type BrowserReadsState } from "../lib/browser-reads"
 import type { AppState, DetectedProfile, FlowState } from "../lib/types"
 import { circles, CirclesError, message, openInCircles, type Person } from "./api"
 import { iconBtn, Logo } from "./ui"
@@ -40,6 +41,7 @@ export function App() {
   const [queued, setQueued] = useState(0)
   const [syncing, setSyncing] = useState(false)
   const [inPage, setInPage] = useState(true)
+  const [readsIssue, setReadsIssue] = useState<BrowserReadsIssue | null>(null)
 
   const refresh = useCallback(async () => {
     const paired = await grantedAppOrigin()
@@ -77,6 +79,12 @@ export function App() {
     void refresh()
     void readTab()
     void chrome.storage.sync.get(IN_PAGE_KEY).then((stored) => setInPage(stored[IN_PAGE_KEY] !== false))
+    const readIssue = (state: unknown) => setReadsIssue((state as BrowserReadsState | undefined)?.issue ?? null)
+    void chrome.storage.local.get(BROWSER_READS_KEY).then((stored) => readIssue(stored[BROWSER_READS_KEY]))
+    const onStorage = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area === "local" && BROWSER_READS_KEY in changes) readIssue(changes[BROWSER_READS_KEY]!.newValue)
+    }
+    chrome.storage.onChanged.addListener(onStorage)
     const onActivated = () => void readTab()
     const onUpdated = (_id: number, change: { url?: string; status?: string }) => {
       if (change.url || change.status === "complete") void readTab()
@@ -93,6 +101,7 @@ export function App() {
       chrome.tabs.onActivated.removeListener(onActivated)
       chrome.tabs.onUpdated.removeListener(onUpdated)
       chrome.runtime.onMessage.removeListener(onMessage)
+      chrome.storage.onChanged.removeListener(onStorage)
     }
   }, [refresh, readTab])
 
@@ -200,6 +209,7 @@ export function App() {
         ) : (
           <>
             {!app.connection && tab !== "settings" && <ConnectCard flow={flow} publicationUrl={null} />}
+            {app.connection && readsIssue && <ReadsIssueCard issue={readsIssue} />}
             {tab === "page" && (
               <PageView
                 target={pageTarget}
@@ -261,5 +271,43 @@ function MenuEntry({ icon, label, count, onSelect }: { icon: ReactNode; label: s
       <span className="flex-1">{label}</span>
       {count && <span className="text-[11px] text-stone-400 tabular-nums">{count}</span>}
     </DropdownMenuItem>
+  )
+}
+
+/** Why the extension stopped reading Substack for this account; the server keeps syncing meanwhile. */
+function ReadsIssueCard({ issue }: { issue: BrowserReadsIssue }) {
+  const [retried, setRetried] = useState(false)
+  return (
+    <section className="flex items-start gap-2.5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-900 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-200">
+      <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+      <div className="flex-1 space-y-2">
+        <p>
+          {issue.kind === "account" ? (
+            <><span className="font-semibold">Wrong Substack account.</span> Chrome is signed in to Substack as @{issue.browserHandle}, but
+              Circles is connected to {issue.connectedHandle ? `@${issue.connectedHandle}` : "another account"}. Sign in as that account to sync from this browser.</>
+          ) : issue.kind === "signed-out" ? (
+            <><span className="font-semibold">Signed out of Substack.</span> Sign in to Substack in Chrome to sync from this browser.</>
+          ) : (
+            <><span className="font-semibold">Substack is blocking this browser's reads</span> for now. They'll try again in a few hours.</>
+          )}{" "}
+          Circles keeps syncing from the server meanwhile.
+        </p>
+        <div className="flex gap-1.5">
+          {issue.kind !== "challenged" && (
+            <button type="button" className="h-7 whitespace-nowrap rounded-md bg-amber-600 px-2.5 text-[11px] font-semibold text-white hover:bg-amber-700" onClick={() => void chrome.tabs.create({ url: "https://substack.com/sign-in" })}>
+              Open Substack
+            </button>
+          )}
+          <button
+            type="button"
+            className="h-7 whitespace-nowrap rounded-md px-2.5 text-[11px] font-semibold hover:bg-amber-100 disabled:opacity-60 dark:hover:bg-amber-900/40"
+            disabled={retried}
+            onClick={() => { setRetried(true); void retryBrowserReads() }}
+          >
+            {retried ? "Checking within a minute…" : "Check again"}
+          </button>
+        </div>
+      </div>
+    </section>
   )
 }

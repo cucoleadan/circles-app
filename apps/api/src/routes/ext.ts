@@ -448,17 +448,19 @@ ext.post("/browser-reads", captureBodyLimit, async (c) => {
     }
 
     if (body.kind === "subscribers") {
-      const runStartedAt = typeof body.runStartedAt === "string" ? Date.parse(body.runStartedAt) : Number.NaN
       const offset = Number(body.offset)
-      if (!Number.isFinite(runStartedAt) || runStartedAt > Date.now() || Date.now() - runStartedAt > MAX_BROWSER_RUN_MS ||
-        !Number.isInteger(offset) || offset < 0) {
-        return c.json({ ok: false, message: "Invalid subscriber sweep" }, 400)
-      }
-      const run = new Date(runStartedAt).toISOString()
-      // Pages must arrive in order from one sweep; anything else restarts it.
+      if (!Number.isInteger(offset) || offset < 0) return c.json({ ok: false, message: "Invalid subscriber sweep" }, 400)
+      // The server stamps a run's start, so a skewed browser clock cannot make
+      // reconcile treat people seen in this run as missing.
       const current = conn.browser_subscriber_run as { runStartedAt?: string; nextOffset?: number } | null
-      if (offset !== 0 && (current?.runStartedAt !== run || current?.nextOffset !== offset)) {
-        return c.json({ ok: false, restart: true, message: "Subscriber sweep out of order; start again." }, 409)
+      let run = new Date().toISOString()
+      if (offset !== 0) {
+        // Pages must arrive in order from one recent sweep; anything else restarts it.
+        if (!current?.runStartedAt || body.runStartedAt !== current.runStartedAt || current.nextOffset !== offset ||
+          Date.now() - Date.parse(current.runStartedAt) > MAX_BROWSER_RUN_MS) {
+          return c.json({ ok: false, restart: true, message: "Subscriber sweep out of order; start again." }, 409)
+        }
+        run = current.runStartedAt
       }
       let page: ReturnType<typeof parseSubscriberStatsPage>
       try { page = parseSubscriberStatsPage(body.payload) } catch { return c.json({ ok: false, message: "Invalid subscriber page" }, 400) }
@@ -474,7 +476,7 @@ ext.post("/browser-reads", captureBodyLimit, async (c) => {
          where id = $1`,
         [connectionId, completed ? null : JSON.stringify({ runStartedAt: run, nextOffset }), completed],
       )
-      return c.json({ ok: true, completed, nextOffset, matched: batch.matched, created: batch.created, deactivated })
+      return c.json({ ok: true, completed, nextOffset, runStartedAt: run, matched: batch.matched, created: batch.created, deactivated })
     }
 
     return c.json({ ok: false, message: "Unknown read" }, 400)
