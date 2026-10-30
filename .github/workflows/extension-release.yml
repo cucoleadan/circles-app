@@ -42,3 +42,32 @@ jobs:
             --title "Circles Companion $VERSION" \
             --notes "Chrome extension build. Unzip, open chrome://extensions, enable Developer mode, choose Load unpacked, then pair your Circles server from the popup." \
             --target "$GITHUB_SHA"
+      # Submits the same zip to the Chrome Web Store for review. Skipped until
+      # the CWS_* secrets exist. The first Store version is published by hand.
+      - name: Publish to Chrome Web Store
+        if: steps.version.outputs.exists != 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          CWS_CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CWS_CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          CWS_REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+          CWS_PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+        run: |
+          if [ -z "$CWS_REFRESH_TOKEN" ]; then echo "CWS secrets not set; skipping."; exit 0; fi
+          token=$(curl -sf https://oauth2.googleapis.com/token \
+            -d client_id="$CWS_CLIENT_ID" -d client_secret="$CWS_CLIENT_SECRET" \
+            -d refresh_token="$CWS_REFRESH_TOKEN" -d grant_type=refresh_token | jq -r .access_token)
+          echo "::add-mask::$token"
+          item="publishers/$CWS_PUBLISHER_ID/items/$CWS_EXTENSION_ID"
+          auth="Authorization: Bearer $token"
+          state=$(curl -sS -H "$auth" -X POST -T "extension/circles-companion-$VERSION.zip" \
+            "https://chromewebstore.googleapis.com/upload/v2/$item:upload" | tee /dev/stderr | jq -r .uploadState)
+          for _ in $(seq 30); do
+            [ "$state" = "IN_PROGRESS" ] || break
+            sleep 10
+            state=$(curl -sS -H "$auth" "https://chromewebstore.googleapis.com/v2/$item:fetchStatus" | jq -r .lastAsyncUploadState)
+          done
+          if [ "$state" != "SUCCEEDED" ]; then echo "Upload state: $state"; exit 1; fi
+          curl -sSf -H "$auth" -X POST "https://chromewebstore.googleapis.com/v2/$item:publish"
+          echo "Submitted $VERSION for Chrome Web Store review."
