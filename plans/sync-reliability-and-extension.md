@@ -18,23 +18,11 @@ and risk getting the account flagged.
 
 ## Chrome Web Store publishing
 
-`.github/workflows/extension-release.yml` submits each release zip to the
-Store and skips that step while the `CWS_*` secrets are missing. Remaining
-one-time setup, by hand:
-
-1. Publish the first Store version from the Developer Dashboard, with the
-   Store listing and Privacy tabs complete. `extension/store-assets/` already
-   holds the listing images.
-2. In Google Cloud, create an OAuth client with the
-   `https://www.googleapis.com/auth/chromewebstore` scope, then get a refresh
-   token from the OAuth 2.0 Playground as the account that owns the item. That
-   account needs 2-step verification.
-3. Add the GitHub secrets `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
-   `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID` (Dashboard → Publisher → Settings)
-   and `CWS_EXTENSION_ID`.
-
-Each submission still goes through Google's review, so a release reaches users
-hours to days after the push.
+`.github/workflows/extension-release.yml` uploads each release zip to the
+Store and submits it for review. A release that adds a permission needs its
+justification entered in the Developer Dashboard's Privacy practices tab
+first; the API cannot set it. Each submission still goes through Google's
+review, so a release reaches users hours to days after the push.
 
 ## Extension: redesign and integration
 
@@ -87,12 +75,10 @@ Open: how mail reaches the worker. Options, simplest first:
 
 ## Order of work
 
-1. **Store setup:** first manual Store release, credentials and secrets.
-   Needed before the extension redesign ships to users.
-2. **Extension in-page UI:** Shadow DOM chip, then toolbar badge, then hover
+1. **Extension in-page UI:** Shadow DOM chip, then toolbar badge, then hover
    card.
-3. **Client identity:** test on its own, then roll out or drop.
-4. **Email ingestion:** pick the delivery path, then parsers per template.
+2. **Client identity:** test on its own, then roll out or drop.
+3. **Email ingestion:** pick the delivery path, then parsers per template.
 
 ## Decisions
 
