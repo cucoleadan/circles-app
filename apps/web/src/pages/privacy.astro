@@ -42,7 +42,7 @@ const contactEmail = process.env.CONTACT_EMAIL ?? ""
           Privacy Policy & Data Disclosures
         </h1>
         <p class="text-sm text-muted-foreground">
-          Effective date: September 18, 2026 &bull; Last updated: September 2026
+          Effective date: September 18, 2026 &bull; Last updated: October 30, 2026
         </p>
       </div>
 
@@ -86,7 +86,17 @@ const contactEmail = process.env.CONTACT_EMAIL ?? ""
               </p>
             </div>
             <div class="border-t border-border/40 pt-3">
-              <h3 class="font-medium text-foreground">C. CRM Labels and List Assignments</h3>
+              <h3 class="font-medium text-foreground">C. Background Sync With Your Own Session</h3>
+              <p class="mt-1 text-xs text-muted-foreground">
+                While Chrome is open, the extension reads your own Substack notifications about every 10 minutes and,
+                about once a day, the list of accounts you follow and your publication's subscriber list (names,
+                profile IDs, subscription dates, plans and email addresses). It does this only when the Substack
+                account signed in to Chrome is the one connected to your Circles CRM, and sends the results only to
+                your Circles server. This takes the same reads off your Circles server, which otherwise performs them.
+              </p>
+            </div>
+            <div class="border-t border-border/40 pt-3">
+              <h3 class="font-medium text-foreground">D. CRM Labels and List Assignments</h3>
               <p class="mt-1 text-xs text-muted-foreground">
                 When you click the "+ Circles" button next to an author on Substack, the extension transmits the
                 selected list or tag associations you choose to assign to that contact.
@@ -140,16 +150,19 @@ const contactEmail = process.env.CONTACT_EMAIL ?? ""
               <strong><code>storage</code></strong>: Used locally to store extension preferences, publication connection status, and offline retry queues.
             </li>
             <li>
-              <strong><code>alarms</code></strong>: Used for periodic queue drains to ensure outbound touches are reliably sent to your CRM even on erratic network connections.
+              <strong><code>alarms</code></strong>: Wakes the extension once a minute to deliver queued captures to your CRM and to run the background sync described above when it is due.
             </li>
             <li>
-              <strong><code>host_permissions</code> (<code>https://*.substack.com/*</code>)</strong>: Required to inject the in-page quick-add contact buttons and passively capture response streams when you browse your Substack feed.
+              <strong><code>host_permissions</code> (<code>https://*.substack.com/*</code>)</strong>: Required to show the in-page quick-add contact buttons, passively capture response streams when you browse your Substack feed, and run the background sync of your own notifications, following and subscriber lists.
             </li>
             <li>
-              <strong><code>scripting</code></strong>: Used to load the companion's bridge script only on the Circles server you pair in the extension popup.
+              <strong><code>scripting</code></strong>: Used to load the companion's bridge script only on the Circles server you pair in the extension's side panel.
             </li>
             <li>
-              <strong><code>optional_host_permissions</code> (<code>https://*/*</code>)</strong>: Never granted up front. When you enter your Circles server address in the popup, Chrome asks you to allow access to that single site (for example <code>{host}/*</code>) so the extension can communicate with your Circles CRM web API. No other site is accessed.
+              <strong><code>sidePanel</code></strong>: The toolbar icon opens Circles in Chrome's side panel, next to the page you are reading.
+            </li>
+            <li>
+              <strong><code>optional_host_permissions</code> (<code>https://*/*</code>)</strong>: Never granted up front. When you enter your Circles server address in the side panel, Chrome asks you to allow access to that single site (for example <code>{host}/*</code>) so the extension can communicate with your Circles CRM web API. No other site is accessed.
             </li>
           </ul>
         </section>
