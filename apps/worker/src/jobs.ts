@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
+import { recordFailure, recordSuccess } from "./health.js"
 import { failNewsletterExport, NEWSLETTER_POLL_SECONDS, processNewsletterExport } from "./newsletter.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
@@ -495,6 +496,7 @@ export async function claimAndRunJob(
         await client.query("rollback")
         throw completionError
       }
+      if (job.type === "sync:activity") recordSuccess()
     } catch (jobError: any) {
       console.error(
         `[Circles Worker] Job ${job.id} (${job.type}) failed:`,
@@ -528,6 +530,8 @@ export async function claimAndRunJob(
           : isUpstreamChallenge
             ? "Substack temporarily rejected the request"
             : errorMessage
+      // An expired session needs the user, not a restart.
+      if (job.type === "sync:activity" && !sessionExpired) recordFailure(failureMessage)
 
       // The request transaction has already rolled back at this point, so
       // persist expiry in a fresh tenant transaction instead of losing it.

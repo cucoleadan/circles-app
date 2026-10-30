@@ -44,6 +44,8 @@ function createAuth() { return betterAuth({
   database: db,
   trustedOrigins: appOrigins,
   disabledPaths: ["/token"],
+  // Cloudflare Tunnel is the only ingress; without this every client shares one rate-limit bucket.
+  advanced: { ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] } },
   account: { accountLinking: { enabled: true, disableImplicitLinking: true } },
   plugins: [
     // Nothing reads the set-auth-jwt header; skipping it keeps session lookups

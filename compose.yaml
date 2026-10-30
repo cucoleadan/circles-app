@@ -5,6 +5,11 @@ x-backend: &backend
   image: circles-app
   networks:
     - dokploy-network
+  # Pin upstream resolvers: Docker snapshots the host's /etc/resolv.conf at
+  # container start, and Tailscale rewrites it, so a restart at the wrong
+  # moment left the containers with no external DNS. Service names still
+  # resolve through Docker's embedded DNS.
+  dns: &dns [1.1.1.1, 8.8.8.8]
   restart: unless-stopped
   environment: &backend-env
     NODE_ENV: production
@@ -57,6 +62,7 @@ services:
       APP_DATABASE_URL: ${APP_DATABASE_URL:?APP_DATABASE_URL is required}
       APP_URL: ${APP_URL:?APP_URL is required}
       SESSION_TOKEN_KEY: ${SESSION_TOKEN_KEY:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
 
   web:
     build: .
@@ -65,6 +71,7 @@ services:
     expose: ["4321"]
     networks:
       - dokploy-network
+    dns: *dns
     depends_on:
       api:
         condition: service_healthy

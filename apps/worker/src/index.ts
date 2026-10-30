@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Pool } from "pg"
 import { installFetchTimeout, runtimeDatabaseUrl } from "@workspace/core"
+import { recordFailure, sendAlert, unhealthyReason } from "./health.js"
 import { claimAndRunJob } from "./jobs.js"
 import { MAINTENANCE_INTERVAL_MS, runQueueMaintenance } from "./maintenance.js"
 
@@ -24,6 +25,15 @@ console.log(`[Circles Worker ${workerId}] Starting background queue runner...`)
 
 async function loop() {
   while (isRunning) {
+    const unhealthy = unhealthyReason()
+    if (unhealthy) {
+      console.error(`[Circles Worker] Unhealthy, restarting: ${unhealthy}`)
+      await sendAlert(`${unhealthy}. Restarting the worker.`)
+      // Non-zero exit hands recovery to Docker's restart policy.
+      isRunning = false
+      await db.end().catch(() => {})
+      process.exit(1)
+    }
     try {
       if (Date.now() >= nextMaintenanceAt) {
         nextMaintenanceAt = Date.now() + MAINTENANCE_INTERVAL_MS
@@ -36,6 +46,7 @@ async function loop() {
       await sleep(didWork ? 1000 : 3000)
     } catch (err) {
       console.error("[Circles Worker] Loop iteration error:", err)
+      recordFailure(String((err as Error)?.message ?? err))
       await sleep(5000)
     }
   }
