@@ -466,8 +466,7 @@ ext.post("/browser-reads", captureBodyLimit, async (c) => {
       const completed = page.received === 0 || offset + page.received >= page.total
       // Overlap pages so a subscriber who leaves mid-sweep cannot shift someone past a page boundary.
       const nextOffset = completed ? offset + page.received : offset + Math.max(1, page.received - SUBSCRIBER_PAGE_OVERLAP)
-      // A sweep that saw nobody (an empty first page) never clears anyone.
-      const deactivated = completed && offset + page.received > 0 ? await reconcileSubscriberSnapshot(client, userId, run) : 0
+      const deactivated = completed ? await reconcileSubscriberSnapshot(client, userId, run) : 0
       await client.query(
         `update substack_connections
          set browser_subscriber_run = $2::jsonb,

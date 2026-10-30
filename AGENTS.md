@@ -180,7 +180,8 @@ connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
 set; always read them through `openSessionToken`, never `ciphertext` directly.
 The activity sync re-seals a legacy `plain` session once the key is configured.
 Subscriber and following audience sweeps import missing people into the CRM and
-reconcile current membership after the complete upstream snapshot is applied.
+reconcile current membership after the complete upstream snapshot is applied;
+a sweep that confirmed nobody clears nobody.
 Scheduled audience sweeps (subscribers, following) run at most once per ~23
 hours per connection. While Chrome is open the extension makes these reads
 itself (see "Extension workflow"); the worker skips its notifications read

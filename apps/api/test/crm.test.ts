@@ -1739,6 +1739,11 @@ describe("interactions", () => {
       reconcileSubscriberSnapshot(client, userA, runStartedAt)
     )
     expect(deactivated).toBe(1)
+    // A later sweep that confirmed nobody (an empty read) clears nobody.
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    expect(await withTenant({ appUserId: userA }, (client) =>
+      reconcileSubscriberSnapshot(client, userA, new Date().toISOString())
+    )).toBe(0)
 
     // 7. Verify the current subscriber stays subscribed and the missing one is cleared.
     const updatedFollower = await withTenant({ appUserId: userA }, (client) =>

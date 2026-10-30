@@ -431,7 +431,12 @@ export async function reconcileSubscriberSnapshot(
          subscriber_checked_at = now(),
          updated_at = now()
      where user_id = $1 and archived_at is null and is_subscriber = true
-       and (subscriber_checked_at is null or subscriber_checked_at < $2::timestamptz)`,
+       and (subscriber_checked_at is null or subscriber_checked_at < $2::timestamptz)
+       -- A sweep that confirmed nobody (an empty or failed read) never clears anyone.
+       and exists (
+         select 1 from people seen
+         where seen.user_id = $1 and seen.subscriber_checked_at >= $2::timestamptz
+       )`,
     [userId, runStartedAt],
   )
   return result.rowCount ?? 0
