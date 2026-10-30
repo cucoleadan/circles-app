@@ -49,6 +49,7 @@ export type FlowState =
 
 export type PopupRequest =
   | { type: "GET_STATUS" }
+  | { type: "GET_PANEL_STATUS" }
   | { type: "START_CONNECT_FLOW" }
   | { type: "connect-from-app" }
   | { type: "APP_PAGE_LOADED" }

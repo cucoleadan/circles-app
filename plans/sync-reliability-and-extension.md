@@ -42,65 +42,91 @@ hours to days after the push.
 
 ## Extension: redesign and integration
 
-Rework both how the extension looks and how it fits into browsing Substack,
-so it feels like part of Circles rather than a separate tool.
+**Built:** the toolbar icon opens a side panel (`extension/src/sidepanel`)
+that replaces the popup. It uses the web app's `packages/ui` components,
+`globals.css` and stone/`#f15a3a` styling, follows the system theme, and has
+four tabs plus a menu:
 
-**Today:** a dark popup (connection status, server pairing, Connect, and "Add
-to Circles" for the profile in the current tab, with lists and tags). On
-Substack pages it adds orange "Add" pills next to author names, plus a
-list-picker modal. Its colors are hard-coded in `popup.css` and `substack.ts`,
-separate from the web app's theme in `packages/ui`.
+- **This page:** the person on the current tab (or one picked from a list)
+  with inbound/outbound counts, last touch, lists, tags, private note and
+  recent interactions, all editable; add by handle when not on a profile.
+- **Today:** 7-day received/given counts and the Needs Your Reply, Priority
+  to Engage and Ball in Their Court queues.
+- **People:** search with list filters.
+- **Notes:** write, schedule or post a Note (with Stop), scheduled and
+  recently published Notes.
+- **Menu:** queues with counts, directory, Settings (server, Substack
+  account, queued captures, in-page buttons on/off), Help. Sync and Open
+  Circles sit in the header; a one-line status sits at the bottom.
 
-### Look
+The panel reads Circles directly and makes no Substack requests. The live
+design preview is the Claude artifact "Circles side panel preview".
 
-- **One design system:** build the popup and in-page UI from the web app's
-  theme tokens, so the extension looks like Circles and follows the system
-  light/dark setting.
-- **Quieter in-page UI:** replace the bright orange pills with a small Circles
-  chip sized like Substack's own buttons. Render it in a Shadow DOM so
-  Substack's CSS and ours can't affect each other.
-- **Popup layout:** once paired, collapse the status block to one line. The
-  main area becomes the person on the current page.
-- **Mockups first:** agree on 2–3 visual directions before writing code.
+### Remaining
 
-### Behavior
-
-- **Side panel** (`chrome.sidePanel`): stays open while you browse and shows
-  the contact for the current profile or Note author: scores, last touches,
-  lists, tags and notes, editable in place.
-- **Hover card** on author names: inbound/outbound score and which of your
-  lists they're in.
-- **Toolbar badge:** shows at a glance when pairing is missing, the Substack
-  session has expired, or captures are queued.
-- **Links both ways:** "Open in Circles" from the panel, "Open on Substack"
-  from the web app.
+- **In-page chip:** restyle the orange "Add" pills and the list modal in the
+  app's look, rendered in a Shadow DOM so Substack's CSS and ours can't
+  affect each other.
+- **Hover card** on author names: inbound/outbound counts and lists.
+- **Toolbar badge:** pairing missing, Substack session expired, or captures
+  queued.
+- **"Open on Substack"** from the web app's contact drawer.
 - **Browser-run audience sweeps:** when the browser is idle, the extension
   reads the subscriber and following lists with your real session and posts
   them to `/api/ext`. The server sweep runs only if no browser sweep has
-  landed in 48 h. This is the lasting fix for the 403s.
+  landed in 48 h. This is the lasting fix for the 403s, and changes the rule
+  that the extension never makes its own Substack requests (see `AGENTS.md`,
+  "Extension workflow").
 
-The panel, hover card and badge read only from the Circles API, so they add no
-Substack requests. The browser-run sweeps do add Substack reads, which changes
-the current rule that the extension never makes its own Substack requests
-(see `AGENTS.md`, "Extension workflow").
+## Substack email ingestion
+
+Substack emails the account owner about new subscribers, unsubscribes,
+comments, replies and more. Parsing them gives a second, independent record,
+so nothing the API sweeps miss (or that a 403 blocks) goes unlogged.
+
+- The worker receives each Substack notification email, keeps the raw message
+  as evidence (like `activity_snapshots`), and parses it into the same
+  canonical ingestion path (`packages/core/src/ingestion.ts`), so replays stay
+  idempotent and an email and an API item for the same event converge.
+- Event types to start with: new free/paid subscriber, unsubscribe, comment
+  and reply on posts and Notes. Unknown templates are stored, not dropped,
+  so a parser added later can replay them.
+- Emails carry subscriber addresses: store them like `subscriber_emails`
+  (browser-only, never in MCP or logs), and keep test fixtures synthetic.
+
+Open: how mail reaches the worker. Options, simplest first:
+
+1. **Forwarding to an inbound endpoint:** a mail filter forwards Substack's
+   emails to an address on the Circles domain; Cloudflare Email Routing hands
+   each message to a small Email Worker that posts it to an authenticated
+   `/api/...` route, which queues a parse job. Push, no polling, no mailbox
+   password on the server.
+2. **IMAP polling:** the worker reads a dedicated mailbox or label on a
+   schedule with an app password. Needs a new dependency and stored mail
+   credentials.
+3. **Gmail API:** OAuth with read access to one label. The most setup.
 
 ## Order of work
 
 1. **Store setup:** first manual Store release, credentials and secrets.
    Needed before the extension redesign ships to users.
-2. **Extension look:** mockups, then the shared theme and the Shadow DOM chip.
-3. **Extension behavior:** toolbar badge, then side panel, then hover card.
-4. **Browser-run audience sweeps:** last, once the panel and the new rule are
+2. **Extension in-page UI:** Shadow DOM chip, then toolbar badge, then hover
+   card.
+3. **Browser-run audience sweeps:** last, once the panel and the new rule are
    agreed.
-5. **Client identity:** test on its own, then roll out or drop.
+4. **Client identity:** test on its own, then roll out or drop.
+5. **Email ingestion:** pick the delivery path, then parsers per template.
+
+## Decisions
+
+- The side panel replaces the popup: the toolbar icon opens it.
+- The extension looks exactly like the web app: same `packages/ui`
+  components, theme and stone/`#f15a3a` styling, following the system
+  light/dark setting.
 
 ## Open questions
 
-- [ ] Should the side panel replace the popup, or sit alongside it?
 - [ ] Approve changing the "no extension-initiated Substack reads" rule for
       audience sweeps?
 - [ ] Is the Store listing public, unlisted or private? It decides who can
       install it, and later changes need one manual publish.
-- [ ] Which visual direction: close to Substack's look, or clearly
-      Circles-branded?
-- [ ] Keep orange as the Circles accent in the extension, or tone it down?

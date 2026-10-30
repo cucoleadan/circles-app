@@ -7,7 +7,8 @@
     "cookies",
     "storage",
     "alarms",
-    "scripting"
+    "scripting",
+    "sidePanel"
   ],
   "host_permissions": [
     "https://*.substack.com/*"
@@ -28,13 +29,16 @@
     "type": "module"
   },
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_title": "Open Circles",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",
       "48": "icons/icon-48.png",
       "128": "icons/icon-128.png"
     }
+  },
+  "side_panel": {
+    "default_path": "sidepanel/index.html"
   },
   "content_scripts": [
     {

@@ -23,7 +23,7 @@ export async function requestViaBridge(request: BridgeRequest, open = false): Pr
   try {
     const origin = await grantedAppOrigin();
     if (!origin) {
-      return { ok: false, message: "Set your Circles server in the extension popup first." };
+      return { ok: false, message: "Set your Circles server in the extension side panel first." };
     }
     let tabs = (await chrome.tabs.query({ url: originPattern(origin) }))
       .filter((tab) => tab.id !== undefined && !!tab.url && new URL(tab.url).origin === origin)

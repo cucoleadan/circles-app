@@ -365,6 +365,10 @@ async function handlePopupRequest(request: PopupRequest): Promise<BackgroundResp
         appPublicationUrl: app.ok && app.appState ? app.appState.connection?.publicationUrl ?? null : null,
       };
     }
+    case "GET_PANEL_STATUS": {
+      // The side panel reads Circles itself; it only needs the local connect state.
+      return { ok: true, flow, substackLoggedIn: await hasSubstackSession() };
+    }
     case "START_CONNECT_FLOW":
       return { ok: true, flow: await runConnectFlow() };
     case "connect-from-app":
@@ -474,12 +478,12 @@ chrome.runtime.onMessage.addListener(
       return;
     }
     const fromApp = ["APP_PAGE_LOADED", "connect-from-app", "SUBMIT_PUBLICATION_URL"].includes(request.type);
-    // The extension popup may also submit a publication URL.
-    const fromPopup = sender.url === chrome.runtime.getURL("popup/popup.html");
+    // The side panel may also submit a publication URL.
+    const fromPanel = sender.url?.startsWith(chrome.runtime.getURL("sidepanel/")) ?? false;
     void (async () => {
       if (
-        (fromApp && !fromPopup && !(await isAppOriginUrl(sender.url))) ||
-        (request.type === "APP_PAIRED" && !fromPopup)
+        (fromApp && !fromPanel && !(await isAppOriginUrl(sender.url))) ||
+        (request.type === "APP_PAIRED" && !fromPanel)
       ) {
         return { ok: false, message: "App message source was rejected." };
       }
@@ -491,7 +495,7 @@ chrome.runtime.onMessage.addListener(
 );
 
 // Optional host access is only ever requested to pair a Circles server. The
-// popup may close while Chrome shows the prompt, so finish pairing here too.
+// panel may lose its gesture while Chrome shows the prompt, so finish pairing here too.
 chrome.permissions.onAdded.addListener(({ origins = [] }) => {
   const origin = origins.map(originFromPattern).find((value): value is string => value !== null);
   if (origin) void setAppOrigin(origin).catch((error) => console.warn("[Circles] Could not pair the server.", error));
@@ -547,8 +551,12 @@ chrome.runtime.onInstalled.addListener((details) => {
   // Re-register the app bridge for the paired server on install and every update.
   void syncAppContentScript().catch((error) => console.warn("[Circles] Could not register the app bridge.", error));
   if (details.reason === "install") {
-    void chrome.tabs.create({ url: chrome.runtime.getURL("popup/popup.html") });
+    void chrome.tabs.create({ url: chrome.runtime.getURL("sidepanel/index.html") });
   }
 });
+
+// The toolbar icon opens the side panel; there is no popup.
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+  .catch((error) => console.warn("[Circles] Could not enable the side panel.", error));
 
 const initialized = readStoredFlow();

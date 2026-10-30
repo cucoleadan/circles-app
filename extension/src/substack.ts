@@ -479,9 +479,13 @@ console.log(
   "color: #ea580c; font-weight: bold;",
 );
 
-injectStyles();
-processNotes();
-processPosts();
-processProfilePage();
-processSinglePostPage();
-observePage();
+// The side panel's Settings can turn the in-page buttons off.
+void chrome.storage.sync.get("inPageButtons").then((stored) => {
+  if (stored.inPageButtons === false) return;
+  injectStyles();
+  processNotes();
+  processPosts();
+  processProfilePage();
+  processSinglePostPage();
+  observePage();
+});

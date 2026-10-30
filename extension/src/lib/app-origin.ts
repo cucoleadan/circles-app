@@ -17,7 +17,7 @@ export function normalizeAppOrigin(input: string): string | null {
   }
 }
 
-/** The Circles server this browser is paired with, or null until the user pairs one in the popup. */
+/** The Circles server this browser is paired with, or null until the user pairs one in the side panel. */
 export async function getAppOrigin(): Promise<string | null> {
   const stored = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
   return typeof stored === "string" && normalizeAppOrigin(stored) === stored ? stored : null;

@@ -1,17 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48">
-  <defs>
-    <linearGradient id="circleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#fb923c" />
-      <stop offset="100%" stop-color="#ea580c" />
-    </linearGradient>
-  </defs>
-  <!-- Clean white background with subtle border -->
-  <rect width="48" height="48" rx="12" fill="#ffffff" />
-  <rect width="46" height="46" x="1" y="1" rx="11" fill="none" stroke="#e4e4e7" stroke-width="1.5" />
-  <!-- Outer circle -->
-  <circle cx="24" cy="24" r="17" fill="none" stroke="url(#circleGrad)" stroke-width="2.6" stroke-opacity="0.95" />
-  <!-- Middle circle -->
-  <circle cx="24" cy="24" r="10.5" fill="none" stroke="url(#circleGrad)" stroke-width="2.6" stroke-opacity="0.9" />
-  <!-- Center dot -->
-  <circle cx="24" cy="24" r="4.2" fill="url(#circleGrad)" />
+  <!-- Toolbar and store icon. Chrome toolbars can be light or dark, so the rings
+       sit between logo-light.svg and logo-dark.svg in strength. -->
+  <circle cx="24" cy="24" r="19.5" fill="none" stroke="#f15a3a" stroke-width="4" stroke-opacity="0.5" />
+  <circle cx="24" cy="24" r="11.5" fill="none" stroke="#f15a3a" stroke-width="4" stroke-opacity="0.85" />
+  <circle cx="24" cy="24" r="5" fill="#f15a3a" />
 </svg>

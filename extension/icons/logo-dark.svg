@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="48" height="48" role="img" aria-label="Circles">
+  <!-- For dark backgrounds: a brighter orange and stronger rings so the faded outer ring still reads. -->
+  <circle cx="24" cy="24" r="19" fill="none" stroke="#ff6b4a" stroke-width="3.5" stroke-opacity="0.45" />
+  <circle cx="24" cy="24" r="11.5" fill="none" stroke="#ff6b4a" stroke-width="3.5" stroke-opacity="0.8" />
+  <circle cx="24" cy="24" r="4.5" fill="#ff6b4a" />
+</svg>

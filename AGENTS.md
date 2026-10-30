@@ -255,13 +255,19 @@ synthetic.
 ## Extension workflow
 
 The extension version must match in `extension/manifest.json` and
-`extension/package.json`. Users pair any Circles server from the popup: `lib/app-origin.ts` validates it
+`extension/package.json`. The toolbar icon opens a side panel
+(`src/sidepanel`, React built with Vite) made from the web app's own
+`packages/ui` components and `globals.css`; there is no popup. Users pair any
+Circles server there: `lib/app-origin.ts` validates it
 (https, or http only for localhost), requests that single origin from
 `optional_host_permissions`, stores it, and registers `content.js` there with
 `chrome.scripting`. The background re-registers on install/update and also
-pairs on `permissions.onAdded` because the popup can close during the prompt.
-Every install starts unpaired (the popup opens as a setup page); the only
-required host permission is Substack. Package with:
+pairs on `permissions.onAdded` because the panel can lose the prompt's gesture.
+Every install starts unpaired (the panel page opens in a tab as setup); the
+only required host permission is Substack. The panel calls the paired server's
+`/api/v1` and `/api/ext` routes directly with the login cookie and the
+`X-Circles-Extension` header; the background's app-tab bridge remains for the
+connect flow and the capture queue. Package with:
 
 ```powershell
 cd extension

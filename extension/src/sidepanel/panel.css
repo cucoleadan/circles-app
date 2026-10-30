@@ -1,0 +1,6 @@
+/* Panel-only additions to the app's globals.css. */
+html, body, #root { height: 100%; }
+* { scrollbar-width: thin; scrollbar-color: rgb(168 162 158 / 0.45) transparent; }
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: rgb(168 162 158 / 0.45); border-radius: 4px; }
+::-webkit-scrollbar-track { background: transparent; }

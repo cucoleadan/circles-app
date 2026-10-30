@@ -17,6 +17,10 @@ async function read(): Promise<State> {
   const stored = await chrome.storage.local.get(KEY);
   return (stored[KEY] as State | undefined) ?? { batches: [], delivered: [] };
 }
+/** Captured batches not yet delivered to Circles. */
+export async function pendingActivityCount(): Promise<number> {
+  return (await read()).batches.length;
+}
 function validateOutboundAction(value: unknown): CapturedOutboundAction | null {
   const item = value as Partial<CapturedOutboundAction> | null;
   const actions = new Set(["like", "restack", "comment", "reply"]);

@@ -10,8 +10,19 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4",
     "@types/chrome": "^0.2.5",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
     "esbuild": "^0.28.1",
-    "typescript": "^7.0.2"
+    "tailwindcss": "^4",
+    "typescript": "^7.0.2",
+    "vite": "^8"
+  },
+  "dependencies": {
+    "@workspace/ui": "workspace:*",
+    "lucide-react": "^1.46.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   }
 }

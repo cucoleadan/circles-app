@@ -141,7 +141,7 @@ bun run pack
 
 This writes `extension/circles-companion-<version>.zip`: unzip it, open
 `chrome://extensions`, enable Developer mode, choose **Load unpacked**, then
-pair your server from the popup. Set `EXTENSION_STORE_URL` if Settings should
+click the toolbar icon to open the side panel and pair your server. Set `EXTENSION_STORE_URL` if Settings should
 link to your own store listing.
 
 ## Local development
