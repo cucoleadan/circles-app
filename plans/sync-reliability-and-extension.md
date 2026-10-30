@@ -1,74 +1,44 @@
 # Sync reliability and extension plan
 
-Status: plan, 2026-10-30. Nothing here is built yet. Mirrors the shared
-Claude doc "Circles: sync reliability and extension plan".
-
-## Context
-
-The activity sync is healthy. The work is in the audience sweeps, the
-extension release path and the extension's UX.
-
-| Job type | Last 14 days | Problem |
-| --- | --- | --- |
-| `sync:activity` | 3,788 done | Only failures were the 2026-10-29 DNS outage (fixed in `608e962`) |
-| `sync:subscribers` | 119 done, 7 dead | 50 Cloudflare 403 challenges |
-| `sync:following` | 15 done, 10 dead | 28 Cloudflare 403 challenges |
-| `sync:followers` (retired) | 10 dead | 22 Cloudflare 403 challenges |
-
-Each blocked sweep retried 5 times against an endpoint that was already
-challenging us. Goal: stay under Substack's bot scoring by behaving less like
-a bot, not by evading it.
+Status: 2026-10-30. The worker quick wins (403 circuit breaker, jitter,
+outage catch-up, session-expiry alert) and the Store workflow step are built;
+what remains is below. Mirrors the shared Claude doc "Circles: sync
+reliability and extension plan".
 
 ## Sync reliability
 
-Five worker changes, smallest and highest-value first. All live in
-`apps/worker` and none needs a migration: the circuit breaker just
-reschedules the blocked job 6–24 h out instead of burning its retries.
+One worker change remains:
 
-| # | Change | Why | Size |
-| --- | --- | --- | --- |
-| 1 | **403 circuit breaker**: on a Cloudflare challenge, park that stream 6–24 h and mark it unavailable, not failed | Retrying 5× into a challenge is what raises our bot score | S |
-| 2 | **Jitter**: ±20% on every schedule (10 min, 3 h, 23 h, 7 d); spread the heavy sweeps apart | Exact cadences are an automation signature | S |
-| 3 | **Outage catch-up**: raise the 5-page cap when the last success is old; cap `sync:activity` retry backoff at 10 min instead of 30 | After a long gap, notifications past page 5 are missed, and recovery waits up to 30 min | S |
-| 4 | **Session-expiry alert**: one Discord message per connection when a session expires | The new watchdog ignores expiry on purpose; you still need to reconnect | S |
-| 5 | **Consistent client identity**: stop claiming Chrome 130 in `audience.ts` on server requests, or match it everywhere; test before rolling out | A browser user-agent on a non-browser connection is a mismatch | S, test first |
+- **Consistent client identity**: stop claiming Chrome 130 in `audience.ts`
+  on server requests, or match it everywhere. A browser user-agent on a
+  non-browser connection is a mismatch. Test before rolling out.
 
-The lasting fix for the blocked sweeps is to run them from the browser (see
-the extension section below).
+The lasting fix for the challenged audience sweeps is to run them from the
+browser (see the extension section below).
 
 We will not use rotating residential proxies, TLS-fingerprint spoofing or
 CAPTCHA solvers. They defeat Substack's protection rather than stay under it,
 and risk getting the account flagged.
 
-## Automated extension publishing
+## Chrome Web Store publishing
 
-Extend `.github/workflows/extension-release.yml` so a manifest version bump on
-`main` also submits the same zip to the Chrome Web Store. The GitHub Release
-stays as the sideload build.
+`.github/workflows/extension-release.yml` submits each release zip to the
+Store and skips that step while the `CWS_*` secrets are missing. Remaining
+one-time setup, by hand:
 
-1. **One-time, by hand:** publish the first Store version from the Developer
-   Dashboard, with the Store listing and Privacy tabs complete.
-   `extension/store-assets/` already holds the listing images.
-2. **One-time credentials:** in Google Cloud, create an OAuth client with the
+1. Publish the first Store version from the Developer Dashboard, with the
+   Store listing and Privacy tabs complete. `extension/store-assets/` already
+   holds the listing images.
+2. In Google Cloud, create an OAuth client with the
    `https://www.googleapis.com/auth/chromewebstore` scope, then get a refresh
    token from the OAuth 2.0 Playground as the account that owns the item. That
    account needs 2-step verification.
-3. **GitHub secrets:** `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
-   `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID` (Dashboard → Publisher → Settings),
-   `CWS_EXTENSION_ID`.
-4. **Workflow step after the release:** exchange the refresh token at
-   `oauth2.googleapis.com/token`, then
-   `POST .../upload/v2/publishers/$PUBLISHER/items/$ITEM:upload` with the zip,
-   poll `:fetchStatus` while it reports `UPLOAD_IN_PROGRESS`, then
-   `POST .../v2/publishers/$PUBLISHER/items/$ITEM:publish`. About 25 lines of
-   `curl` and `jq`; no new dependency.
+3. Add the GitHub secrets `CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
+   `CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID` (Dashboard → Publisher → Settings)
+   and `CWS_EXTENSION_ID`.
 
 Each submission still goes through Google's review, so a release reaches users
-hours to days after the push. Uploads fail unless the manifest version went
-up, which the current workflow already enforces. Staged rollout
-(`setPublishedDeployPercentage`) only works above 10,000 weekly users, so it
-doesn't apply yet. Source:
-[Chrome Web Store API docs](https://developer.chrome.com/docs/webstore/using-api).
+hours to days after the push.
 
 ## Extension: redesign and integration
 
@@ -116,16 +86,13 @@ the current rule that the extension never makes its own Substack requests
 
 ## Order of work
 
-1. **Worker quick wins:** 403 circuit breaker, jitter, outage catch-up,
-   session-expiry alert. One PR, no extension change.
-2. **Store publishing:** first manual Store release, credentials and secrets,
-   then the workflow step. Needed before the extension redesign ships to
-   users.
-3. **Extension look:** mockups, then the shared theme and the Shadow DOM chip.
-4. **Extension behavior:** toolbar badge, then side panel, then hover card.
-5. **Browser-run audience sweeps:** last, once the panel and the new rule are
+1. **Store setup:** first manual Store release, credentials and secrets.
+   Needed before the extension redesign ships to users.
+2. **Extension look:** mockups, then the shared theme and the Shadow DOM chip.
+3. **Extension behavior:** toolbar badge, then side panel, then hover card.
+4. **Browser-run audience sweeps:** last, once the panel and the new rule are
    agreed.
-6. **Client identity (sync item 5):** test on its own, then roll out or drop.
+5. **Client identity:** test on its own, then roll out or drop.
 
 ## Open questions
 

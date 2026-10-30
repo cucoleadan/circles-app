@@ -42,7 +42,8 @@ Optional:
   When `sync:activity` (or the queue loop) has only failed for an hour, the
   worker posts an alert there and exits so Docker restarts it with fresh
   network/DNS state. While the failure persists this repeats hourly. An
-  expired Substack session does not count; it needs a reconnect.
+  expired Substack session does not restart the worker; it posts one alert
+  per expiry instead, because it needs a reconnect.
 - `SESSION_TOKEN_KEY` — 32 random bytes, base64 (`openssl rand -base64 32`).
   When set on both `api` and `worker`, Substack session tokens saved from then
   on are encrypted at rest (AES-256-GCM, `key_id = 'env-v1'`). Existing

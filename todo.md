@@ -5,6 +5,9 @@ or status changes. Last updated: 2026-10-23.
 
 ## Substack audience endpoints
 
+- [ ] After deploying the worker quick wins, confirm a challenged audience
+      sweep shows as paused in the sync panel and resumes 6–24 h later, and
+      that an expired session posts exactly one webhook alert.
 - [ ] Confirm the larger account's first scheduled following sweep (the
       2026-10-21 manual run covered the smaller one: 1,302 checked, 256
       followed, 43 created, placeholder names resolving) and that its

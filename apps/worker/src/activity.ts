@@ -48,6 +48,9 @@ export async function preserveActivityEvidence(
 const ACTIVITY_OVERLAP_MS = 30 * 60 * 1000
 /** Upper bound on activity pages read by one scheduled sync. */
 export const MAX_ACTIVITY_SYNC_PAGES = 5
+/** Bound after an outage, so notifications past page 5 are not skipped. */
+export const MAX_CATCH_UP_PAGES = 20
+const CATCH_UP_AFTER_MS = 60 * 60 * 1000
 const ACTIVITY_PAGE_PAUSE_MS = 2_000
 
 function activityItemTime(item: ActivityItemInput): number | null {
@@ -68,8 +71,9 @@ export function needsAnotherActivityPage(
   checkpoint: Date | null,
   nextCursor: unknown,
   pagesRead: number,
+  maxPages = MAX_ACTIVITY_SYNC_PAGES,
 ) {
-  if (!checkpoint || !nextCursor || items.length === 0 || pagesRead >= MAX_ACTIVITY_SYNC_PAGES) return false
+  if (!checkpoint || !nextCursor || items.length === 0 || pagesRead >= maxPages) return false
   const times = items.map(activityItemTime).filter((value): value is number => value !== null)
   if (times.length === 0) return false
   return Math.min(...times) >= checkpoint.getTime()
@@ -109,7 +113,7 @@ export async function processActivitySync(
   const conn = state.conn
   if (!conn || conn.status !== "active") {
     console.log(`[Circles Worker] Connection ${connectionId} is no longer active; skipping sync.`)
-    return { skipped: true }
+    return { skipped: true, expired: conn?.status === "expired" }
   }
 
   const ownerHandle = conn.profile_handle
@@ -117,6 +121,9 @@ export async function processActivitySync(
   const checkpoint = state.lastSyncedAt
     ? new Date(new Date(state.lastSyncedAt).getTime() - ACTIVITY_OVERLAP_MS)
     : null
+  const maxPages = checkpoint && Date.now() - checkpoint.getTime() > CATCH_UP_AFTER_MS
+    ? MAX_CATCH_UP_PAGES
+    : MAX_ACTIVITY_SYNC_PAGES
 
   // 2. Read newest-first pages back to the checkpoint, outside any transaction.
   // Items are not filtered by time: ingestion is idempotent on stable IDs, and
@@ -142,7 +149,7 @@ export async function processActivitySync(
     }
     pages.push(activityPage)
     cursor = activityPage?.nextAfter ?? activityPage?.nextCursor ?? null
-  } while (needsAnotherActivityPage(normalizeActivityPage(pages.at(-1)), checkpoint, cursor, pages.length))
+  } while (needsAnotherActivityPage(normalizeActivityPage(pages.at(-1)), checkpoint, cursor, pages.length, maxPages))
 
   // 3. Store evidence and ingest in one transaction.
   return withTenant(client, userId, async () => {

@@ -157,10 +157,10 @@ Relationship rules:
 
 ## Sync and historical coverage
 
-Scheduled/manual sync polls the activity (notification) feed every 10 minutes,
+Scheduled/manual sync polls the activity (notification) feed about every 10 minutes (±20%),
 reading pages newest-first back to the last
-successful activity sync minus a 30-minute overlap (at most 5 pages; first sync
-reads one page) and ingests every item on those pages without a time filter,
+successful activity sync minus a 30-minute overlap (at most 5 pages, 20 when the
+last success is over an hour old; first sync reads one page) and ingests every item on those pages without a time filter,
 because grouped notifications gain new senders after creation. At most every 3
 hours per connection a poll also queues the audience sweeps and heavier refreshes: it refreshes the
 reply trees of the 6 newest owned Notes from the last 7 days and the 3 newest
@@ -168,8 +168,13 @@ posts from the last 14 days, and re-reads the newest Likes and restacks pages
 over a 24-hour window. Separately, every 30 minutes it re-reads up to 40 of the
 owner's authored replies from the last 24 hours (Substack ignores `limit` and
 returns ~12 per page, so this follows the cursor). The `sync:activity` job never
-dead-letters except on session expiry; the worker's queue maintenance re-seeds
-it for any active connection without one, and connecting schedules it at once.
+dead-letters except on session expiry, and its retry backoff caps at 10 minutes;
+the worker's queue maintenance re-seeds it for any active connection without
+one, and connecting schedules it at once. The 3-hour, 30-minute and daily
+refreshes start after a random delay of up to 20% of their cadence, so no
+schedule runs on an exact clock. A Cloudflare 403 on any other non-import
+`sync:*` job parks it for 6–24 hours without spending an attempt, instead of
+retrying into the challenge.
 Connecting rejects a session Substack does not verify, keeping the current
 connection. Session tokens are encrypted at rest when `SESSION_TOKEN_KEY` is
 set; always read them through `openSessionToken`, never `ciphertext` directly.

@@ -10,6 +10,7 @@ function publicJobError(value: unknown): string | null {
   if (/^Substack session expired|\b401\b/i.test(value)) return "Substack session expired"
   if (/lease expired/i.test(value)) return "The worker restarted during this step; it will retry"
   if (/rate limit|\b429\b/i.test(value)) return "Substack rate limited this step; it will retry if possible"
+  if (/challenged this request/i.test(value)) return "Substack challenged this request; paused for a few hours"
   if (/\b403\b|rejected the audience request/i.test(value)) return "Substack rejected this request"
   return "This step failed; check the server logs for details"
 }

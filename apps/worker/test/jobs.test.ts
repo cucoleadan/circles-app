@@ -87,9 +87,12 @@ describe("Worker queue runner (claimAndRunJob)", () => {
 
     // Verify next notification poll was rescheduled
     const reschedule = executedQueries.find((q) =>
-      q.sql.includes("insert into jobs") && q.sql.includes("10 minutes")
+      q.sql.includes("insert into jobs") && q.sql.includes("select 'sync:activity'")
     )
     expect(reschedule).toBeDefined()
+    // About every 10 minutes, ±20%.
+    expect(reschedule?.params?.[3]).toBeGreaterThanOrEqual(480)
+    expect(reschedule?.params?.[3]).toBeLessThanOrEqual(720)
     expect(reschedule?.sql).toContain("existing.id <> $3")
     expect(reschedule?.params?.[2]).toBe("job-101")
 
@@ -137,7 +140,7 @@ describe("Worker queue runner (claimAndRunJob)", () => {
         history: queued("owned_notes"),
         replies: queued("outbound_actions", "replies"),
         audience: executedQueries.some((q) => q.params?.[0] === "sync:subscribers"),
-        poll: executedQueries.some((q) => q.sql.includes("select 'sync:activity'") && q.sql.includes("10 minutes")),
+        poll: executedQueries.some((q) => q.sql.includes("select 'sync:activity'")),
       }
     }
     expect(await runPoll("history")).toEqual({ history: false, replies: true, audience: true, poll: true })
@@ -732,7 +735,7 @@ describe("Incremental subscriber sync", () => {
       },
     })
     expect(received).toMatchObject({ pages: 0 })
-    const nextPage = executedQueries.find((q) => q.sql.includes("'sync:subscribers'") && q.params?.[1] === "30 seconds")
+    const nextPage = executedQueries.find((q) => q.sql.includes("'sync:subscribers'") && /^(2[4-9]|3[0-6]) seconds$/.test(q.params?.[1]))
     expect(JSON.parse(nextPage?.params?.[0])).toMatchObject({
       mode: "incremental", offset: 100, direction: "desc", since: since.toISOString(), pages: 1,
     })
@@ -790,7 +793,8 @@ describe("Recurring activity sync resilience", () => {
     }
     expect(executedQueries.some((q) => q.sql.includes("set status = 'dead'"))).toBe(false)
     const retry = executedQueries.find((q) => q.sql.includes("set status = 'pending'") && q.sql.includes("seconds"))
-    expect(retry?.params?.[1]).toBe(1800)
+    // Capped at 10 minutes so polling resumes soon after an outage.
+    expect(retry?.params?.[1]).toBe(600)
     expect(executedQueries.some((q) => q.sql.includes("set status = 'expired'"))).toBe(false)
   })
 
@@ -855,5 +859,79 @@ describe("Recurring activity sync resilience", () => {
     expect(needsAnotherActivityPage(recent, null, "cursor", 1)).toBe(false)
     expect(needsAnotherActivityPage(recent, checkpoint, null, 1)).toBe(false)
     expect(needsAnotherActivityPage(recent, checkpoint, "cursor", 5)).toBe(false)
+    // After an outage the caller raises the cap.
+    expect(needsAnotherActivityPage(recent, checkpoint, "cursor", 5, 20)).toBe(true)
+    expect(needsAnotherActivityPage(recent, checkpoint, "cursor", 20, 20)).toBe(false)
+  })
+
+  test.each([
+    ["sync:following", "onFollowingSync", {}],
+    ["sync:subscribers", "onSubscriberSync", { offset: 0, manual: false }],
+    ["sync:history", "onHistorySync", { stream: "owned_notes" }],
+  ] as const)("a scheduled %s challenged with a 403 is parked for 6-24 h, not dead-lettered", async (jobType, handlerName, extra) => {
+    const executedQueries: { sql: string; params?: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        executedQueries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-challenged", type: jobType,
+          payload: { userId: "user-1", connectionId: "conn-1", ...extra }, attempts: 4, max_attempts: 5,
+        }] }
+        return { rows: [] }
+      },
+      release: () => {},
+    }
+    const quiet = [console.error, console.warn]
+    console.error = console.warn = () => {}
+    try {
+      await claimAndRunJob({ connect: async () => mockClient } as any, "worker", {
+        [handlerName]: async () => { throw Object.assign(new Error("Substack following API failed (403)"), { status: 403 }) },
+      })
+    } finally {
+      [console.error, console.warn] = quiet
+    }
+    expect(executedQueries.some((q) => q.sql.includes("status = 'dead'"))).toBe(false)
+    const parked = executedQueries.find((q) => q.sql.includes("attempts = greatest(attempts - 1, 0)"))
+    expect(parked?.params?.[1]).toBeGreaterThanOrEqual(6 * 3600)
+    expect(parked?.params?.[1]).toBeLessThanOrEqual(24 * 3600)
+    expect(executedQueries.some((q) => q.sql.includes("set status = 'unavailable'"))).toBe(jobType === "sync:history")
+  })
+
+  test("alerts once when the activity chain ends on an expired session", async () => {
+    const alerts: string[] = []
+    const originalFetch = globalThis.fetch
+    const originalUrl = process.env.ALERT_WEBHOOK_URL
+    process.env.ALERT_WEBHOOK_URL = "https://alerts.example.test/hook"
+    globalThis.fetch = (async (_url: string, init: any) => {
+      alerts.push(JSON.parse(init.body).text)
+      return new Response(null, { status: 204 })
+    }) as any
+    const run = (onSync: () => Promise<any>) => claimAndRunJob({
+      connect: async () => ({
+        query: async (sql: string) => sql.includes("select id, type, payload")
+          ? { rows: [{ id: "job-x", type: "sync:activity", payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 0, max_attempts: 5 }] }
+          : { rows: [] },
+        release: () => {},
+      }),
+    } as any, "worker", { onSync })
+    const originalError = console.error
+    console.error = () => {}
+    try {
+      // Another job already expired the session: the skipped poll alerts.
+      await run(async () => ({ skipped: true, expired: true }))
+      // A revoked connection ends the chain silently.
+      await run(async () => ({ skipped: true, expired: false }))
+      // The poll itself hits the 401.
+      await run(async () => { throw Object.assign(new Error("Substack session expired"), { status: 401 }) })
+      // An unrelated failure never alerts from here.
+      await run(async () => { throw new Error("socket hang up") })
+    } finally {
+      console.error = originalError
+      globalThis.fetch = originalFetch
+      if (originalUrl === undefined) delete process.env.ALERT_WEBHOOK_URL
+      else process.env.ALERT_WEBHOOK_URL = originalUrl
+    }
+    expect(alerts).toHaveLength(2)
+    expect(alerts[0]).toContain("conn-1")
   })
 })

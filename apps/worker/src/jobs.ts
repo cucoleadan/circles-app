@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
-import { recordFailure, recordSuccess } from "./health.js"
+import { recordFailure, recordSuccess, sendAlert } from "./health.js"
 import { failNewsletterExport, NEWSLETTER_POLL_SECONDS, processNewsletterExport } from "./newsletter.js"
 import type { Pool, PoolClient } from "pg"
 import type { OutboundStage } from "./history.js"
@@ -88,6 +88,22 @@ export interface JobHandlers {
   ) => Promise<any>
 }
 
+/** `seconds` ±20%, so polls never land on an exact cadence. */
+export function jittered(seconds: number) {
+  return Math.round(seconds * (0.8 + Math.random() * 0.4))
+}
+
+/**
+ * Random start delay of up to 20% of a refresh cadence. The cadence window
+ * stays fixed, so runs drift ±20% around it instead of skewing early.
+ */
+function spread(cadenceSeconds: number) {
+  return Math.round(Math.random() * cadenceSeconds * 0.2)
+}
+
+/** Shown in the sync panel while a challenged sweep waits. */
+export const CHALLENGE_PAUSED_MESSAGE = "Substack challenged this request; paused for a few hours"
+
 function numericSummary(value: unknown, fields: string[]): Record<string, number> {
   if (!value || typeof value !== "object") return {}
   const data = value as Record<string, unknown>
@@ -96,6 +112,10 @@ function numericSummary(value: unknown, fields: string[]): Record<string, number
       ? [[field, data[field] as number]]
       : []
   ))
+}
+
+function sendExpiredAlert(connectionId: string) {
+  return sendAlert(`Substack session expired for connection ${connectionId}. Reconnect in Circles to resume syncing.`)
 }
 
 export async function claimAndRunJob(
@@ -160,6 +180,9 @@ export async function claimAndRunJob(
     } = payload
 
     let jobResult: Record<string, number | boolean> | null = null
+    // Set when this activity poll ends the connection's chain on an expired
+    // session: one alert per expiry, whichever job noticed it first.
+    let expiredAlert = false
     // Follow-up jobs (next pages, the next scheduled sync) are queued in the
     // same transaction that marks this job done, and only while this worker
     // still holds the lease, so a crash can never fork a duplicate chain.
@@ -204,12 +227,12 @@ export async function claimAndRunJob(
             delay: number
           }> = [
             ...(refreshDue ? [
-              { stream: "owned_notes", delay: 10 },
-              { stream: "owned_posts", delay: 20 },
-              { stream: "outbound_actions", outboundStage: "likes", delay: 30 },
-              { stream: "outbound_actions", outboundStage: "restacks", delay: 40 },
+              { stream: "owned_notes", delay: 10 + spread(3 * 3600) },
+              { stream: "owned_posts", delay: 20 + spread(3 * 3600) },
+              { stream: "outbound_actions", outboundStage: "likes", delay: 30 + spread(3 * 3600) },
+              { stream: "outbound_actions", outboundStage: "restacks", delay: 40 + spread(3 * 3600) },
             ] as const : []),
-            ...(repliesDue ? [{ stream: "outbound_actions", outboundStage: "replies", delay: 50 }] as const : []),
+            ...(repliesDue ? [{ stream: "outbound_actions", outboundStage: "replies", delay: 50 + spread(1800) }] as const : []),
           ]
           for (const scheduled of scheduledHistory) {
             enqueue(
@@ -242,14 +265,15 @@ export async function claimAndRunJob(
              where type = 'sync:subscribers'
                and payload->>'connectionId' = $1
                and coalesce(payload->>'mode', 'full') = 'full'
-               and created_at > now() - interval '7 days'
+               and created_at > now() - make_interval(secs => $2)
              limit 1`,
-            [connectionId],
+            [connectionId, jittered(7 * 86400)],
           )
           const audienceJobs = [
+            // Independent offsets keep the two sweeps from running back to back.
             {
               type: "sync:subscribers",
-              delay: 60,
+              delay: 60 + spread(23 * 3600),
               payload: {
                 userId,
                 connectionId,
@@ -261,7 +285,7 @@ export async function claimAndRunJob(
             },
             {
               type: "sync:following",
-              delay: 80,
+              delay: 80 + spread(23 * 3600),
               payload: { userId, connectionId, manual: false },
             },
           ]
@@ -287,7 +311,7 @@ export async function claimAndRunJob(
         if (!result.skipped) {
           enqueue(
             `insert into jobs (type, payload, status, run_at)
-             select 'sync:activity', $1, 'pending', now() + interval '10 minutes'
+             select 'sync:activity', $1, 'pending', now() + make_interval(secs => $4)
              where not exists (
                select 1 from jobs existing
                where existing.type = 'sync:activity'
@@ -295,8 +319,11 @@ export async function claimAndRunJob(
                  and existing.payload->>'connectionId' = $2
                  and existing.id <> $3
              )`,
-            [JSON.stringify(payload), connectionId, job.id]
+            [JSON.stringify(payload), connectionId, job.id, jittered(600)]
           )
+        } else if ("expired" in result && result.expired) {
+          // Another job already marked the session expired; this poll ends the chain.
+          expiredAlert = true
         }
       } else if (job.type === "sync:history") {
         const result = handlers?.onHistorySync
@@ -330,7 +357,7 @@ export async function claimAndRunJob(
         if (continueImport) {
           // Scheduled sweeps run unattended, so space their Substack reads out;
           // manual and import sweeps keep the faster pace the user is waiting on.
-          const pageDelay = payload.manual === false && !importRunId ? "30 seconds" : "2 seconds"
+          const pageDelay = payload.manual === false && !importRunId ? `${jittered(30)} seconds` : "2 seconds"
           enqueue(
             `insert into jobs (type, payload, status, run_at)
              values ('sync:subscribers', $1, 'pending', now() + $2::interval)`,
@@ -497,6 +524,7 @@ export async function claimAndRunJob(
         throw completionError
       }
       if (job.type === "sync:activity") recordSuccess()
+      if (expiredAlert) await sendExpiredAlert(connectionId)
     } catch (jobError: any) {
       console.error(
         `[Circles Worker] Job ${job.id} (${job.type}) failed:`,
@@ -554,19 +582,45 @@ export async function claimAndRunJob(
           )
         }
       }
+      if (sessionExpired && job.type === "sync:activity") await sendExpiredAlert(connectionId)
       const isRateLimited = jobError?.status === 429 ||
         jobError?.statusCode === 429 ||
         /\b429\b/.test(errorMessage) || isUpstreamChallenge
       // The recurring activity sync owns the polling schedule; dead-lettering it
       // would silently stop all syncing, so it backs off and keeps retrying.
       const keepsRetrying = job.type === "sync:activity"
+      // Retrying into a Cloudflare challenge is what raises the bot score, so a
+      // challenged scheduled sweep waits 6–24 h without spending an attempt.
+      // Imports keep their backoff so their progress and failure stay visible.
+      const parkChallenge = isUpstreamChallenge && !sessionExpired && !keepsRetrying &&
+        job.type.startsWith("sync:") && !importRunId
       const isDead = sessionExpired || optionalProfileUnauthorized || job.type === "refetch:contact" || (
         !keepsRetrying &&
         (!isRateLimited || isUpstreamChallenge) &&
         job.attempts + 1 >= job.max_attempts
       )
 
-      if (isDead) {
+      if (parkChallenge) {
+        const parkSeconds = Math.round((6 + Math.random() * 18) * 3600)
+        await client.query(
+          `update jobs
+           set status = 'pending', attempts = greatest(attempts - 1, 0),
+               run_at = now() + make_interval(secs => $2), last_error = $3, updated_at = now()
+           where id = $1`,
+          [job.id, parkSeconds, CHALLENGE_PAUSED_MESSAGE],
+        )
+        console.warn(`[Circles Worker] ${job.type} challenged by Substack; paused for ${Math.round(parkSeconds / 3600)} h.`)
+        if (job.type === "sync:history" && userId && connectionId && stream) {
+          await withTenant(client, userId, async () => {
+            await client.query(
+              `update sync_stream_state
+               set status = 'unavailable', error = $3, updated_at = now()
+               where connection_id = $1 and stream = $2`,
+              [connectionId, stream, CHALLENGE_PAUSED_MESSAGE],
+            )
+          })
+        }
+      } else if (isDead) {
         await client.query(
           "update jobs set status = 'dead', last_error = $2, updated_at = now() where id = $1",
           [job.id, failureMessage]
@@ -591,8 +645,9 @@ export async function claimAndRunJob(
           })
         }
       } else {
+        // The activity sync caps at 10 min so it recovers soon after an outage.
         const retryDelaySeconds = isRateLimited || keepsRetrying
-          ? Math.min(1800, 60 * (2 ** Math.min(job.attempts, 5)))
+          ? Math.min(keepsRetrying ? 600 : 1800, 60 * (2 ** Math.min(job.attempts, 5)))
           : Math.min(300, (job.attempts + 1) * 30)
         await client.query(
           `update jobs
