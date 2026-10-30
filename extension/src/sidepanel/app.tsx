@@ -112,12 +112,20 @@ export function App() {
 
   async function syncNow() {
     setSyncing(true)
+    const lastSynced = async () =>
+      (await circles<{ syncState: { lastSyncedAt: string | null } | null }>("/api/v1/sync")).syncState?.lastSyncedAt ?? null
     try {
+      const before = await lastSynced()
       await circles("/api/v1/sync", { method: "POST" })
+      // The worker runs the queued sync shortly; spin until it has finished.
+      for (let tries = 0; tries < 15 && await lastSynced() === before; tries++) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000))
+      }
     } catch {
       // The status line shows the last finished sync either way.
     } finally {
-      setTimeout(() => { setSyncing(false); void refresh() }, 1500)
+      setSyncing(false)
+      void refresh()
     }
   }
 
