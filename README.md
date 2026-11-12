@@ -58,6 +58,14 @@ streams Substack only partly exposes.
 
 ![Choosing sources and a timeframe for a history backfill](docs/screenshots/04-sync.png)
 
+### Watched Profiles
+
+Add contacts to the built-in Watched Profiles list and Circles keeps a copy of
+what they publish: Notes, replies and restacks re-read about every 6 hours, and
+posts once a day from their publication's public RSS feed. Read it in the
+contact's "Notes & Posts" tab, or let an agent ask "what did my watched
+contacts post since yesterday" without a single live Substack request.
+
 ### Note scheduling
 
 Write, schedule and tag Substack Notes. Drafts live in Substack and Substack
@@ -74,7 +82,8 @@ replies as they happen. See [Browser extension](#browser-extension).
 ### MCP server
 
 An OAuth-protected `/api/mcp` endpoint that lets AI agents read and manage your
-CRM with scoped grants (see [docs/mcp.md](docs/mcp.md)).
+CRM with scoped grants, including watching a contact and reading what watched
+contacts posted (see [docs/mcp.md](docs/mcp.md)).
 
 ### Multi-tenant safety
 
