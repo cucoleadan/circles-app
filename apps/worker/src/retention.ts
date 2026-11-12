@@ -7,7 +7,7 @@ import { withTenant } from "./tenant.js"
  * recent pages. Every activity poll adds ~100 kB, so it is kept this long and
  * no longer; interactions already derived from older evidence are unaffected.
  */
-export const EVIDENCE_RETENTION_DAYS = 30
+export const EVIDENCE_RETENTION_DAYS = 14
 /** Agent SDK read results are only served from cache for 6 hours. */
 export const MCP_RUN_RETENTION_DAYS = 7
 /** Rows deleted per statement, so no transaction holds a large delete. */

@@ -139,7 +139,7 @@ private channel; rotate them after first sign-in when practical.
 
 The worker deletes expired rows itself: finished jobs (14 days, dead ones 30),
 and once a day per account the `cleanup:retention` job removes raw sync evidence
-(`ingestion_batches`) older than 30 days, agent read results older than 7 days
+(`ingestion_batches`) older than 14 days, agent read results older than 7 days
 and Watched Profiles content older than 30 days. Its result
 (`select result from jobs where type = 'cleanup:retention' order by id desc`)
 lists how many rows each run removed.

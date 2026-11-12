@@ -340,12 +340,15 @@ describe("transactional edits", () => {
   })
 
   test("the daily cleanup deletes only one tenant's expired rows", async () => {
-    const { processRetentionCleanup } = await import("../../worker/src/retention.js")
+    // The worker owns this job; a computed path keeps it out of the API's type-check root
+    // while its SQL still runs against the real schema here.
+    const workerModule = "../../worker/src/retention.js"
+    const { processRetentionCleanup } = await import(workerModule)
     for (const user of [userA, userB]) await withTenant({ appUserId: user }, async (client) => {
       await client.query(
         `insert into ingestion_batches (id, user_id, source, dedupe_key, payload, status, received_at)
-         values ($2, $1, 'sdk', 'old', '{}', 'processed', now() - interval '31 days'),
-                ($3, $1, 'sdk', 'new', '{}', 'processed', now() - interval '29 days')`,
+         values ($2, $1, 'sdk', 'old', '{}', 'processed', now() - interval '15 days'),
+                ($3, $1, 'sdk', 'new', '{}', 'processed', now() - interval '13 days')`,
         [user, `${user}-old`, `${user}-new`],
       )
       await client.query(

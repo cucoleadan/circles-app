@@ -262,13 +262,13 @@ Circles deletes what it no longer needs; nothing else grows without bound.
 - `jobs`: done jobs after 14 days, dead after 30 (`apps/worker/src/maintenance.ts`).
 - Per tenant, the `cleanup:retention` job (`apps/worker/src/retention.ts`),
   queued by the activity sync at most once per 23 hours and run inside the
-  tenant's row security: `ingestion_batches` after 30 days
+  tenant's row security: `ingestion_batches` after 14 days
   (`EVIDENCE_RETENTION_DAYS`), `mcp_tool_runs` after 7 days,
   `profile_content` after 30 days, and fetch checkpoints of profiles that are
   no longer watched and hold nothing. It deletes 200 rows per statement and
   continues in follow-up jobs, so a large first run never holds a long
   transaction.
-- Evidence older than 30 days can therefore no longer be replayed by a
+- Evidence older than 14 days can therefore no longer be replayed by a
   data-repair migration; interactions already derived from it are unaffected.
   Raise `EVIDENCE_RETENTION_DAYS` before relying on older evidence.
 - `profile_content.raw` holds only the upstream ID and engagement counters.
@@ -406,6 +406,6 @@ Before handing off a change:
 - Do not mark a backfill complete when an upstream stream is unavailable or a
   checkpoint has not exhausted.
 - Preserve raw snapshots when adjusting parsers; replay evidence rather than
-  refetching private upstream data when possible. Evidence is kept 30 days
+  refetching private upstream data when possible. Evidence is kept 14 days
   (see "Retention and cleanup").
 - Keep UI language honest about complete, partial, and unavailable coverage.
