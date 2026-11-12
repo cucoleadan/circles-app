@@ -245,3 +245,44 @@ describe("processWatchedProfiles", () => {
     expect(challenged.queries.some((q) => q.sql.includes("insert into profile_content_state"))).toBe(false)
   })
 })
+
+describe("retention cleanup job", () => {
+  const cleanupJob = { id: "job-c", type: "cleanup:retention", payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 0, max_attempts: 5 }
+  const queued = (queries: { sql: string; params: any[] }[]) =>
+    queries.filter((q) => q.sql.includes("insert into jobs") && q.sql.includes("'cleanup:retention'"))
+
+  test("continues in a follow-up job until nothing expired is left", async () => {
+    const more = queueWith(cleanupJob)
+    await claimAndRunJob(more.pool, "worker", {
+      onRetentionCleanup: async () => ({ evidence: 5000, agentReads: 0, profileContent: 0, profileState: 0, completed: false }),
+    })
+    expect(queued(more.queries)).toHaveLength(1)
+    const done = more.queries.find((q) => q.sql.includes("set status = 'done'"))
+    expect(JSON.parse(done!.params[2])).toMatchObject({ evidence: 5000, completed: false })
+
+    const finished = queueWith(cleanupJob)
+    await claimAndRunJob(finished.pool, "worker", {
+      onRetentionCleanup: async () => ({ evidence: 12, agentReads: 3, profileContent: 0, profileState: 0, completed: true }),
+    })
+    expect(queued(finished.queries)).toHaveLength(0)
+  })
+
+  test("deletes in batches inside the tenant and stops at its budget", async () => {
+    const { processRetentionCleanup, EVIDENCE_RETENTION_DAYS } = await import("../src/retention.js")
+    const statements: { sql: string; params: any[] }[] = []
+    let tenant = ""
+    const client: any = {
+      query: async (sql: string, params: any[] = []) => {
+        if (sql.includes("set_config")) tenant = params[0]
+        if (!sql.startsWith("delete")) return { rows: [] }
+        expect(tenant).toBe("user-1")
+        statements.push({ sql, params })
+        // Evidence never runs dry; every other table has 3 expired rows.
+        return { rowCount: sql.includes("from ingestion_batches") ? params[0] : 3 }
+      },
+    }
+    const result = await processRetentionCleanup(client, "user-1")
+    expect(result).toEqual({ evidence: 25 * 200, agentReads: 3, profileContent: 3, profileState: 3, completed: false })
+    expect(statements[0]!.params).toEqual([200, EVIDENCE_RETENTION_DAYS])
+  })
+})

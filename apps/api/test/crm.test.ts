@@ -339,6 +339,45 @@ describe("transactional edits", () => {
     expect(await checked()).toBeNull()
   })
 
+  test("the daily cleanup deletes only one tenant's expired rows", async () => {
+    const { processRetentionCleanup } = await import("../../worker/src/retention.js")
+    for (const user of [userA, userB]) await withTenant({ appUserId: user }, async (client) => {
+      await client.query(
+        `insert into ingestion_batches (id, user_id, source, dedupe_key, payload, status, received_at)
+         values ($2, $1, 'sdk', 'old', '{}', 'processed', now() - interval '31 days'),
+                ($3, $1, 'sdk', 'new', '{}', 'processed', now() - interval '29 days')`,
+        [user, `${user}-old`, `${user}-new`],
+      )
+      await client.query(
+        `insert into profile_content (id, user_id, substack_profile_id, kind, external_id, published_at, source)
+         values ($2, $1, '777', 'note', 'c-old', now() - interval '31 days', 'agent'),
+                ($3, $1, '777', 'note', 'c-new', now() - interval '2 days', 'agent')`,
+        [user, `${user}-pc-old`, `${user}-pc-new`],
+      )
+      await client.query(
+        `insert into profile_content_state (user_id, substack_profile_id, updated_at)
+         values ($1, '777', now() - interval '40 days'), ($1, '888', now() - interval '40 days')`,
+        [user],
+      )
+    })
+    const client = await db.connect()
+    try {
+      expect(await processRetentionCleanup(client, userA)).toEqual({
+        evidence: 1, agentReads: 0, profileContent: 1, profileState: 1, completed: true,
+      })
+    } finally { client.release() }
+    const left = async (user: string) => withTenant({ appUserId: user }, async (c) => ({
+      evidence: (await c.query("select id from ingestion_batches order by id")).rows.map((row) => row.id),
+      content: (await c.query("select id from profile_content order by id")).rows.map((row) => row.id),
+      // 777 still holds content, so its checkpoint stays; 888 is orphaned.
+      state: (await c.query("select substack_profile_id from profile_content_state order by 1")).rows.map((row) => row.substack_profile_id),
+    }))
+    expect(await left(userA)).toEqual({ evidence: [`${userA}-new`], content: [`${userA}-pc-new`], state: ["777"] })
+    expect(await left(userB)).toEqual({
+      evidence: [`${userB}-new`, `${userB}-old`], content: [`${userB}-pc-new`, `${userB}-pc-old`], state: ["777", "888"],
+    })
+  })
+
   test("stored profile content is linked to its contact and read by list", async () => {
     const tracy = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Tracy", handle: "tracy", substackProfileId: "4878855" }))

@@ -59,6 +59,11 @@ describe("profile feed normalization", () => {
       url: "https://substack.com/@alice/note/c-900", publishedAt: "2026-11-10T09:00:00.000Z",
     })
     expect(items[0]).toMatchObject({ title: "Nobody cares", body: "Yet" })
+    // Only the ID and counters of the upstream object are kept.
+    expect(items[1]!.raw).toEqual({
+      context: { type: "note", timestamp: "2026-11-11T23:09:00.142Z" }, comment: { id: 384, user_id: 4878855 },
+    })
+    expect(items[0]!.raw.post).toEqual({ id: 223 })
   })
 
   test("tolerates an empty or malformed page", () => {

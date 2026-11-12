@@ -37,6 +37,12 @@ or status changes. Last updated: 2026-11-12.
 - [ ] Check the contact drawer's "Notes & Posts" tab in a browser against
       real data (built and typechecked only).
 
+## Retention
+
+- [ ] After the first `cleanup:retention` runs in production, confirm the job
+      results and run `VACUUM FULL ingestion_batches` once to return the space
+      (it locks the table for the rewrite; the worker retries).
+
 ## Newsletter Signals
 
 - [ ] Apply migration `036_newsletter_signals` on a test DB, then run one live

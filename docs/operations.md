@@ -135,6 +135,27 @@ private channel; rotate them after first sign-in when practical.
 3. Restart the stack (`docker compose restart`) and confirm data persists and
    services come back healthy.
 
+## Storage and cleanup
+
+The worker deletes expired rows itself: finished jobs (14 days, dead ones 30),
+and once a day per account the `cleanup:retention` job removes raw sync evidence
+(`ingestion_batches`) older than 30 days, agent read results older than 7 days
+and Watched Profiles content older than 30 days. Its result
+(`select result from jobs where type = 'cleanup:retention' order by id desc`)
+lists how many rows each run removed.
+
+PostgreSQL reuses the space of deleted rows but does not shrink the files. After
+a large first cleanup, return the space once with:
+
+```sql
+vacuum full ingestion_batches;
+```
+
+It rewrites the table under an exclusive lock (about a minute per GB); the
+worker's activity sync retries meanwhile. Each daily backup is roughly a third
+of the database size, and 14 are kept, so a smaller database shrinks the backup
+volume by about five times as much.
+
 ## Backups
 
 Dokploy has no backup destination configured, so it takes no database

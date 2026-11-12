@@ -83,7 +83,7 @@ export function normalizeProfileFeed(page: unknown, profileId: string): {
         body: text(comment.body),
         url: handle ? `https://substack.com/@${handle}/note/c-${id}` : null,
         publishedAt: isoDate(restack ? context.timestamp ?? comment.date : comment.date ?? context.timestamp),
-        raw: { context: rawContext, comment },
+        raw: { context: rawContext, comment: slim(comment, COMMENT_KEYS) },
       })
     } else if (post && (type === "post" || type === "latest_post" || type === "post_restack")) {
       const url = text(post.canonical_url)
@@ -97,12 +97,23 @@ export function normalizeProfileFeed(page: unknown, profileId: string): {
         body: text(post.subtitle) ?? text(post.description) ?? text(post.truncated_body_text),
         url,
         publishedAt: isoDate(restack ? context.timestamp ?? post.post_date : post.post_date ?? context.timestamp),
-        raw: { context: rawContext, post },
+        raw: { context: rawContext, post: slim(post, POST_KEYS) },
       })
     }
   }
   return { items, publicationUrl }
 }
+
+/**
+ * What is kept of an upstream object: its ID and engagement counters. The full
+ * object is ~2.5 kB for a Note and ~30 kB for a post, almost all of it fields
+ * already stored in columns or never used.
+ */
+function slim(source: Record<string, any>, keys: string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => source[key] !== undefined && source[key] !== null).map((key) => [key, source[key]]))
+}
+const COMMENT_KEYS = ["id", "user_id", "reaction_count", "restacks", "children_count", "ancestor_path"]
+const POST_KEYS = ["id", "publication_id", "audience", "type", "wordcount", "reaction_count", "comment_count"]
 
 const ENTITIES: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " }
 function decodeEntities(value: string) {
@@ -216,7 +227,7 @@ export async function saveProfileContent(client: PoolLike, input: {
          body = coalesce(excluded.body, profile_content.body),
          url = coalesce(excluded.url, profile_content.url),
          published_at = coalesce(excluded.published_at, profile_content.published_at),
-         raw = profile_content.raw || excluded.raw,
+         raw = excluded.raw,
          updated_at = now()
        returning (xmax = 0) as created`,
       [

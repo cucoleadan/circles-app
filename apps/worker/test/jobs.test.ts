@@ -526,6 +526,10 @@ describe("Worker queue runner (claimAndRunJob)", () => {
       release: () => {},
     }
     await claimAndRunJob({ connect: async () => mockClient } as any, "worker", { onSync: async () => ({ skipped: false }) })
+    // The same poll also queues the tenant's daily cleanup, at most once per 23 hours.
+    const cleanup = queries.find((q) => q.sql.includes("insert into jobs") && q.sql.includes("select 'cleanup:retention'"))
+    expect(cleanup!.sql).toContain("interval '23 hours'")
+    expect(cleanup!.params[1]).toBe("user-1")
     const seed = queries.find((q) => q.sql.includes("insert into jobs") && q.sql.includes("select 'sync:watched'"))
     expect(seed!.sql).toContain("l.system_key = 'watched'")
     expect(seed!.sql).toContain("where not exists")

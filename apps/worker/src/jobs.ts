@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
 import { processWatchedProfiles, watchedDelaySeconds } from "./watched.js"
+import { processRetentionCleanup } from "./retention.js"
 import { recordFailure, recordSuccess, sendAlert } from "./health.js"
 import { failNewsletterExport, NEWSLETTER_POLL_SECONDS, processNewsletterExport } from "./newsletter.js"
 import type { Pool, PoolClient } from "pg"
@@ -88,6 +89,7 @@ export interface JobHandlers {
     afterId?: string | null,
     placeholdersOnly?: boolean,
   ) => Promise<any>
+  onRetentionCleanup?: (client: PoolClient, userId: string) => Promise<Record<string, number | boolean> & { completed: boolean }>
   onWatchedSync?: (
     client: PoolClient,
     userId: string,
@@ -322,6 +324,18 @@ export async function claimAndRunJob(
           }
         }
         if (!result.skipped) {
+          // Once a day, delete this tenant's expired evidence and cached reads.
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             select 'cleanup:retention', $1, 'pending', now() + make_interval(secs => $3)
+             where not exists (
+               select 1 from jobs existing
+               where existing.type = 'cleanup:retention'
+                 and existing.payload->>'userId' = $2
+                 and (existing.status in ('pending', 'running') or existing.created_at > now() - interval '23 hours')
+             )`,
+            [JSON.stringify({ userId, connectionId }), userId, 120 + spread(23 * 3600)],
+          )
           // Starts (or restarts) the Watched Profiles chain once the list has members.
           enqueue(
             `insert into jobs (type, payload, status, run_at)
@@ -459,6 +473,19 @@ export async function claimAndRunJob(
                  and existing.id <> $3
              )`,
             [JSON.stringify({ userId, connectionId }), connectionId, job.id, watchedDelaySeconds((result.fetched ?? 0) > 0)],
+          )
+        }
+      } else if (job.type === "cleanup:retention") {
+        const result = handlers?.onRetentionCleanup
+          ? await handlers.onRetentionCleanup(client, userId)
+          : await processRetentionCleanup(client, userId)
+        jobResult = result
+        // A large first cleanup continues in small steps instead of one long run.
+        if (!result.completed) {
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             values ('cleanup:retention', $1, 'pending', now() + interval '20 seconds')`,
+            [JSON.stringify(payload)],
           )
         }
       } else if (job.type === "enrich:missing-handles") {
