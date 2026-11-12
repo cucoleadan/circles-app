@@ -181,7 +181,14 @@ async function contactFor(client: PoolLike, userId: string, profileId: string): 
   )).rows[0]?.id ?? null
 }
 
-/** Upserts content rows for one profile inside the caller's tenant transaction. */
+/** Stored content is a rolling window: nothing older than this is kept or returned. */
+export const PROFILE_CONTENT_MAX_DAYS = 30
+
+/**
+ * Upserts content rows for one profile inside the caller's tenant transaction.
+ * Items older than the 30-day window are not stored, and the profile's rows
+ * that have aged out of it are deleted.
+ */
 export async function saveProfileContent(client: PoolLike, input: {
   userId: string
   profileId: string
@@ -189,8 +196,16 @@ export async function saveProfileContent(client: PoolLike, input: {
   source: ProfileContentSource
 }): Promise<{ stored: number; created: number; personId: string | null }> {
   const personId = await contactFor(client, input.userId, input.profileId)
+  await client.query(
+    `delete from profile_content
+     where user_id = $1 and substack_profile_id = $2
+       and coalesce(published_at, created_at) < now() - make_interval(days => $3)`,
+    [input.userId, input.profileId, PROFILE_CONTENT_MAX_DAYS],
+  )
+  const cutoff = Date.now() - PROFILE_CONTENT_MAX_DAYS * 24 * 60 * 60 * 1000
+  const items = input.items.filter((item) => !item.publishedAt || Date.parse(item.publishedAt) >= cutoff)
   let created = 0
-  for (const item of input.items) {
+  for (const item of items) {
     const result = await client.query(
       `insert into profile_content
          (id, user_id, substack_profile_id, person_id, kind, external_id, title, body, url, published_at, source, raw)
@@ -211,7 +226,7 @@ export async function saveProfileContent(client: PoolLike, input: {
     )
     if (result.rows[0]?.created) created++
   }
-  return { stored: input.items.length, created, personId }
+  return { stored: items.length, created, personId }
 }
 
 /** Records a Notes or posts fetch attempt for one profile. */

@@ -1,3 +1,4 @@
+import { PROFILE_CONTENT_MAX_DAYS } from "@workspace/core"
 import type { PoolLike } from "./repositories.js"
 
 export interface ProfileContentOptions {
@@ -25,7 +26,8 @@ const PROFILE_LIMIT = 500
 /**
  * Stored Notes, replies, restacks and posts for one contact, a list's members,
  * or (by default) the built-in Watched Profiles list. Reads only the local
- * copy; `profiles` says how fresh that copy is for each contact in scope.
+ * copy, and only its last 30 days; `profiles` says how fresh that copy is for
+ * each contact in scope.
  */
 export async function listProfileContent(client: PoolLike, options: ProfileContentOptions) {
   const cursor = options.cursor ? decodeCursor(options.cursor) : null
@@ -52,6 +54,7 @@ export async function listProfileContent(client: PoolLike, options: ProfileConte
      from profile_content c
      join scope s on s.user_id = c.user_id and s.substack_profile_id = c.substack_profile_id
      where ($3::text = 'all' or c.kind = $3)
+       and coalesce(c.published_at, c.created_at) >= now() - make_interval(days => $9)
        and ($4::timestamptz is null or coalesce(c.published_at, c.created_at) >= $4)
        and ($5::timestamptz is null or coalesce(c.published_at, c.created_at) < $5)
        and ($6::timestamptz is null or (coalesce(c.published_at, c.created_at), c.id) < ($6, $7::text))
@@ -59,7 +62,7 @@ export async function listProfileContent(client: PoolLike, options: ProfileConte
      limit $8`,
     [
       ...scopeParams, options.kind, options.since ?? null, options.until ?? null,
-      cursor?.at ?? null, cursor?.id ?? null, options.limit + 1,
+      cursor?.at ?? null, cursor?.id ?? null, options.limit + 1, PROFILE_CONTENT_MAX_DAYS,
     ],
   )
   const profiles = await client.query(

@@ -5,6 +5,7 @@ import {
   normalizeProfileFeed,
   openSessionToken,
   parseRssFeed,
+  PROFILE_CONTENT_MAX_DAYS,
   type ProfileContentItem,
   publicationFeedUrl,
   recordProfileContentFetch,
@@ -87,7 +88,7 @@ export async function fetchPublicationFeed(
 }
 
 /** Backlog kept for a watched contact, and how much of it one run reads. */
-export const WATCHED_BACKLOG_DAYS = 30
+export const WATCHED_BACKLOG_DAYS = PROFILE_CONTENT_MAX_DAYS
 export const WATCHED_BATCH_DAYS = 7
 /** A run stops after this many backlog pages even if its 7 days are not covered. */
 const BACKLOG_MAX_PAGES = 6

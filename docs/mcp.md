@@ -42,7 +42,7 @@ read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
 posts of contacts without calling Substack. With no arguments it covers the
 built-in Watched Profiles list (`circles_list_lists` shows it with
 `systemKey: "watched"`), whose members the worker refreshes about every 6 hours
-(posts daily, from RSS). `personId` or `listId` select other contacts, who have
+(posts daily, from RSS). Only the last 30 days are kept. `personId` or `listId` select other contacts, who have
 content only if an agent read their profile before. `profiles` in the result
 gives each contact's last fetch time and any fetch error, so an agent can tell
 "no new Notes" from "not fetched yet".

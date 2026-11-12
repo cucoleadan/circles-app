@@ -344,6 +344,7 @@ describe("transactional edits", () => {
       createPerson(client, userA, { name: "Tracy", handle: "tracy", substackProfileId: "4878855" }))
     const other = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Other", handle: "other", substackProfileId: "777" }))
+    const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
     const note = (id: string, publishedAt: string) => ({
       kind: "note" as const, externalId: `c-${id}`, title: null, body: `Note ${id}`,
       url: `https://substack.com/@tracy/note/c-${id}`, publishedAt, raw: { comment: { id } },
@@ -354,22 +355,36 @@ describe("transactional edits", () => {
       await addListMember(client, userA, watched!.id, tracy.id)
       const first = await saveProfileContent(client, {
         userId: userA, profileId: "4878855", source: "watched",
-        items: [note("1", "2026-11-10T10:00:00.000Z"), note("2", "2026-11-11T10:00:00.000Z")],
+        items: [note("1", daysAgo(3)), note("2", daysAgo(2))],
       })
       expect(first).toMatchObject({ stored: 2, created: 2, personId: tracy.id })
+      // Only the last 30 days are kept: an older item is not stored, and a
+      // row that has aged out is deleted on the profile's next save.
+      const tooOld = await saveProfileContent(client, {
+        userId: userA, profileId: "4878855", source: "watched", items: [note("old", daysAgo(31))],
+      })
+      expect(tooOld).toMatchObject({ stored: 0, created: 0 })
+      await client.query(
+        `insert into profile_content (id, user_id, substack_profile_id, kind, external_id, body, published_at, source)
+         values ('aged', $1, '4878855', 'note', 'c-aged', 'Aged', now() - interval '40 days', 'watched'),
+                ('aged-other', $1, '777', 'note', 'c-aged-other', 'Aged other', now() - interval '40 days', 'agent')`,
+        [userA],
+      )
       // A repeat read updates in place.
       const repeat = await saveProfileContent(client, {
-        userId: userA, profileId: "4878855", source: "agent", items: [note("2", "2026-11-11T10:00:00.000Z")],
+        userId: userA, profileId: "4878855", source: "agent", items: [note("2", daysAgo(2))],
       })
       expect(repeat.created).toBe(0)
+      const left = await client.query("select id from profile_content where id in ('aged', 'aged-other') order by id")
+      expect(left.rows).toEqual([{ id: "aged-other" }])
       await saveProfileContent(client, {
         userId: userA, profileId: "4878855", source: "rss",
         items: [{ kind: "post", externalId: "tracy.substack.com/p/hello", title: "Hello", body: "Intro",
-          url: "https://tracy.substack.com/p/hello", publishedAt: "2026-11-09T10:00:00.000Z", raw: { rss: {} } }],
+          url: "https://tracy.substack.com/p/hello", publishedAt: daysAgo(4), raw: { rss: {} } }],
       })
       // Not on the watched list: stored, but outside the default scope.
       await saveProfileContent(client, {
-        userId: userA, profileId: "777", source: "agent", items: [note("9", "2026-11-12T10:00:00.000Z")],
+        userId: userA, profileId: "777", source: "agent", items: [note("9", daysAgo(1))],
       })
       await recordProfileContentFetch(client, {
         userId: userA, profileId: "4878855", stream: "notes", publicationUrl: "https://tracy.substack.com",
@@ -393,8 +408,14 @@ describe("transactional edits", () => {
     expect(next.nextCursor).toBeNull()
 
     const posts = await withTenant({ appUserId: userA }, (client) =>
-      listProfileContent(client, { kind: "post", limit: 50, since: "2026-11-01T00:00:00Z" }))
+      listProfileContent(client, { kind: "post", limit: 50, since: daysAgo(10) }))
     expect(posts.items).toHaveLength(1)
+    // A row that ages out with no later save is still hidden from reads.
+    await withTenant({ appUserId: userA }, (client) => client.query(
+      `insert into profile_content (id, user_id, substack_profile_id, kind, external_id, body, published_at, source)
+       values ('aged-unsaved', $1, '777', 'note', 'c-aged-unsaved', 'Aged', now() - interval '40 days', 'agent')`,
+      [userA],
+    ))
     const byPerson = await withTenant({ appUserId: userA }, (client) =>
       listProfileContent(client, { kind: "all", limit: 50, personId: other.id }))
     expect(byPerson.items.map((item) => item.body)).toEqual(["Note 9"])
