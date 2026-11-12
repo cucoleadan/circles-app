@@ -26,9 +26,12 @@ import {
   refreshPersonStats,
   getPerson,
   circlesOverview,
+  updateList,
+  deleteList,
 } from "../src/db/repositories.js"
 import { withTenant } from "../src/db/tenant.js"
 import { listComments, setCommentNotInterested } from "../src/db/comments.js"
+import { listProfileContent } from "../src/db/profile-content.js"
 import {
   applyFollowingSnapshot,
   ensurePerson,
@@ -36,8 +39,11 @@ import {
   ingestConversationReplies,
   upsertSubscribersBatch,
   reconcileSubscriberSnapshot,
+  recordProfileContentFetch,
+  saveProfileContent,
 } from "@workspace/core"
 import { ext } from "../src/routes/ext.js"
+import { tenantOperations } from "../src/routes/v1.js"
 import { v1 } from "../src/routes/v1.js"
 import { sniffImageType } from "../src/routes/v1/notes.js"
 import type { InteractionInput } from "../src/db/repositories.js"
@@ -123,7 +129,7 @@ beforeEach(async () => {
     people, relationship_stats, tags, person_tags, lists, list_members,
     saved_views, interactions, substack_connections, profile_snapshots,
     thread_snapshots, activity_snapshots, note_replies_snapshots, sync_state,
-    import_runs, ingestion_batches, audit_log, jobs, note_tags
+    import_runs, ingestion_batches, audit_log, jobs, note_tags, subscriber_emails
     restart identity cascade`)
 })
 
@@ -213,9 +219,9 @@ describe("transactional edits", () => {
       return created
     })
 
-    const lists = await withTenant({ appUserId: userA }, (client) =>
+    const lists = (await withTenant({ appUserId: userA }, (client) =>
       listLists(client)
-    )
+    )).filter((item) => !item.systemKey)
     expect(lists).toHaveLength(1)
     expect(lists[0]).toMatchObject({ id: list.id, name: "Inner circle", count: 1 })
 
@@ -274,7 +280,118 @@ describe("transactional edits", () => {
     const lists = await withTenant({ appUserId: userA }, (client) =>
       listLists(client)
     )
-    expect(lists).toEqual([])
+    expect(lists.filter((item) => !item.systemKey)).toEqual([])
+  })
+
+  test("the built-in Watched Profiles list exists once and cannot be renamed or deleted", async () => {
+    const first = await withTenant({ appUserId: userA }, (client) => listLists(client))
+    const again = await withTenant({ appUserId: userA }, (client) => listLists(client))
+    expect(first).toHaveLength(1)
+    expect(first[0]).toMatchObject({ name: "Watched Profiles", systemKey: "watched", count: 0 })
+    expect(again.map((item) => item.id)).toEqual([first[0]!.id])
+
+    const watchedId = first[0]!.id
+    const renamed = await withTenant({ appUserId: userA }, (client) =>
+      updateList(client, watchedId, "Renamed", "My note"))
+    expect(renamed?.name).toBe("Watched Profiles")
+    expect(await withTenant({ appUserId: userA }, (client) => deleteList(client, watchedId))).toBe(false)
+    const after = await withTenant({ appUserId: userA }, (client) => listLists(client))
+    expect(after[0]).toMatchObject({ id: watchedId, name: "Watched Profiles", description: "My note" })
+
+    // Another tenant gets its own list.
+    const other = await withTenant({ appUserId: userB }, (client) => listLists(client))
+    expect(other).toHaveLength(1)
+    expect(other[0]!.id).not.toBe(watchedId)
+  })
+
+  test("stored profile content is linked to its contact and read by list", async () => {
+    const tracy = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Tracy", handle: "tracy", substackProfileId: "4878855" }))
+    const other = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Other", handle: "other", substackProfileId: "777" }))
+    const note = (id: string, publishedAt: string) => ({
+      kind: "note" as const, externalId: `c-${id}`, title: null, body: `Note ${id}`,
+      url: `https://substack.com/@tracy/note/c-${id}`, publishedAt, raw: { comment: { id } },
+    })
+
+    await withTenant({ appUserId: userA }, async (client) => {
+      const [watched] = await listLists(client)
+      await addListMember(client, userA, watched!.id, tracy.id)
+      const first = await saveProfileContent(client, {
+        userId: userA, profileId: "4878855", source: "watched",
+        items: [note("1", "2026-11-10T10:00:00.000Z"), note("2", "2026-11-11T10:00:00.000Z")],
+      })
+      expect(first).toMatchObject({ stored: 2, created: 2, personId: tracy.id })
+      // A repeat read updates in place.
+      const repeat = await saveProfileContent(client, {
+        userId: userA, profileId: "4878855", source: "agent", items: [note("2", "2026-11-11T10:00:00.000Z")],
+      })
+      expect(repeat.created).toBe(0)
+      await saveProfileContent(client, {
+        userId: userA, profileId: "4878855", source: "rss",
+        items: [{ kind: "post", externalId: "tracy.substack.com/p/hello", title: "Hello", body: "Intro",
+          url: "https://tracy.substack.com/p/hello", publishedAt: "2026-11-09T10:00:00.000Z", raw: { rss: {} } }],
+      })
+      // Not on the watched list: stored, but outside the default scope.
+      await saveProfileContent(client, {
+        userId: userA, profileId: "777", source: "agent", items: [note("9", "2026-11-12T10:00:00.000Z")],
+      })
+      await recordProfileContentFetch(client, {
+        userId: userA, profileId: "4878855", stream: "notes", publicationUrl: "https://tracy.substack.com",
+      })
+      await recordProfileContentFetch(client, {
+        userId: userA, profileId: "4878855", stream: "posts", error: "Feed request failed (500)",
+      })
+    })
+
+    const watched = await withTenant({ appUserId: userA }, (client) =>
+      listProfileContent(client, { kind: "all", limit: 2 }))
+    expect(watched.items.map((item) => item.body)).toEqual(["Note 2", "Note 1"])
+    expect(watched.items[0]).toMatchObject({ personId: tracy.id, name: "Tracy", kind: "note" })
+    expect(watched.profiles).toHaveLength(1)
+    expect(watched.profiles[0]).toMatchObject({ personId: tracy.id, postsError: "Feed request failed (500)" })
+    expect(watched.profiles[0]!.notesFetchedAt).toBeTruthy()
+    expect(watched.profiles[0]!.postsFetchedAt).toBeNull()
+    const next = await withTenant({ appUserId: userA }, (client) =>
+      listProfileContent(client, { kind: "all", limit: 2, cursor: watched.nextCursor! }))
+    expect(next.items.map((item) => item.title)).toEqual(["Hello"])
+    expect(next.nextCursor).toBeNull()
+
+    const posts = await withTenant({ appUserId: userA }, (client) =>
+      listProfileContent(client, { kind: "post", limit: 50, since: "2026-11-01T00:00:00Z" }))
+    expect(posts.items).toHaveLength(1)
+    const byPerson = await withTenant({ appUserId: userA }, (client) =>
+      listProfileContent(client, { kind: "all", limit: 50, personId: other.id }))
+    expect(byPerson.items.map((item) => item.body)).toEqual(["Note 9"])
+    // Another tenant sees nothing.
+    const foreign = await withTenant({ appUserId: userB }, (client) =>
+      listProfileContent(client, { kind: "all", limit: 50, personId: other.id }))
+    expect(foreign.items).toEqual([])
+
+    // The same read and the built-in list rule through the routes agents call.
+    const api = tenantOperations(userA)
+    const viaRoute = await api.request("/profile-content?kind=note&limit=1")
+    expect(viaRoute.status).toBe(200)
+    const body = await viaRoute.json()
+    expect(body.items).toHaveLength(1)
+    expect(body.items[0]).toMatchObject({ body: "Note 2", personId: tracy.id })
+    expect(body.nextCursor).toBeTruthy()
+    expect((await api.request(`/profile-content?personId=${tracy.id}&listId=x`)).status).toBe(400)
+    expect((await api.request("/profile-content?cursor=broken")).status).toBe(400)
+    const watchedId = (await (await api.request("/lists")).json()).lists.find((l: any) => l.systemKey === "watched").id
+    expect((await api.request(`/lists/${watchedId}`, { method: "DELETE" })).status).toBe(409)
+
+    // Agents name the built-in list "watched" instead of looking up its ID.
+    const json = { "content-type": "application/json" }
+    expect((await api.request("/lists/watched/members", {
+      method: "POST", headers: json, body: JSON.stringify({ personId: other.id }),
+    })).status).toBe(204)
+    const nowWatched = await (await api.request("/people?listId=watched")).json()
+    expect(nowWatched.people.map((p: any) => p.id).sort()).toEqual([tracy.id, other.id].sort())
+    const aliased = await (await api.request("/profile-content?listId=watched&limit=1")).json()
+    expect(aliased.items[0]).toMatchObject({ body: "Note 9" })
+    expect((await api.request(`/lists/watched/members/${other.id}`, { method: "DELETE" })).status).toBe(204)
+    expect((await (await api.request("/people?listId=watched")).json()).people).toHaveLength(1)
   })
 
   test("handle uniqueness applies after normalization", async () => {
@@ -2251,8 +2368,8 @@ describe("MCP OAuth and tenant operations", () => {
       await client.connect(new StreamableHTTPClientTransport(new URL("/api/mcp", server.url), {
         requestInit: { headers: { authorization: `Bearer ${grant.access_token}` } },
       }))
-      // A read grant lists 20 circles_* reads plus the 12 SDK reads Circles does not sync.
-      expect((await client.listTools()).tools).toHaveLength(32)
+      // A read grant lists 21 circles_* reads plus the 12 SDK reads Circles does not sync.
+      expect((await client.listTools()).tools).toHaveLength(33)
       const result = await client.callTool({ name: "circles_list_people", arguments: {} })
       expect(result.isError).not.toBe(true)
       await expect(client.callTool({ name: "circles_create_person", arguments: { name: "Denied" } })).rejects.toThrow("not found")

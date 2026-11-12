@@ -10,6 +10,7 @@ import { newsletterRoutes } from "./v1/newsletter.js"
 import { notesRoutes } from "./v1/notes.js"
 import { overviewRoutes } from "./v1/overview.js"
 import { peopleRoutes } from "./v1/people.js"
+import { profileContentRoutes } from "./v1/profile-content.js"
 import { settingsRoutes } from "./v1/settings.js"
 import { syncRoutes } from "./v1/sync.js"
 import { tagsRoutes } from "./v1/tags.js"
@@ -29,6 +30,7 @@ operations.route("/", settingsRoutes)
 operations.route("/", peopleRoutes)
 operations.route("/", commentsRoutes)
 operations.route("/", listsRoutes)
+operations.route("/", profileContentRoutes)
 operations.route("/", tagsRoutes)
 operations.route("/", overviewRoutes)
 operations.route("/", connectionRoutes)

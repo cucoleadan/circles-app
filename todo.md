@@ -1,7 +1,7 @@
 # Circles CRM — open work
 
 Open items only; completed work is in git history. Update this file when scope
-or status changes. Last updated: 2026-10-23.
+or status changes. Last updated: 2026-11-12.
 
 ## Substack audience endpoints
 
@@ -23,6 +23,19 @@ or status changes. Last updated: 2026-10-23.
       is needed again, capture it passively in the extension when the user
       opens their Followers page. The SDK's `getFollowing` still uses the
       challenged endpoint.
+
+## Watched Profiles
+
+- [ ] After deploying migration `039_watched_profiles`, add a few contacts to
+      the built-in list and confirm the `sync:watched` chain starts within one
+      activity poll, each member gets `notes_fetched_at`, posts arrive from RSS,
+      and `circles_list_profile_content` returns them.
+- [ ] Confirm a profile read through `get_profile_notes` lands in
+      `profile_content` with `source = 'agent'`.
+- [ ] RSS stores every author's posts for a multi-author publication; filter
+      by `dc:creator` if that turns out to matter.
+- [ ] Check the contact drawer's "Notes & Posts" tab in a browser against
+      real data (built and typechecked only).
 
 ## Newsletter Signals
 

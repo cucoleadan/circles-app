@@ -32,7 +32,21 @@ const challenge = `Bearer resource_metadata="${new URL(mcpResource).origin}/.wel
 
 /** Exported for transport/schema tests; the HTTP entry always supplies a verified principal. */
 export function createCirclesMcp(principal: McpPrincipal) {
-  const server = new McpServer({ name: "circles", version: "1.0.0" }, { capabilities: { tools: {} } })
+  const server = new McpServer({ name: "circles", version: "1.0.0" }, {
+    capabilities: { tools: {} },
+    instructions: [
+      "Circles is a CRM for one Substack account. Data is a synced local copy; tools named circles_* never call Substack unless they say so.",
+      "Start of day: circles_get_day_brief {date, timeZone}.",
+      "Who to reply to: circles_list_people {view: \"needs-reply\"}; received comments: circles_list_comments.",
+      "Find a contact: circles_list_people {search}; history with them: circles_list_person_interactions {personId}.",
+      "What contacts posted: circles_list_profile_content {since} (stored copy, no Substack call).",
+      "Watch a contact: circles_add_list_member {listId: \"watched\", personId}. Stop: circles_remove_list_member. Who is watched: circles_list_people {listId: \"watched\"}.",
+      "Own Notes: circles_list_notes; how one did: circles_get_note_engagement.",
+      "Write a Note: circles_create_note_draft. Schedule or publish (circles_schedule_note, circles_post_note_now) only when the user asks; reuse clientRequestId on retries.",
+      "Is the data fresh: circles_get_sync_status. Do not queue syncs or imports unless the user asks.",
+      "SDK reads (get_profile_notes, analytics) are cached 6 hours; pass refresh: true only when the user asks for live data.",
+    ].join("\n"),
+  })
   const operations = tenantOperations(principal.appUserId, principal.scopes)
   const call = async (work: () => Promise<unknown>) => {
     try { return toolResult(await work()) }

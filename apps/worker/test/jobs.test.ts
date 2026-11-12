@@ -513,6 +513,25 @@ describe("Worker queue runner (claimAndRunJob)", () => {
     expect(reschedule?.params?.[1]).toBe("conn-1")
   })
 
+  test("the activity sync restarts the Watched Profiles chain only when the list has members", async () => {
+    const queries: { sql: string; params: any[] }[] = []
+    const mockClient: any = {
+      query: async (sql: string, params: any[] = []) => {
+        queries.push({ sql, params })
+        if (sql.includes("select id, type, payload")) return { rows: [{
+          id: "job-a", type: "sync:activity", payload: { userId: "user-1", connectionId: "conn-1" }, attempts: 0, max_attempts: 5,
+        }] }
+        return { rows: [], rowCount: 1 }
+      },
+      release: () => {},
+    }
+    await claimAndRunJob({ connect: async () => mockClient } as any, "worker", { onSync: async () => ({ skipped: false }) })
+    const seed = queries.find((q) => q.sql.includes("insert into jobs") && q.sql.includes("select 'sync:watched'"))
+    expect(seed!.sql).toContain("l.system_key = 'watched'")
+    expect(seed!.sql).toContain("where not exists")
+    expect(seed!.params[1]).toBe("conn-1")
+  })
+
   test("subscriber sync schedules the next page as a durable job", async () => {
     const executedQueries: { sql: string; params?: any[] }[] = []
     const mockJob = {

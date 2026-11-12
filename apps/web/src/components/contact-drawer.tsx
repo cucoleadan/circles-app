@@ -8,6 +8,7 @@ import {
   SheetHeader,
 } from "@workspace/ui/components/sheet"
 import type { ListRecord, Person, TagRecord } from "../lib/types"
+import { ContactContentTab } from "./contact-content-tab"
 import { ContactDetailsTab } from "./contact-details-tab"
 import { ContactDrawerHeader } from "./contact-drawer/contact-drawer-header"
 import { EditContactDialog } from "./edit-contact-dialog"
@@ -33,7 +34,7 @@ export function ContactDrawer({
   allTags: TagRecord[]
   onCreateList?: (name: string) => Promise<ListRecord | void>
 }) {
-  const [activeTab, setActiveTab] = useState<"timeline" | "details">("timeline")
+  const [activeTab, setActiveTab] = useState<"timeline" | "content" | "details">("timeline")
   const [isEditingProfile, setIsEditingProfile] = useState(false)
   const [editFocusField, setEditFocusField] = useState<"name" | "handle">("name")
   const [refetchJob, setRefetchJob] = useState<{ personId: string; jobId: string } | null>(null)
@@ -207,7 +208,7 @@ export function ContactDrawer({
 
             {/* Navigation Tabs (Compact & Less Rounded) */}
             <div className="px-4 pb-2 pt-0.5">
-              <div className="grid grid-cols-2 gap-1 p-0.5 bg-stone-100/90 dark:bg-stone-800/80 rounded text-xs">
+              <div className="grid grid-cols-3 gap-1 p-0.5 bg-stone-100/90 dark:bg-stone-800/80 rounded text-xs">
                 <button
                   type="button"
                   onClick={() => setActiveTab("timeline")}
@@ -218,6 +219,17 @@ export function ContactDrawer({
                   }`}
                 >
                   Interaction Timeline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab("content")}
+                  className={`py-1 rounded font-medium transition-all ${
+                    activeTab === "content"
+                      ? "bg-white text-stone-900 shadow-2xs font-bold dark:bg-stone-900 dark:text-stone-100"
+                      : "text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100"
+                  }`}
+                >
+                  Notes &amp; Posts
                 </button>
                 <button
                   type="button"
@@ -241,6 +253,10 @@ export function ContactDrawer({
                 <ProfileBreakdown person={person} />
                 <Timeline personId={person.id} personName={person.name} refreshKey={timelineRefresh} />
               </div>
+            )}
+
+            {activeTab === "content" && (
+              <ContactContentTab person={person} allLists={allLists} onPersonUpdated={onPersonUpdated} />
             )}
 
             {activeTab === "details" && (

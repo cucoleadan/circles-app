@@ -9,21 +9,24 @@ export const UNHEALTHY_AFTER_MS = 60 * 60_000
 
 const startedAt = Date.now()
 let lastSuccessAt = 0
-let lastFailureAt = 0
+// Whether the newest outcome was a failure. Comparing timestamps instead would
+// read a failure in the same millisecond as a success as healthy.
+let failing = false
 let lastError = ""
 
 export function recordSuccess() {
   lastSuccessAt = Date.now()
+  failing = false
 }
 
 export function recordFailure(message: string) {
-  lastFailureAt = Date.now()
+  failing = true
   lastError = message.slice(0, 300)
 }
 
 /** The failure to report once nothing has succeeded for an hour, else null. */
 export function unhealthyReason(now = Date.now()): string | null {
-  if (lastFailureAt <= lastSuccessAt) return null
+  if (!failing) return null
   const healthySince = Math.max(lastSuccessAt, startedAt)
   if (now - healthySince < UNHEALTHY_AFTER_MS) return null
   const minutes = Math.round((now - healthySince) / 60_000)

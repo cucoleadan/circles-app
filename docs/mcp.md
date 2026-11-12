@@ -5,8 +5,8 @@ Cloudflare MCP server portals/Code Mode and other OAuth-capable HTTP clients.
 
 ## Tools and data sources
 
-There are 69 tools: 12 of the SDK's read capabilities under their snake_case
-names, plus 57 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
+There are 70 tools: 12 of the SDK's read capabilities under their snake_case
+names, plus 58 `circles_*` tools. The SDK's 18 duplicate camelCase aliases are
 omitted from registration, as are six reads Circles already syncs:
 `get_authenticated_profile` (use `circles_get_connection`), `get_activity` and
 `get_unread_activity` (the 10-minute activity sync behind `circles_list_people`,
@@ -37,6 +37,26 @@ read-only/destructive annotations. Code Mode runs in the Cloudflare portal.
   recent pending comments, priority contacts and needs-reply queues. Its default
   timezone is the API server's (`TZ`, e.g. `Europe/Bucharest`). It generates no content or automatic reminders;
   the caller's agent/scheduler does that.
+
+`circles_list_profile_content` reads the stored Notes, replies, restacks and
+posts of contacts without calling Substack. With no arguments it covers the
+built-in Watched Profiles list (`circles_list_lists` shows it with
+`systemKey: "watched"`), whose members the worker refreshes about every 6 hours
+(posts daily, from RSS). `personId` or `listId` select other contacts, who have
+content only if an agent read their profile before. `profiles` in the result
+gives each contact's last fetch time and any fetch error, so an agent can tell
+"no new Notes" from "not fetched yet".
+
+To watch a contact, an agent calls `circles_add_list_member` with
+`{listId: "watched", personId}`; `"watched"` is accepted wherever a list ID is
+(`circles_remove_list_member`, `circles_list_people`,
+`circles_list_profile_content`). These tools' descriptions carry the same
+short recipes.
+
+The server's MCP `instructions` (in `apps/api/src/mcp/server.ts`) give agents a
+one-line recipe for each main job: the day brief, who needs a reply, finding a
+contact, what contacts posted, watching a contact, own Notes, writing and
+scheduling, sync freshness and cached SDK reads. Keep them to one line each.
 
 Tool results use `structuredContent.data`. SDK calls are served from the
 server's cache: the newest successful run of the same tool and arguments for the

@@ -830,13 +830,44 @@ export interface NamedRecord {
   id: string
   name: string
   description?: string | null
+  /** Set on built-in lists, which cannot be renamed or deleted. */
+  systemKey?: string | null
   createdAt: string
   count: number
 }
 
+/**
+ * Every tenant has the built-in Watched Profiles list (migration 039 creates
+ * it for existing tenants); the worker keeps its members' Notes and posts fresh.
+ */
+export async function ensureWatchedList(client: PoolLike) {
+  await client.query(
+    `insert into lists (id, user_id, name, normalized_name, description, system_key)
+     select gen_random_uuid()::text, app_tenant_id(), 'Watched Profiles', 'watched profiles',
+       'Circles keeps the Notes and posts of these contacts fresh.', 'watched'
+     where app_tenant_id() is not null
+       and not exists (select 1 from lists where system_key = 'watched')
+     on conflict (user_id, normalized_name) do update set system_key = 'watched'`
+  )
+}
+
+/** Lets callers name the built-in list as "watched" instead of looking up its ID. */
+export async function resolveListId(client: PoolLike, listId: string): Promise<string> {
+  if (listId !== "watched") return listId
+  await ensureWatchedList(client)
+  return (await client.query("select id from lists where system_key = 'watched'")).rows[0]?.id ?? listId
+}
+
+export async function isSystemList(client: PoolLike, listId: string): Promise<boolean> {
+  return Boolean((await client.query(
+    "select 1 from lists where id = $1 and system_key is not null", [listId]
+  )).rows[0])
+}
+
 export async function listLists(client: PoolLike): Promise<NamedRecord[]> {
+  await ensureWatchedList(client)
   const result = await client.query(
-    `select l.id, l.name, l.description, l.created_at as "createdAt",
+    `select l.id, l.name, l.description, l.system_key as "systemKey", l.created_at as "createdAt",
         count(p.id)::int as count
       from lists l
       left join list_members lm on lm.list_id = l.id
@@ -874,18 +905,21 @@ export async function updateList(
   description?: string | null
 ): Promise<{ id: string; name: string } | null> {
   const result = await client.query(
-    `update lists set name = $2, normalized_name = lower($2), description = $3,
-        updated_at = now()
+    // A built-in list keeps its name; only its description can change.
+    `update lists set
+        name = case when system_key is null then $2 else name end,
+        normalized_name = case when system_key is null then lower($2) else normalized_name end,
+        description = $3, updated_at = now()
       where id = $1 returning id, name`,
     [listId, name, description ?? null]
   )
   return result.rows[0] ?? null
 }
 
-/** Deleting a list only removes the membership edges, never people. */
+/** Deleting a list only removes the membership edges, never people. Built-in lists stay. */
 export async function deleteList(client: PoolLike, listId: string): Promise<boolean> {
   const result = await client.query(
-    "delete from lists where id = $1 returning id",
+    "delete from lists where id = $1 and system_key is null returning id",
     [listId]
   )
   return Boolean(result.rows[0])

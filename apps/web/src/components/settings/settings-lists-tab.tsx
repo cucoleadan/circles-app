@@ -120,6 +120,9 @@ export function SettingsListsTab({
         <p className="text-[11px] leading-relaxed">
           Lists help you organize your contacts into meaningful groups (such as Mentors, VIPs, or Ignored). Deleting a list unlinks contacts, but <strong>never deletes contacts or their interactions</strong>.
         </p>
+        <p className="text-[11px] leading-relaxed">
+          <strong>Watched Profiles</strong> is built in: Circles re-reads the Notes of its members about every 6 hours and their posts daily, so agents can read them without asking Substack.
+        </p>
       </div>
 
       {/* Create New List Card */}
@@ -246,6 +249,7 @@ export function SettingsListsTab({
                         </label>
                         <Input
                           value={editingName}
+                          disabled={Boolean(l.systemKey)}
                           onChange={(e) => setEditingName(e.target.value)}
                           className="text-xs h-7.5 bg-stone-50 dark:bg-stone-950 border-stone-200 dark:border-stone-800 rounded"
                         />
@@ -308,6 +312,11 @@ export function SettingsListsTab({
                       <span className="font-bold text-stone-900 dark:text-stone-100 text-xs sm:text-[13px]">
                         {l.name}
                       </span>
+                      {l.systemKey && (
+                        <span className="rounded bg-stone-100 text-stone-600 border border-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:border-stone-700 px-1.5 py-0.2 text-[9.5px] font-bold">
+                          Built-in
+                        </span>
+                      )}
                       {isIgnored && (
                         <span className="rounded bg-rose-50 text-rose-700 border border-rose-200 px-1.5 py-0.2 text-[9.5px] font-bold dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800">
                           Excluded from Queues
@@ -334,18 +343,20 @@ export function SettingsListsTab({
                       type="button"
                       onClick={() => startEditingList(l)}
                       className="p-1 rounded text-stone-400 hover:text-stone-700 hover:bg-stone-100 dark:hover:text-stone-200 dark:hover:bg-stone-800 transition-colors"
-                      title="Edit list name or description"
+                      title={l.systemKey ? "Edit list description" : "Edit list name or description"}
                     >
                       <Edit2 className="size-3.5" />
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setDeletingList(l)}
-                      className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 transition-colors"
-                      title="Delete list"
-                    >
-                      <Trash2 className="size-3.5" />
-                    </button>
+                    {!l.systemKey && (
+                      <button
+                        type="button"
+                        onClick={() => setDeletingList(l)}
+                        className="p-1 rounded text-stone-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:text-rose-400 dark:hover:bg-rose-950/30 transition-colors"
+                        title="Delete list"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
               )

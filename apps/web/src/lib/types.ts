@@ -58,6 +58,8 @@ export interface ListRecord {
   id: string
   name: string
   description?: string | null
+  /** Set on built-in lists (e.g. "watched"), which cannot be renamed or deleted. */
+  systemKey?: string | null
   createdAt: string
   count: number
 }

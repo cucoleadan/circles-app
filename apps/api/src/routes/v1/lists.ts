@@ -6,8 +6,10 @@ import {
   audit,
   createList,
   deleteList,
+  isSystemList,
   listLists,
   removeListMember,
+  resolveListId,
   updateList,
 } from "../../db/repositories.js"
 import { withTenant } from "../../db/tenant.js"
@@ -57,12 +59,14 @@ listsRoutes.delete("/lists/:listId", async (c) => {
   const appUser = c.get("appUser")
   const listId = c.req.param("listId")
   const deleted = await withTenant({ appUserId: appUser }, async (client) => {
+    if (await isSystemList(client, listId)) return "builtin" as const
     const ok = await deleteList(client, listId)
     if (ok) {
       await audit(client, appUser, "list.delete", "list", listId)
     }
     return ok
   })
+  if (deleted === "builtin") return c.json({ error: "Built-in lists cannot be deleted" }, 409)
   if (!deleted) return c.json({ error: "List not found" }, 404)
   return c.body(null, 204)
 })
@@ -73,15 +77,16 @@ listsRoutes.post("/lists/:listId/members", async (c) => {
   const appUser = c.get("appUser")
   const listId = c.req.param("listId")
   await withTenant({ appUserId: appUser }, async (client) => {
-    await addListMember(client, appUser, listId, parsed.data.personId)
-    await audit(client, appUser, "list.member.add", "list", listId)
+    const resolved = await resolveListId(client, listId)
+    await addListMember(client, appUser, resolved, parsed.data.personId)
+    await audit(client, appUser, "list.member.add", "list", resolved)
   })
   return c.body(null, 204)
 })
 
 listsRoutes.delete("/lists/:listId/members/:personId", async (c) => {
-  await withTenant({ appUserId: c.get("appUser") }, (client) =>
-    removeListMember(client, c.req.param("listId"), c.req.param("personId"))
+  await withTenant({ appUserId: c.get("appUser") }, async (client) =>
+    removeListMember(client, await resolveListId(client, c.req.param("listId")), c.req.param("personId"))
   )
   return c.body(null, 204)
 })

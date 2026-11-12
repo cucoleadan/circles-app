@@ -58,7 +58,7 @@ private results in tenant-scoped `mcp_tool_runs`, never job logs. Browser grant
 management is `/mcp`; optional Cloudflare Access OIDC must be explicitly linked
 to an existing account. Gateway Code Mode is external. See `docs/mcp.md`.
 It uses local signing-key verification and finite JSON transport responses.
-Discovery lists up to 69 tools (12 canonical SDK reads plus 57 Circles
+Discovery lists up to 70 tools (12 canonical SDK reads plus 58 Circles
 operations), omitting duplicate camelCase SDK names, the six SDK reads Circles already
 syncs (profile, activity, unread activity, own Notes, following, Note
 engagement), and any tool the grant's
@@ -134,6 +134,9 @@ Important tables include:
   `ingestion_batches`: raw evidence retained for safe replay.
 - `sync_stream_state`: independent incremental stream status/checkpoints.
 - `import_runs` and `import_run_streams`: resumable user-visible backfills.
+- `profile_content` and `profile_content_state`: other people's Notes,
+  replies, restacks and posts keyed by Substack profile ID (linked to the
+  contact by `person_id` when one exists), and the per-profile fetch checkpoint.
 - `jobs`: durable queue with leases, retries, and dead-letter state.
 
 Canonical normalization belongs in `packages/core/src/ingestion.ts`; API,
@@ -218,6 +221,32 @@ view, “given” totals on contact cards, outbound timestamps, and per-contact
 timelines. `GET /api/v1/circles` returns `actions` (active interactions grouped
 by direction and action type with all-time, 7-day and 30-day counts), shown as
 the given/received strip under the overview metrics.
+
+## Watched Profiles
+
+Every tenant has one built-in list, "Watched Profiles" (`lists.system_key =
+'watched'`; created by migration `039` and lazily by `listLists`). It cannot be
+renamed or deleted; membership is edited like any list. The chained
+`sync:watched` job (`apps/worker/src/watched.ts`) refreshes one member per run,
+most overdue first: one page of the global profile feed
+(`getProfileFeed`, authenticated) for Notes, replies and restacks every ~6
+hours per profile, and at most daily the publication's public RSS feed
+(`<publication>/feed`, no session, conditional GET) for posts. While members
+are due the chain reads one profile every 10–20 seconds (random), so 120
+members take about 30 minutes; with nobody due it only re-checks the list about
+every 5 minutes. The activity sync starts the
+chain once the list has members; an empty list ends it. A profile that fails is
+recorded in `profile_content_state` and skipped until its next turn; only a
+403/429 is rethrown, so the queue parks or backs off the whole chain. The RSS
+URL comes from `people.publication_url` or the `primary_publication` Substack
+returns in the feed; `publicationFeedUrl`/`isPublicHttpsUrl` refuse non-public
+hosts on every redirect hop, because contact fields are editable. RSS lists a
+publication's ~20 newest posts by all its authors. Profile-feed pages an agent
+reads through the SDK tools (`mcp:substack`) are stored the same way with
+`source = 'agent'`, for any profile. All normalization and storage goes through
+`packages/core/src/profile-content.ts`. Agents read the stored copy with
+`circles_list_profile_content` (`GET /api/v1/profile-content`), which never
+calls Substack.
 
 ## Note scheduling
 

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { processMcpTool } from "./mcp.js"
 import { processContactRefetch } from "./contact-refetch.js"
+import { processWatchedProfiles, watchedDelaySeconds } from "./watched.js"
 import { recordFailure, recordSuccess, sendAlert } from "./health.js"
 import { failNewsletterExport, NEWSLETTER_POLL_SECONDS, processNewsletterExport } from "./newsletter.js"
 import type { Pool, PoolClient } from "pg"
@@ -87,6 +88,11 @@ export interface JobHandlers {
     afterId?: string | null,
     placeholdersOnly?: boolean,
   ) => Promise<any>
+  onWatchedSync?: (
+    client: PoolClient,
+    userId: string,
+    connectionId: string,
+  ) => Promise<{ skipped: boolean; watched?: number; fetched?: number; notes?: number; posts?: number }>
 }
 
 /** `seconds` ±20%, so polls never land on an exact cadence. */
@@ -316,6 +322,21 @@ export async function claimAndRunJob(
           }
         }
         if (!result.skipped) {
+          // Starts (or restarts) the Watched Profiles chain once the list has members.
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             select 'sync:watched', $1, 'pending', now() + make_interval(secs => $3)
+             where not exists (
+               select 1 from jobs existing
+               where existing.type = 'sync:watched'
+                 and existing.status in ('pending', 'running')
+                 and existing.payload->>'connectionId' = $2
+             ) and exists (
+               select 1 from list_members lm
+               join lists l on l.id = lm.list_id and l.system_key = 'watched'
+             )`,
+            [JSON.stringify({ userId, connectionId }), connectionId, jittered(60)],
+          )
           enqueue(
             `insert into jobs (type, payload, status, run_at)
              select 'sync:activity', $1, 'pending', now() + make_interval(secs => $4)
@@ -418,6 +439,28 @@ export async function claimAndRunJob(
         jobResult = result.skipped
           ? { skipped: true }
           : numericSummary(result, ["checked", "updated", "subscribed", "created", "failed"])
+      } else if (job.type === "sync:watched") {
+        const result = handlers?.onWatchedSync
+          ? await handlers.onWatchedSync(client, userId, connectionId)
+          : await processWatchedProfiles(client, userId, connectionId)
+        jobResult = result.skipped ? { skipped: true } : numericSummary(result, ["watched", "fetched", "notes", "posts"])
+        // One profile per run, 10-20 s apart while members are due and about
+        // every 5 minutes otherwise. An empty list ends the chain until the
+        // activity sync restarts it.
+        if (!result.skipped && (result.watched ?? 0) > 0) {
+          enqueue(
+            `insert into jobs (type, payload, status, run_at)
+             select 'sync:watched', $1, 'pending', now() + make_interval(secs => $4)
+             where not exists (
+               select 1 from jobs existing
+               where existing.type = 'sync:watched'
+                 and existing.status in ('pending', 'running')
+                 and existing.payload->>'connectionId' = $2
+                 and existing.id <> $3
+             )`,
+            [JSON.stringify({ userId, connectionId }), connectionId, job.id, watchedDelaySeconds((result.fetched ?? 0) > 0)],
+          )
+        }
       } else if (job.type === "enrich:missing-handles") {
         const result = handlers?.onMissingHandleBackfill
           ? await handlers.onMissingHandleBackfill(client, userId, connectionId, afterId, payload.placeholdersOnly === true)

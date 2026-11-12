@@ -7,6 +7,7 @@ import {
   getPerson,
   listPeople,
   personInteractions,
+  resolveListId,
   updatePerson,
 } from "../../db/repositories.js"
 import { withTenant } from "../../db/tenant.js"
@@ -57,12 +58,13 @@ export const personInput = z.object({
 })
 
 peopleRoutes.get("/people", async (c) => {
-  const people = await withTenant({ appUserId: c.get("appUser") }, (client) =>
+  const listId = c.req.query("listId") || undefined
+  const people = await withTenant({ appUserId: c.get("appUser") }, async (client) =>
     listPeople(client, {
       search: c.req.query("search")?.trim() || undefined,
       status: c.req.query("status") || undefined,
       tagId: c.req.query("tagId") || undefined,
-      listId: c.req.query("listId") || undefined,
+      listId: listId && await resolveListId(client, listId),
       view: c.req.query("view") || undefined,
       sort: c.req.query("sort") || undefined,
       since: c.req.query("since") || undefined,

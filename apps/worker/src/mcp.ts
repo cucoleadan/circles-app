@@ -1,6 +1,9 @@
 import { setTimeout as sleep } from "node:timers/promises"
 import type { PoolClient } from "pg"
-import { callSubstackTool, discoverSubstackTools, openSessionToken, redactMcpResult, SubstackClient } from "@workspace/core"
+import {
+  callSubstackTool, discoverSubstackTools, normalizeProfileFeed, openSessionToken, recordProfileContentFetch,
+  redactMcpResult, saveProfileContent, SubstackClient,
+} from "@workspace/core"
 import { withTenant } from "./tenant.js"
 
 export function serializeFetch(fetcher: typeof fetch) {
@@ -15,7 +18,7 @@ export function serializeFetch(fetcher: typeof fetch) {
 
 export async function processMcpTool(client: PoolClient, userId: string, runId: string): Promise<Record<string, boolean>> {
   const row = await withTenant(client, userId, async () => (await client.query(
-    `select r.*, c.publication_url, c.key_id, c.iv, c.ciphertext, c.status as connection_status,
+    `select r.*, c.publication_url, c.key_id, c.iv, c.ciphertext, c.status as connection_status, c.profile_id as connection_profile_id,
        a.disabled as client_disabled,
        (select extract(epoch from revoked_at) from mcp_grant_revocations v
          where v.user_id = r.user_id and v.client_id = r.client_id) as revoked_at,
@@ -42,6 +45,9 @@ export async function processMcpTool(client: PoolClient, userId: string, runId: 
     let lastRequestAt = 0
     let expired = false
     let stopped = false
+    // Profile-feed pages an agent reads are kept in profile_content, like the
+    // watched-profiles job's own reads.
+    const profilePages: Array<{ profileId: string; firstPage: boolean; page: unknown }> = []
     const queuedFetch = serializeFetch(async (input, init) => {
       // shortcut: four-minute SDK run budget; add resumable analytics for larger archives.
       if (stopped || Date.now() >= deadline) throw new Error("SDK read exceeded the worker run budget; narrow the requested range")
@@ -62,6 +68,12 @@ export async function processMcpTool(client: PoolClient, userId: string, runId: 
         ...init, signal: AbortSignal.timeout(Math.max(1, Math.min(30000, deadline - Date.now()))),
       })
       if (response.status === 401) expired = true
+      const requested = new URL(input instanceof Request ? input.url : String(input))
+      const profileFeed = /\/api\/v1\/reader\/feed\/profile\/(\d+)$/.exec(requested.pathname)
+      if (profileFeed && response.ok && profilePages.length < 20) {
+        const page = await response.clone().json().catch(() => null)
+        if (page) profilePages.push({ profileId: profileFeed[1]!, firstPage: !requested.searchParams.has("cursor"), page })
+      }
       return response
     })
     const sdk = new SubstackClient({
@@ -75,6 +87,22 @@ export async function processMcpTool(client: PoolClient, userId: string, runId: 
       // Promise.all can fail while another SDK request still owns the database client.
       stopped = true
       await queuedFetch.drain()
+    }
+    try {
+      for (const { profileId, firstPage, page } of profilePages) {
+        if (profileId === String(row.connection_profile_id ?? "")) continue
+        const feed = normalizeProfileFeed(page, profileId)
+        await withTenant(client, userId, async () => {
+          await saveProfileContent(client, { userId, profileId, items: feed.items, source: "agent" })
+          // Only the newest page counts as a refresh for the watched schedule.
+          if (firstPage) await recordProfileContentFetch(client, {
+            userId, profileId, stream: "notes", publicationUrl: feed.publicationUrl,
+          })
+        })
+      }
+    } catch (error: any) {
+      // Keeping a copy is a side effect; it must never fail the agent's read.
+      console.warn("[Circles Worker] Could not store an agent's profile read:", error?.code ?? error?.name ?? "error")
     }
     if (expired) await withTenant(client, userId, () => client.query(
       "update substack_connections set status = 'expired', updated_at = now() where id = $1 and status = 'active'", [row.connection_id],
