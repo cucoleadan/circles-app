@@ -858,6 +858,42 @@ export async function resolveListId(client: PoolLike, listId: string): Promise<s
   return (await client.query("select id from lists where system_key = 'watched'")).rows[0]?.id ?? listId
 }
 
+/**
+ * Runs the Watched Profiles chain now instead of at its next scheduled turn:
+ * queues it if it is not running, or pulls a waiting run forward. With
+ * `personId`, that contact goes to the front of the queue.
+ */
+export async function nudgeWatchedSync(client: PoolLike, userId: string, personId?: string) {
+  if (personId) await client.query(
+    `update profile_content_state s set notes_checked_at = null, posts_checked_at = null
+     from people p where p.id = $1 and p.user_id = s.user_id and p.substack_profile_id = s.substack_profile_id`,
+    [personId],
+  )
+  const connection = (await client.query(
+    `select id from substack_connections where user_id = $1 and status = 'active'
+     order by generation desc limit 1`,
+    [userId],
+  )).rows[0]
+  if (!connection) return
+  const waiting = await client.query(
+    `update jobs set run_at = now(), updated_at = now()
+     where type = 'sync:watched' and status = 'pending' and payload->>'connectionId' = $1
+       and run_at > now() + interval '20 seconds'`,
+    [connection.id],
+  )
+  if (waiting.rowCount) return
+  await client.query(
+    `insert into jobs (type, payload, status)
+     select 'sync:watched', $1::jsonb, 'pending'
+     where not exists (
+       select 1 from jobs existing
+       where existing.type = 'sync:watched' and existing.status in ('pending', 'running')
+         and existing.payload->>'connectionId' = $2
+     )`,
+    [JSON.stringify({ userId, connectionId: connection.id }), connection.id],
+  )
+}
+
 export async function isSystemList(client: PoolLike, listId: string): Promise<boolean> {
   return Boolean((await client.query(
     "select 1 from lists where id = $1 and system_key is not null", [listId]

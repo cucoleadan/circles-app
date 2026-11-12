@@ -32,6 +32,8 @@ or status changes. Last updated: 2026-11-12.
       and `circles_list_profile_content` returns them.
 - [ ] Confirm a profile read through `get_profile_notes` lands in
       `profile_content` with `source = 'agent'`.
+- [ ] Stored content is never pruned: a contact watched for months keeps
+      everything since 30 days before they were added. Add pruning if wanted.
 - [ ] RSS stores every author's posts for a multi-author publication; filter
       by `dc:creator` if that turns out to matter.
 - [ ] Check the contact drawer's "Notes & Posts" tab in a browser against

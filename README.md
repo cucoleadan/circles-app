@@ -62,7 +62,8 @@ streams Substack only partly exposes.
 
 Add contacts to the built-in Watched Profiles list and Circles keeps a copy of
 what they publish: Notes, replies and restacks re-read about every 6 hours, and
-posts once a day from their publication's public RSS feed. Read it in the
+posts once a day from their publication's public RSS feed. A new contact starts
+with their last 30 days, fetched 7 days at a time. Read it in the
 contact's "Notes & Posts" tab, or let an agent ask "what did my watched
 contacts post since yesterday" without a single live Substack request.
 

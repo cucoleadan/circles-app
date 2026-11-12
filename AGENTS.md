@@ -234,7 +234,12 @@ hours per profile, and at most daily the publication's public RSS feed
 (`<publication>/feed`, no session, conditional GET) for posts. While members
 are due the chain reads one profile every 10–20 seconds (random), so 120
 members take about 30 minutes; with nobody due it only re-checks the list about
-every 5 minutes. The activity sync starts the
+every 5 minutes. A newly watched contact gets a backlog: runs between
+refreshes walk the feed back 7 days at a time (at most 6 pages per run) until
+30 days are held (`backfill_*` columns, migration `040`); nothing older than 30
+days is stored from the feed or RSS. Adding a contact to the list, or pressing
+Refetch on a watched contact, runs the chain at once with that contact first
+(`nudgeWatchedSync`). The activity sync starts the
 chain once the list has members; an empty list ends it. A profile that fails is
 recorded in `profile_content_state` and skipped until its next turn; only a
 403/429 is rethrown, so the queue parks or backs off the whole chain. The RSS

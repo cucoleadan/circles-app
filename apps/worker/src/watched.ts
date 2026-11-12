@@ -5,6 +5,7 @@ import {
   normalizeProfileFeed,
   openSessionToken,
   parseRssFeed,
+  type ProfileContentItem,
   publicationFeedUrl,
   recordProfileContentFetch,
   saveProfileContent,
@@ -85,18 +86,55 @@ export async function fetchPublicationFeed(
   throw new Error("Feed redirected too many times")
 }
 
+/** Backlog kept for a watched contact, and how much of it one run reads. */
+export const WATCHED_BACKLOG_DAYS = 30
+export const WATCHED_BATCH_DAYS = 7
+/** A run stops after this many backlog pages even if its 7 days are not covered. */
+const BACKLOG_MAX_PAGES = 6
+const BACKLOG_PAGE_PAUSE_MS = 2500
+const DAY_MS = 24 * 60 * 60 * 1000
+
+const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+const NOTE_KINDS = new Set(["note", "reply", "restack"])
+
+/** The oldest Note-like item on a page; posts are pinned out of order, so they do not count. */
+function oldestNoteTime(items: ProfileContentItem[]): number | null {
+  const times = items.filter((item) => NOTE_KINDS.has(item.kind) && item.publishedAt).map((item) => Date.parse(item.publishedAt!))
+  return times.length ? Math.min(...times) : null
+}
+
+const withinBacklog = (items: ProfileContentItem[], cutoff: number) =>
+  items.filter((item) => !item.publishedAt || Date.parse(item.publishedAt) >= cutoff)
+
+interface DueProfile {
+  personId: string
+  profileId: string
+  publicationUrl: string | null
+  feedEtag: string | null
+  feedLastModified: string | null
+  postsDue: boolean
+  refreshDue: boolean
+  backfillCursor: string | null
+  backfillUntil: Date | null
+  backfillDone: boolean | null
+}
+
 /**
- * Refreshes the most overdue member of the Watched Profiles list: one
- * authenticated profile-feed page (Notes and restacks) and, at most daily, the
- * publication's RSS feed (posts). A profile that fails is recorded and skipped
- * until its next turn; only a Substack challenge or rate limit is rethrown, so
- * the queue pauses the whole chain instead of moving on to the next profile.
+ * Serves the member of the Watched Profiles list that has waited longest.
+ * A refresh reads the newest profile-feed page (Notes, replies, restacks) and,
+ * at most daily, the publication's RSS feed (posts). A contact whose backlog is
+ * not complete gets backlog runs in between: each walks the feed back another
+ * 7 days, until 30 days are held. Nothing older than 30 days is stored.
+ * A profile that fails is recorded and skipped until its next turn; only a
+ * Substack challenge or rate limit is rethrown, so the queue pauses the whole
+ * chain instead of moving on to the next profile.
  */
 export async function processWatchedProfiles(
   client: PoolClient,
   userId: string,
   connectionId: string,
   fetcher: typeof fetch = fetch,
+  pagePauseMs = BACKLOG_PAGE_PAUSE_MS,
 ) {
   const picked = await withTenant(client, userId, async () => {
     const conn = (await client.query(
@@ -110,19 +148,19 @@ export async function processWatchedProfiles(
       `select p.id as "personId", p.substack_profile_id as "profileId",
          coalesce(nullif(p.publication_url, ''), s.publication_url) as "publicationUrl",
          s.feed_etag as "feedEtag", s.feed_last_modified as "feedLastModified",
-         (s.posts_checked_at is null or s.posts_checked_at < now() - make_interval(secs => $2)) as "postsDue"
+         (s.posts_checked_at is null or s.posts_checked_at < now() - make_interval(secs => $2)) as "postsDue",
+         (s.notes_checked_at is null or s.notes_checked_at < now() - make_interval(secs => $1)) as "refreshDue",
+         s.backfill_cursor as "backfillCursor", s.backfill_until as "backfillUntil", s.backfill_done as "backfillDone"
        ${WATCHED_MEMBERS}
        left join profile_content_state s
          on s.user_id = p.user_id and s.substack_profile_id = p.substack_profile_id
        where p.substack_profile_id <> coalesce($3, '')
-         and (s.notes_checked_at is null or s.notes_checked_at < now() - make_interval(secs => $1))
-       order by s.notes_checked_at nulls first, lm.created_at, p.id
+         and (s.notes_checked_at is null or s.notes_checked_at < now() - make_interval(secs => $1)
+           or (not s.backfill_done and s.backfill_cursor is not null))
+       order by greatest(s.notes_checked_at, s.backfill_checked_at) nulls first, lm.created_at, p.id
        limit 1`,
       [WATCHED_NOTES_INTERVAL_SECONDS, WATCHED_POSTS_INTERVAL_SECONDS, conn.profile_id],
-    )).rows[0] as {
-      personId: string; profileId: string; publicationUrl: string | null
-      feedEtag: string | null; feedLastModified: string | null; postsDue: boolean
-    } | undefined
+    )).rows[0] as DueProfile | undefined
     return { conn, watched, due }
   })
   if (!picked) return { skipped: true as const }
@@ -130,11 +168,61 @@ export async function processWatchedProfiles(
   if (!due) return { skipped: false as const, watched, fetched: 0, notes: 0, posts: 0 }
 
   const base = { userId, profileId: due.profileId, personId: due.personId }
-  let feed: ReturnType<typeof normalizeProfileFeed>
+  const cutoff = Date.now() - WATCHED_BACKLOG_DAYS * DAY_MS
+  const sdk = createSubstackClient({ sessionToken: openSessionToken(conn), publicationUrl: conn.publication_url })
+  // The global reader feed: works for any profile, with or without a publication.
+  const readPage = async (cursor?: string) => {
+    const page: any = await sdk.getProfileFeed(due.profileId, cursor ? { cursor } : undefined)
+    const nextCursor = typeof page?.nextCursor === "string" && page.nextCursor ? page.nextCursor as string : null
+    return { feed: normalizeProfileFeed(page, due.profileId), nextCursor }
+  }
+  const saveBacklog = (state: { cursor: string | null; until: number | null; done: boolean }) => client.query(
+    `update profile_content_state
+     set backfill_cursor = $3, backfill_until = coalesce(to_timestamp($4::double precision / 1000), backfill_until),
+         backfill_done = $5, backfill_checked_at = now(), updated_at = now()
+     where user_id = $1 and substack_profile_id = $2`,
+    [userId, due.profileId, state.done ? null : state.cursor, state.until, state.done],
+  )
+
+  if (!due.refreshDue) {
+    // Backlog run: continue from the stored position for another 7 days.
+    const from = due.backfillUntil ? due.backfillUntil.getTime() : Date.now()
+    const target = Math.max(cutoff, from - WATCHED_BATCH_DAYS * DAY_MS)
+    let cursor = due.backfillCursor
+    let until: number | null = null
+    let created = 0
+    try {
+      for (let pages = 0; cursor && pages < BACKLOG_MAX_PAGES; pages++) {
+        if (pages > 0) await pause(pagePauseMs)
+        const { feed, nextCursor } = await readPage(cursor)
+        const oldest = oldestNoteTime(feed.items)
+        created += await withTenant(client, userId, async () => {
+          const saved = await saveProfileContent(client, {
+            userId, profileId: due.profileId, items: withinBacklog(feed.items, cutoff), source: "watched",
+          })
+          cursor = nextCursor
+          if (oldest !== null) until = Math.min(until ?? oldest, oldest)
+          await saveBacklog({ cursor, until, done: !cursor || (until !== null && until <= cutoff) })
+          return saved.created
+        })
+        if (until !== null && until <= target) break
+      }
+    } catch (error: any) {
+      const status = statusOf(error)
+      if (status === 403 || status === 429) throw error
+      // The position is kept; mark the attempt so other profiles get their turn.
+      await withTenant(client, userId, () => client.query(
+        `update profile_content_state set backfill_checked_at = now(), notes_error = $3, updated_at = now()
+         where user_id = $1 and substack_profile_id = $2`,
+        [userId, due.profileId, `Backlog request failed${status ? ` (${status})` : ""}`],
+      ))
+    }
+    return { skipped: false as const, watched, fetched: 1, notes: created, posts: 0 }
+  }
+
+  let first: Awaited<ReturnType<typeof readPage>>
   try {
-    const sdk = createSubstackClient({ sessionToken: openSessionToken(conn), publicationUrl: conn.publication_url })
-    // The global reader feed: works for any profile, with or without a publication.
-    feed = normalizeProfileFeed(await sdk.getProfileFeed(due.profileId), due.profileId)
+    first = await readPage()
   } catch (error: any) {
     const status = statusOf(error)
     if (status === 403 || status === 429) throw error
@@ -144,9 +232,19 @@ export async function processWatchedProfiles(
     }))
     return { skipped: false as const, watched, fetched: 1, notes: 0, posts: 0 }
   }
+  const { feed } = first
   const notes = await withTenant(client, userId, async () => {
-    const saved = await saveProfileContent(client, { userId, profileId: due.profileId, items: feed.items, source: "watched" })
+    const saved = await saveProfileContent(client, {
+      userId, profileId: due.profileId, items: withinBacklog(feed.items, cutoff), source: "watched",
+    })
     await recordProfileContentFetch(client, { ...base, stream: "notes", publicationUrl: feed.publicationUrl })
+    // First read of this contact: the backlog starts where this page ended.
+    if (!due.backfillDone && !due.backfillCursor) {
+      const oldest = oldestNoteTime(feed.items)
+      await saveBacklog({
+        cursor: first.nextCursor, until: oldest, done: !first.nextCursor || (oldest !== null && oldest <= cutoff),
+      })
+    }
     return saved.created
   })
 
@@ -163,7 +261,7 @@ export async function processWatchedProfiles(
       failure = String(error?.message ?? "Feed request failed").slice(0, 200)
     }
     posts = await withTenant(client, userId, async () => {
-      const items = rss && !rss.notModified ? parseRssFeed(rss.xml ?? "") : []
+      const items = rss && !rss.notModified ? withinBacklog(parseRssFeed(rss.xml ?? ""), cutoff) : []
       const saved = await saveProfileContent(client, { userId, profileId: due.profileId, items, source: "rss" })
       await recordProfileContentFetch(client, {
         ...base, stream: "posts", error: failure, feedEtag: rss?.etag, feedLastModified: rss?.lastModified,

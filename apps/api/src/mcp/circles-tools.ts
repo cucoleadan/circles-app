@@ -72,7 +72,7 @@ export const circlesTools: CirclesTool[] = [
   }, read),
   tool("set_comment_not_interested", "Dismiss or restore a received comment in the CRM; does not delete it on Substack.", "PATCH", "/comments/:id", { id: entityId, notInterested: z.boolean() }, organize),
   tool("list_lists", "Read CRM contact lists and membership counts. The built-in Watched Profiles list has systemKey \"watched\"; other tools accept listId \"watched\" for it.", "GET", "/lists", {}, read),
-  tool("list_profile_content", "Read contacts' stored Notes, replies, restacks and posts, newest first. Never calls Substack. What did my watched contacts post since yesterday: {since}. One contact: {personId}. Another list: {listId}. Check `profiles[].notesFetchedAt` before saying someone posted nothing: null means not read yet. Watched contacts are re-read about every 6 hours (posts daily).", "GET", "/profile-content", {
+  tool("list_profile_content", "Read contacts' stored Notes, replies, restacks and posts, newest first. Never calls Substack. What did my watched contacts post since yesterday: {since}. One contact: {personId}. Another list: {listId}. Check `profiles[].notesFetchedAt` before saying someone posted nothing: null means not read yet. Watched contacts are re-read about every 6 hours (posts daily) and hold at most the 30 days before they were added.", "GET", "/profile-content", {
     personId: entityId.optional(), listId: entityId.optional(),
     kind: z.enum(["all", "note", "reply", "restack", "post"]).default("all"),
     since: dateTime.optional(), until: dateTime.optional(), ...page,

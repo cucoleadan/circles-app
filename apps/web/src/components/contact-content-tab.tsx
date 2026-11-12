@@ -47,10 +47,13 @@ export function ContactContentTab({
   person,
   allLists,
   onPersonUpdated,
+  refreshKey = 0,
 }: {
   person: Person
   allLists: ListRecord[]
   onPersonUpdated: (updated: Person) => void
+  /** Bumped when the drawer's Refetch finishes. */
+  refreshKey?: number
 }) {
   const [items, setItems] = useState<ContentItem[]>([])
   const [freshness, setFreshness] = useState<ContentFreshness | null>(null)
@@ -90,6 +93,33 @@ export function ContactContentTab({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [person.id, filter])
 
+  // A read was just requested (newly watched, or Refetch): the worker stores
+  // the result a little later, so check back for two minutes.
+  const [awaitingRead, setAwaitingRead] = useState(0)
+  useEffect(() => { if (refreshKey > 0) setAwaitingRead((value) => value + 1) }, [refreshKey])
+  useEffect(() => {
+    if (!awaitingRead) return
+    let cancelled = false
+    let attempts = 0
+    const before = freshness?.notesFetchedAt ?? null
+    const timer = setInterval(() => {
+      attempts++
+      load()
+        .then((data) => {
+          if (cancelled) return
+          const fetchedAt = data.profiles[0]?.notesFetchedAt ?? null
+          if (fetchedAt !== before || attempts >= 12) clearInterval(timer)
+          if (fetchedAt === before) return
+          setItems(data.items)
+          setNextCursor(data.nextCursor)
+          setFreshness(data.profiles[0] ?? null)
+        })
+        .catch(() => { if (attempts >= 12) clearInterval(timer) })
+    }, 10_000)
+    return () => { cancelled = true; clearInterval(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [awaitingRead, person.id, filter])
+
   async function loadMore() {
     if (!nextCursor || loadingMore) return
     setLoadingMore(true)
@@ -124,6 +154,7 @@ export function ContactContentTab({
           ? lists.filter((list) => list.id !== watchedList.id)
           : [...lists, { id: watchedList.id, name: watchedList.name, createdAt: new Date().toISOString() }],
       })
+      if (!watched) setAwaitingRead((value) => value + 1)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not update Watched Profiles")
     } finally {

@@ -304,6 +304,41 @@ describe("transactional edits", () => {
     expect(other[0]!.id).not.toBe(watchedId)
   })
 
+  test("watching or refetching a contact runs the watched chain right away", async () => {
+    await migrate.query(
+      `insert into substack_connections
+         (id, user_id, envelope_version, key_id, wrapped_key, iv, ciphertext, profile_handle)
+       values ('conn-watch', $1, 1, 'test', 'test', 'test', 'test', 'tester')`,
+      [userA],
+    )
+    const person = await withTenant({ appUserId: userA }, (client) =>
+      createPerson(client, userA, { name: "Tracy", handle: "tracy", substackProfileId: "4878855" }))
+    await withTenant({ appUserId: userA }, (client) => recordProfileContentFetch(client, {
+      userId: userA, profileId: "4878855", stream: "notes",
+    }))
+    const api = tenantOperations(userA)
+    const json = { "content-type": "application/json" }
+    const chain = () => migrate.query(
+      "select status, run_at <= now() + interval '5 seconds' as soon, payload->>'connectionId' as conn from jobs where type = 'sync:watched'")
+    // The state table forces row security, so read it as the tenant.
+    const checked = async () => (await withTenant({ appUserId: userA }, (client) => client.query(
+      "select notes_checked_at from profile_content_state where substack_profile_id = '4878855'"))).rows[0].notes_checked_at
+
+    expect((await api.request("/lists/watched/members", {
+      method: "POST", headers: json, body: JSON.stringify({ personId: person.id }),
+    })).status).toBe(204)
+    expect((await chain()).rows).toEqual([{ status: "pending", soon: true, conn: "conn-watch" }])
+    // The contact goes to the front of the queue.
+    expect(await checked()).toBeNull()
+
+    // A chain idling until later is pulled forward by Refetch, not duplicated.
+    await migrate.query("update jobs set run_at = now() + interval '5 minutes' where type = 'sync:watched'")
+    await withTenant({ appUserId: userA }, (client) => client.query("update profile_content_state set notes_checked_at = now()"))
+    expect((await api.request(`/people/${person.id}/refetch`, { method: "POST" })).status).toBe(202)
+    expect((await chain()).rows).toEqual([{ status: "pending", soon: true, conn: "conn-watch" }])
+    expect(await checked()).toBeNull()
+  })
+
   test("stored profile content is linked to its contact and read by list", async () => {
     const tracy = await withTenant({ appUserId: userA }, (client) =>
       createPerson(client, userA, { name: "Tracy", handle: "tracy", substackProfileId: "4878855" }))
@@ -390,6 +425,9 @@ describe("transactional edits", () => {
     expect(nowWatched.people.map((p: any) => p.id).sort()).toEqual([tracy.id, other.id].sort())
     const aliased = await (await api.request("/profile-content?listId=watched&limit=1")).json()
     expect(aliased.items[0]).toMatchObject({ body: "Note 9" })
+    // No Substack connection in this test: watching queues nothing.
+    const queued = () => migrate.query("select status, run_at <= now() + interval '5 seconds' as soon from jobs where type = 'sync:watched'")
+    expect((await queued()).rows).toEqual([])
     expect((await api.request(`/lists/watched/members/${other.id}`, { method: "DELETE" })).status).toBe(204)
     expect((await (await api.request("/people?listId=watched")).json()).people).toHaveLength(1)
   })

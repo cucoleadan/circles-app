@@ -6,6 +6,7 @@ import {
   createPerson,
   getPerson,
   listPeople,
+  nudgeWatchedSync,
   personInteractions,
   resolveListId,
   updatePerson,
@@ -132,6 +133,13 @@ peopleRoutes.post("/people/:personId/refetch", async (c) => {
        values ('refetch:contact', $1, 'pending', 1) returning id`,
       [JSON.stringify({ userId, personId, connectionId: connection.id })],
     )
+    // For a watched contact, Refetch also re-reads their Notes and posts.
+    const watched = await client.query(
+      `select 1 from list_members lm join lists l on l.id = lm.list_id
+       where lm.person_id = $1 and l.system_key = 'watched'`,
+      [personId],
+    )
+    if (watched.rows[0]) await nudgeWatchedSync(client, userId, personId)
     return { status: 202 as const, jobId: String(inserted.rows[0].id) }
   })
   if ("error" in result) return c.json({ error: result.error }, result.status)

@@ -8,6 +8,7 @@ import {
   deleteList,
   isSystemList,
   listLists,
+  nudgeWatchedSync,
   removeListMember,
   resolveListId,
   updateList,
@@ -79,6 +80,8 @@ listsRoutes.post("/lists/:listId/members", async (c) => {
   await withTenant({ appUserId: appUser }, async (client) => {
     const resolved = await resolveListId(client, listId)
     await addListMember(client, appUser, resolved, parsed.data.personId)
+    // A newly watched contact is read right away, not at the chain's next turn.
+    if (await isSystemList(client, resolved)) await nudgeWatchedSync(client, appUser, parsed.data.personId)
     await audit(client, appUser, "list.member.add", "list", resolved)
   })
   return c.body(null, 204)

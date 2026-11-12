@@ -256,7 +256,7 @@ export function ContactDrawer({
             )}
 
             {activeTab === "content" && (
-              <ContactContentTab person={person} allLists={allLists} onPersonUpdated={onPersonUpdated} />
+              <ContactContentTab person={person} allLists={allLists} onPersonUpdated={onPersonUpdated} refreshKey={timelineRefresh} />
             )}
 
             {activeTab === "details" && (

@@ -121,11 +121,20 @@ describe("processWatchedProfiles", () => {
   }
   const due = {
     personId: "person-1", profileId: "4878855", publicationUrl: null, feedEtag: null, feedLastModified: null, postsDue: true,
+    refreshDue: true, backfillCursor: null, backfillUntil: null, backfillDone: false,
   }
+  const daysAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString()
+  const notePage = (notes: Array<[id: number, days: number]>, nextCursor: string | null) => ({
+    nextCursor,
+    items: notes.map(([id, days]) => ({
+      context: { type: "note", timestamp: daysAgo(days), users: [{ id: 4878855, handle: "tracy" }] },
+      comment: { id, user_id: 4878855, handle: "tracy", body: `Note ${id}`, date: daysAgo(days) },
+    })),
+  })
   const feedPage = {
     items: [{
-      context: { type: "note", timestamp: "2026-11-11T23:09:00.142Z", users: [{ id: 4878855, handle: "tracy", primary_publication: { subdomain: "secondact" } }] },
-      comment: { id: 384, user_id: 4878855, handle: "tracy", body: "A Note", date: "2026-11-11T23:09:00.142Z" },
+      context: { type: "note", timestamp: new Date().toISOString(), users: [{ id: 4878855, handle: "tracy", primary_publication: { subdomain: "secondact" } }] },
+      comment: { id: 384, user_id: 4878855, handle: "tracy", body: "A Note", date: new Date().toISOString() },
     }],
   }
 
@@ -160,6 +169,67 @@ describe("processWatchedProfiles", () => {
     expect(saved.map((q) => [q.params[4], q.params[5], q.params[10]])).toEqual([
       ["note", "c-384", "watched"], ["post", "secondact.substack.com/p/hi", "rss"],
     ])
+  })
+
+  const backlogUpdates = (queries: { sql: string; params: any[] }[]) =>
+    queries.filter((q) => q.sql.includes("set backfill_cursor = $3")).map((q) => ({ cursor: q.params[2], done: q.params[4] }))
+  const savedIds = (queries: { sql: string; params: any[] }[]) =>
+    queries.filter((q) => q.sql.includes("insert into profile_content\n")).map((q) => q.params[5])
+
+  test("the first read starts the backlog where its page ended and drops anything over 30 days old", async () => {
+    const { client, queries } = tenantClient({ ...due, postsDue: false })
+    globalThis.fetch = (async () => Response.json(notePage([[1, 0], [2, 3], [3, 45]], "page-2"))) as unknown as typeof fetch
+    await processWatchedProfiles(client, "user-1", "conn-1")
+    expect(savedIds(queries)).toEqual(["c-1", "c-2"])
+    // The page already reached past 30 days, so there is nothing to walk back.
+    expect(backlogUpdates(queries)).toEqual([{ cursor: null, done: true }])
+
+    const recent = tenantClient({ ...due, postsDue: false })
+    globalThis.fetch = (async () => Response.json(notePage([[1, 0], [2, 2]], "page-2"))) as unknown as typeof fetch
+    await processWatchedProfiles(recent.client, "user-1", "conn-1")
+    expect(backlogUpdates(recent.queries)).toEqual([{ cursor: "page-2", done: false }])
+  })
+
+  test("a backlog run walks back one 7-day batch and stops", async () => {
+    const { client, queries } = tenantClient({
+      ...due, refreshDue: false, backfillCursor: "page-2", backfillUntil: new Date(Date.now() - 2 * 86_400_000),
+    })
+    const pages: Record<string, unknown> = {
+      "page-2": notePage([[10, 4], [11, 6]], "page-3"),
+      "page-3": notePage([[12, 8], [13, 10]], "page-4"),
+      "page-4": notePage([[14, 20]], "page-5"),
+    }
+    const cursors: string[] = []
+    globalThis.fetch = (async (input: any) => {
+      const cursor = new URL(String(input instanceof Request ? input.url : input)).searchParams.get("cursor")!
+      cursors.push(cursor)
+      return Response.json(pages[cursor])
+    }) as unknown as typeof fetch
+    const result = await processWatchedProfiles(client, "user-1", "conn-1", fetch, 0)
+    // From 2 days back the batch covers to 9 days; page-3 reaches 10, so page-4 waits.
+    expect(cursors).toEqual(["page-2", "page-3"])
+    expect(savedIds(queries)).toEqual(["c-10", "c-11", "c-12", "c-13"])
+    expect(backlogUpdates(queries).at(-1)).toEqual({ cursor: "page-4", done: false })
+    expect(result).toMatchObject({ fetched: 1, posts: 0 })
+    // A backlog run is not a refresh: the Notes checkpoint and RSS are untouched.
+    expect(queries.some((q) => q.sql.includes("insert into profile_content_state"))).toBe(false)
+  })
+
+  test("the backlog ends at 30 days or when the feed runs out", async () => {
+    const old = tenantClient({
+      ...due, refreshDue: false, backfillCursor: "page-9", backfillUntil: new Date(Date.now() - 27 * 86_400_000),
+    })
+    globalThis.fetch = (async () => Response.json(notePage([[20, 29], [21, 33]], "page-10"))) as unknown as typeof fetch
+    await processWatchedProfiles(old.client, "user-1", "conn-1", fetch, 0)
+    expect(savedIds(old.queries)).toEqual(["c-20"])
+    expect(backlogUpdates(old.queries)).toEqual([{ cursor: null, done: true }])
+
+    const short = tenantClient({
+      ...due, refreshDue: false, backfillCursor: "page-2", backfillUntil: new Date(Date.now() - 86_400_000),
+    })
+    globalThis.fetch = (async () => Response.json(notePage([[30, 2]], null))) as unknown as typeof fetch
+    await processWatchedProfiles(short.client, "user-1", "conn-1", fetch, 0)
+    expect(backlogUpdates(short.queries)).toEqual([{ cursor: null, done: true }])
   })
 
   test("records a failed profile and moves on, but rethrows a challenge", async () => {
