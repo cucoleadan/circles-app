@@ -327,15 +327,26 @@ describe("Circles HTTP API", () => {
       expect((await apiRoutes.request("/tools/nope", { method: "POST" })).status).toBe(404)
       expect((await apiRoutes.request("/tools/circles_get_day_brief", { method: "POST", body: "[1]" })).status).toBe(400)
       const invalid = await apiRoutes.request("/tools/circles_get_day_brief", { method: "POST", body: JSON.stringify({ date: "soon" }) })
-      expect([400, 422]).toContain(invalid.status)
+      expect(invalid.status).toBe(400)
       expect(typeof (await invalid.json()).error).toBe("string")
       const ungranted = await apiRoutes.request("/tools/get_post_analytics", { method: "POST", body: "{}" })
-      expect([400, 422]).toContain(ungranted.status)
+      expect(ungranted.status).toBe(403)
     } finally { keyAuth.mockRestore() }
   })
 
-  test("rejects a missing or unknown key", async () => {
+  test("rejects a missing or malformed key before touching the database", async () => {
     const { apiRoutes } = await import("../src/routes/api.js")
     expect((await apiRoutes.request("/tools")).status).toBe(401)
+    for (const key of ["ck_short", `ck_${"a".repeat(43)}'--`, `ck_${"a".repeat(42)}!`])
+      expect((await apiRoutes.request("/tools", { headers: { authorization: `Bearer ${key}` } })).status).toBe(401)
+  })
+
+  test("limits each API key to a fixed number of calls per minute", async () => {
+    const { API_KEY_RATE_LIMIT, apiKeyRetryAfter } = await import("../src/mcp/auth.js")
+    const start = 1_000_000
+    for (let call = 0; call < API_KEY_RATE_LIMIT; call++) expect(apiKeyRetryAfter("circles-key:limit", start)).toBe(0)
+    expect(apiKeyRetryAfter("circles-key:limit", start + 30_000)).toBe(30)
+    expect(apiKeyRetryAfter("circles-key:other", start + 30_000)).toBe(0)
+    expect(apiKeyRetryAfter("circles-key:limit", start + 60_000)).toBe(0)
   })
 })

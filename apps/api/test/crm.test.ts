@@ -2568,8 +2568,15 @@ describe("MCP OAuth and tenant operations", () => {
   }, 15000)
 
   test("dashboard API keys call tools over HTTP with their scopes and stop on revocation", async () => {
-    const created = await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" },
-      body: JSON.stringify({ name: "Script", scopes: ["circles:read"] }) })
+    const body = JSON.stringify({ name: "Script", scopes: ["circles:read"] })
+    expect((await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { cookie: cookieA, "content-type": "text/plain" }, body })).status).toBe(415)
+    expect((await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { "content-type": "application/json" }, body })).status).toBe(401)
+    await migrate.query(`update session set "createdAt" = now() - interval '2 days' where id = $1`, [`mcp-${authA}`])
+    const stale = await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body })
+    await migrate.query(`update session set "createdAt" = now() where id = $1`, [`mcp-${authA}`])
+    expect(stale.status).toBe(403)
+    expect(await stale.json()).toMatchObject({ reauthenticate: true })
+    const created = await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body })
     expect(created.status).toBe(201)
     const { key, clientId } = await created.json() as { key: string; clientId: string }
     expect(key.startsWith("ck_")).toBe(true)
@@ -2588,7 +2595,9 @@ describe("MCP OAuth and tenant operations", () => {
     expect((await apiRoutes.request("/tools", { headers: authorization })).status).toBe(200)
     await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId }) })
     expect((await apiRoutes.request("/tools", { headers: authorization })).status).toBe(401)
-    expect((await apiRoutes.request("/tools", { headers: { authorization: "Bearer ck_forged" } })).status).toBe(401)
+    expect((await migrate.query("select 1 from api_keys where client_id = $1", [clientId])).rowCount).toBe(0)
+    expect((await migrate.query(`select disabled from "oauthClient" where "clientId" = $1`, [clientId])).rows[0].disabled).toBe(true)
+    expect((await apiRoutes.request("/tools", { headers: { authorization: `Bearer ck_${"A".repeat(43)}` } })).status).toBe(401)
   }, 15000)
 
   test("MCP operations reuse RLS, preserve response shapes and enforce write scopes", async () => {

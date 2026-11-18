@@ -32,6 +32,10 @@ const origin = data ? new URL(data.resource).origin : ""
             </label>)}
             <button class="rounded-md border px-3 py-2">Create API key</button>
           </form>
+          <div id="reauthenticate" hidden class="space-y-2">
+            <p class="text-sm">For security, API keys can only be created within a day of signing in. Sign in again, then return to this page.</p>
+            <button type="button" id="sign-in-again" class="rounded-md border px-3 py-2">Sign in again</button>
+          </div>
           <div id="new-key" hidden class="space-y-2">
             <p class="text-sm font-medium">Copy this key now; it is not shown again.</p>
             <code class="block break-all rounded-md border p-3"></code>
@@ -71,11 +75,16 @@ const origin = data ? new URL(data.resource).origin : ""
           body: JSON.stringify({ name: fields.get("name"), scopes: fields.getAll("scope") }),
         })
         const data = await response.json().catch(() => null)
+        if (data?.reauthenticate) { (document.querySelector("#reauthenticate") as HTMLElement).hidden = false; return }
         if (!response.ok || typeof data?.key !== "string") { if (status) status.textContent = data?.error ?? "The key could not be created."; return }
         form.hidden = true
         const shown = document.querySelector("#new-key") as HTMLElement
         shown.querySelector("code")!.textContent = data.key
         shown.hidden = false
+      })
+      document.querySelector("#sign-in-again")?.addEventListener("click", async () => {
+        await fetch("/api/auth/sign-out", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => null)
+        location.assign("/login")
       })
       document.querySelector("#link-sso")?.addEventListener("click", async () => {
         const response = await fetch("/api/auth/link-social", {

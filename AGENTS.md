@@ -73,6 +73,10 @@ HTTP API, authenticated by dashboard API keys (`ck_...`, created at `/mcp`).
 `/api/openapi.yaml` is generated from the live registry. Each key is a
 first-party `oauthClient` plus `oauthConsent`, so every MCP grant check and
 revocation path applies to it. Only the key's hash is stored (`api_keys`).
+Revoking a key also deletes its hash and disables its client. Creating one
+needs a sign-in under 24 hours old, and an account can have at most 20 keys.
+Keys get 120 calls per minute (in memory, per process), shared with
+`/api/mcp`. User-facing docs: `docs/api.md`.
 
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a

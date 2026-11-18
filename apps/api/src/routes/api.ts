@@ -1,7 +1,7 @@
 import { Hono } from "hono"
 import { bodyLimit } from "hono/body-limit"
 import { mcpResource } from "../auth.js"
-import { McpUnauthorized, principalFor } from "../mcp/auth.js"
+import { API_KEY_RATE_LIMIT, apiKeyRetryAfter, McpUnauthorized, principalFor } from "../mcp/auth.js"
 import { MCP_SCOPES } from "../mcp/scopes.js"
 import { handleMcpRequest } from "../mcp/server.js"
 import type { McpPrincipal } from "../mcp/sdk-tools.js"
@@ -26,7 +26,11 @@ const listTools = async (principal: McpPrincipal) => (await rpc<{ tools: Tool[] 
 // Tool registration touches no tenant data, so the full catalogue needs no real user.
 const catalogue = { appUserId: "", authUserId: "", clientId: "openapi", issuedAt: 0, scopes: new Set<string>(MCP_SCOPES) }
 let allTools: Promise<Tool[]> | undefined
-const everyTool = () => allTools ??= listTools(catalogue)
+// Cached for the process lifetime; a failed or empty listing is retried on the next request.
+const everyTool = () => allTools ??= listTools(catalogue).then((tools) => {
+  if (!tools.length) throw new Error("The MCP tool registry is empty")
+  return tools
+}).catch((error) => { allTools = undefined; throw error })
 
 export function openApiSpec(tools: Tool[], origin: string) {
   const error = { $ref: "#/components/schemas/Error" }
@@ -52,10 +56,12 @@ export function openApiSpec(tools: Tool[], origin: string) {
           requestBody: { required: false, ...json(input) },
           responses: {
             200: { description: "Result", ...json({ type: "object", properties: { data: {}, meta: { type: "object" } } }) },
-            400: { description: "Invalid arguments or permission missing for this key", ...json(error) },
-            401: { description: "Missing or revoked key", ...json(error) },
+            400: { description: "The body is not a JSON object or does not match the tool's arguments", ...json(error) },
+            401: { description: "Missing, invalid or revoked key", ...json(error) },
+            403: { description: "The key lacks a permission this tool or argument needs", ...json(error) },
             404: { description: "Unknown tool", ...json(error) },
             422: { description: "The operation failed", ...json(error) },
+            429: { description: `More than ${API_KEY_RATE_LIMIT} calls in a minute; wait Retry-After seconds`, ...json(error) },
           },
         } }]
       })),
@@ -80,6 +86,11 @@ apiRoutes.use("/tools/*", async (c, next) => {
     console.error("[API] authentication unavailable", { name: error instanceof Error ? error.name : "Unknown" })
     return c.json({ error: "Authentication is temporarily unavailable" }, 503)
   }
+  const retryAfter = apiKeyRetryAfter(c.get("principal").clientId)
+  if (retryAfter) {
+    c.header("Retry-After", String(retryAfter))
+    return c.json({ error: `Rate limit: ${API_KEY_RATE_LIMIT} calls per minute per key` }, 429)
+  }
   await next()
 })
 
@@ -88,19 +99,22 @@ apiRoutes.get("/tools", async (c) => c.json({ tools: (await listTools(c.get("pri
 
 apiRoutes.post("/tools/:name", async (c) => {
   const name = c.req.param("name")
-  if (!(await everyTool()).some((tool) => tool.name === name)) return c.json({ error: `Unknown tool ${name}` }, 404)
+  if (!(await everyTool()).some((tool) => tool.name === name)) return c.json({ error: "Unknown tool; GET /api/tools lists the tools this key can call" }, 404)
   const text = await c.req.text()
   let args: unknown = {}
   try { if (text.trim()) args = JSON.parse(text) } catch { return c.json({ error: "The body must be a JSON object" }, 400) }
   if (!args || typeof args !== "object" || Array.isArray(args)) return c.json({ error: "The body must be a JSON object" }, 400)
   const { result, error } = await rpc<CallResult>(c.get("principal"), "tools/call", { name, arguments: args })
-  if (error || !result) return c.json({ error: error?.message ?? "The operation failed" }, 400)
+  // The MCP server registers only the tools a grant allows, so a known tool it cannot find is a missing permission.
+  if (error || !result) return c.json({ error: "This API key does not have the permissions this tool requires (see /api/openapi.yaml)" }, 403)
   const structured = result.structuredContent
   const data = structured && "data" in structured ? structured.data : structured
   if (result.isError) {
     const message = (data as { error?: unknown } | undefined)?.error
-    return c.json({ error: typeof message === "string" ? message
-      : result.content?.map((part) => part.text).filter(Boolean).join("\n") || "The operation failed" }, 422)
+    const reason = typeof message === "string" ? message
+      : result.content?.map((part) => part.text).filter(Boolean).join("\n") || "The operation failed"
+    const status = reason.startsWith("Additional permission required") ? 403 : reason.startsWith("Input validation error") ? 400 : 422
+    return c.json({ error: reason }, status)
   }
   return c.json({ data: data ?? result.content, ...(result._meta ? { meta: result._meta } : {}) })
 })

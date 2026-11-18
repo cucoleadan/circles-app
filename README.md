@@ -87,6 +87,12 @@ An OAuth-protected `/api/mcp` endpoint that lets AI agents read and manage your
 CRM with scoped grants, including watching a contact and reading what watched
 contacts posted (see [docs/mcp.md](docs/mcp.md)).
 
+### HTTP API
+
+The same tools as plain JSON endpoints (`POST /api/tools/<tool>`), authorized
+by scoped API keys you create in the dashboard, with a generated OpenAPI spec
+at `/api/openapi.yaml` (see [docs/api.md](docs/api.md)).
+
 ### Multi-tenant safety
 
 PostgreSQL row-level security on every tenant table, a restricted runtime

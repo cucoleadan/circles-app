@@ -13,7 +13,7 @@ import { circlesTools, entityId, operationRequest } from "./circles-tools.js"
 import { localDayRange } from "./day.js"
 import { MCP_SCOPES, requireScopes } from "./scopes.js"
 import { enqueueSdkTool, getSdkRun, SDK_CACHE_MS, SDK_REFRESH_MIN_MS, sdkScopes, substackTools, type McpPrincipal } from "./sdk-tools.js"
-import { McpUnauthorized, principalFor } from "./auth.js"
+import { apiKeyRetryAfter, isApiKeyPrincipal, McpUnauthorized, principalFor } from "./auth.js"
 export { principalFor } from "./auth.js"
 
 export const toolResult = (data: unknown) => ({
@@ -271,6 +271,12 @@ mcpRoutes.on(["POST", "GET", "DELETE"], "/", async (c) => {
     }
     c.header("WWW-Authenticate", challenge)
     return c.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Unauthorized" } }, 401)
+  }
+  // API keys share their per-minute budget between /api/tools and MCP; OAuth clients are not limited here.
+  const retryAfter = isApiKeyPrincipal(principal) ? apiKeyRetryAfter(principal.clientId) : 0
+  if (retryAfter) {
+    c.header("Retry-After", String(retryAfter))
+    return c.json({ jsonrpc: "2.0", id: null, error: { code: -32000, message: "Rate limit exceeded" } }, 429)
   }
   return handleMcpRequest(c.req.raw, principal)
 })

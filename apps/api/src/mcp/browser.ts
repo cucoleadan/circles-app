@@ -44,17 +44,29 @@ mcpBrowserRoutes.get("/agents", async (c) => {
   )).rows)
   return c.json({ agents, resource: mcpResource })
 })
+const MAX_API_KEYS = 20
+const FRESH_SESSION_MS = 24 * 60 * 60 * 1000
 // An API key is a first-party agent: its own client and consent, so revoking it is the agent revoke below.
 mcpBrowserRoutes.post("/keys", async (c) => {
   const user = await browserUser(c.req.raw.headers)
   if (!user) return c.json({ error: "Unauthorized" }, 401)
-  const parsed = z.object({ name: z.string().trim().min(1).max(80), scopes: z.array(z.enum(MCP_SCOPES as [McpScope, ...McpScope[]])).min(1) })
+  // A JSON content type forces a CORS preflight, so no other site can submit this form-style.
+  if (!c.req.header("content-type")?.startsWith("application/json")) return c.json({ error: "Send JSON" }, 415)
+  // A key outlives the session, so a stolen old cookie must not be able to mint one.
+  if (Date.now() - new Date(user.session.session.createdAt).getTime() > FRESH_SESSION_MS)
+    return c.json({ error: "Sign in again to create an API key", reauthenticate: true }, 403)
+  const parsed = z.object({ name: z.string().trim().min(1).max(80), scopes: z.array(z.enum(MCP_SCOPES as [McpScope, ...McpScope[]])).min(1).max(MCP_SCOPES.length) })
     .safeParse(await c.req.json().catch(() => null))
   if (!parsed.success) return c.json({ error: "Give the key a name and at least one permission" }, 400)
   const clientId = `${API_KEY_CLIENT_PREFIX}${randomUUID()}`
   const key = `${API_KEY_PREFIX}${randomBytes(32).toString("base64url")}`
   const scopes = JSON.stringify([...new Set(parsed.data.scopes)])
-  await withTenant({ appUserId: user.appUserId }, async (client) => {
+  const created = await withTenant({ appUserId: user.appUserId }, async (client) => {
+    await client.query("select pg_advisory_xact_lock(hashtext($1))", [`api-keys:${user.session.user.id}`])
+    const active = (await client.query(
+      `select count(*)::int as total from api_keys k join "oauthConsent" g on g."clientId" = k.client_id where g."userId" = $1`,
+      [user.session.user.id])).rows[0].total as number
+    if (active >= MAX_API_KEYS) return false
     await client.query(
       `insert into "oauthClient"(id, "clientId", name, "userId", scopes, "redirectUris", "grantTypes", "responseTypes",
          "tokenEndpointAuthMethod", disabled, "createdAt", "updatedAt")
@@ -65,7 +77,9 @@ mcpBrowserRoutes.post("/keys", async (c) => {
        values ($1, $2, $3, $4::jsonb, $5::jsonb, now(), now())`,
       [randomUUID(), clientId, user.session.user.id, JSON.stringify([mcpResource]), scopes])
     await client.query("insert into api_keys(client_id, key_hash) values ($1, $2)", [clientId, hashApiKey(key)])
+    return true
   })
+  if (!created) return c.json({ error: `You already have ${MAX_API_KEYS} API keys; revoke one first` }, 409)
   return c.json({ key, clientId }, 201)
 })
 mcpBrowserRoutes.post("/agents/revoke", async (c) => {
@@ -84,6 +98,10 @@ mcpBrowserRoutes.post("/agents/revoke", async (c) => {
     await client.query(`update "oauthAccessToken" set revoked = now() where "clientId" = $1 and "userId" = $2`, [clientId, user.session.user.id])
     await client.query(`delete from "oauthConsent" where "clientId" = $1 and "userId" = $2 and resources @> $3::jsonb`,
       [clientId, user.session.user.id, JSON.stringify([mcpResource])])
+    // A revoked API key is gone for good: drop its hash and disable its client.
+    if ((await client.query("delete from api_keys where client_id = $1", [clientId])).rowCount)
+      await client.query(`update "oauthClient" set disabled = true, "updatedAt" = now() where "clientId" = $1 and "userId" = $2`,
+        [clientId, user.session.user.id])
   })
   return c.json({ revoked: true })
 })

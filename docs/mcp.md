@@ -144,27 +144,11 @@ scope.
 
 ## HTTP API and API keys
 
-For scripts and services that don't speak MCP, `/api/tools` exposes the same
-tools as plain JSON endpoints (`apps/api/src/routes/api.ts`):
-
-- `POST /api/tools/<tool>` takes the tool's arguments as a JSON body and returns
-  `{data, meta?}`. Errors return `{error}`: 400 (bad body or arguments), 401
-  (missing or revoked key), 404 (unknown tool) or 422 (the operation failed).
-- `GET /api/tools` lists the tools the key can call.
-- `GET /api/openapi.yaml` (public) is an OpenAPI 3.1 spec generated from the
-  live tool registry, so it always matches the deployed tools.
-
-Calls go through the in-process MCP server, so scopes, the SDK-read cache and
-queue, audit entries and `circles_get_tool_run` polling are the same as over
-MCP.
-
-Create keys at `/mcp` by choosing a name and permissions. The key (`ck_...`) is
-shown once and only its SHA-256 is stored (`api_keys`). Send it as
-`Authorization: Bearer ck_...`. Each key is a first-party `oauthClient` with
-its own `oauthConsent`, so it appears in the agent list with its last-used time,
-the worker's grant checks apply to it, and "Revoke access" disables it at once.
-A key also works as a bearer token on `/api/mcp`, for MCP gateways that accept
-a static header instead of OAuth.
+The same tools are available as plain JSON endpoints (`POST /api/tools/<tool>`)
+authorized by dashboard API keys, with a generated spec at `/api/openapi.yaml`.
+See [api.md](api.md). A key also works as a static bearer token on `/api/mcp`
+for gateways that can't do OAuth; keys are listed and revoked here alongside
+OAuth agents.
 
 ## Cloudflare portal and optional SSO
 

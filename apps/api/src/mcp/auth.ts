@@ -11,13 +11,31 @@ export class McpUnauthorized extends Error {}
 export const API_KEY_PREFIX = "ck_"
 export const API_KEY_CLIENT_PREFIX = "circles-key:"
 export const hashApiKey = (key: string) => createHash("sha256").update(key).digest("hex")
+// ck_ + 32 random bytes in base64url. Anything else is rejected without a database read.
+const API_KEY_FORMAT = /^ck_[A-Za-z0-9_-]{43}$/
+export const isApiKeyPrincipal = (principal: McpPrincipal) => principal.clientId.startsWith(API_KEY_CLIENT_PREFIX)
 
-/** A dashboard API key acts as its own agent grant; revoking it deletes the consent. */
+// ponytail: per-process fixed window; move to Postgres if the API runs more than one replica.
+export const API_KEY_RATE_LIMIT = 120
+const windows = new Map<string, { startedAt: number; count: number }>()
+/** Seconds to wait when a key has made more than API_KEY_RATE_LIMIT calls this minute, otherwise 0. */
+export function apiKeyRetryAfter(clientId: string, now = Date.now()) {
+  const window = windows.get(clientId)
+  if (!window || now - window.startedAt >= 60_000) {
+    if (windows.size > 10_000) for (const [id, old] of windows) if (now - old.startedAt >= 60_000) windows.delete(id)
+    windows.set(clientId, { startedAt: now, count: 1 })
+    return 0
+  }
+  return ++window.count > API_KEY_RATE_LIMIT ? Math.ceil((window.startedAt + 60_000 - now) / 1000) : 0
+}
+
+/** A dashboard API key acts as its own agent grant; revoking it deletes the consent and disables the client. */
 async function keyPrincipal(key: string): Promise<McpPrincipal> {
+  if (!API_KEY_FORMAT.test(key)) throw new McpUnauthorized("The API key is invalid or revoked")
   const row = (await db.query(
     `update api_keys k set last_used_at = now()
      from "oauthConsent" g join "oauthClient" a on a."clientId" = g."clientId" and not coalesce(a.disabled, false)
-     where k.key_hash = $1 and g."clientId" = k.client_id and g.resources @> $2::jsonb
+     where k.key_hash = $1 and g."clientId" = k.client_id and a."userId" = g."userId" and g.resources @> $2::jsonb
      returning k.client_id as "clientId", g."userId" as "authUserId", g.scopes,
        extract(epoch from k.created_at)::bigint as "issuedAt"`,
     [hashApiKey(key), JSON.stringify([mcpResource])],
@@ -30,7 +48,7 @@ async function keyPrincipal(key: string): Promise<McpPrincipal> {
 export async function principalFor(request: Request): Promise<McpPrincipal> {
   const authorization = parseAccessTokenAuthorization(request.headers.get("authorization"))
   if (!authorization || !["Bearer", "DPoP"].includes(authorization.scheme) || !authorization.token)
-    throw new McpUnauthorized("An OAuth access token is required")
+    throw new McpUnauthorized("An API key or OAuth access token is required")
   if (authorization.scheme === "Bearer" && authorization.token.startsWith(API_KEY_PREFIX)) return keyPrincipal(authorization.token)
 
   const context = await auth.$context
