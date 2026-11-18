@@ -6,8 +6,9 @@ const [response, configResponse] = await Promise.all([
   fetch(`${apiUrl}/api/mcp/agents`, { headers }), fetch(`${apiUrl}/api/mcp/config`),
 ])
 if (response.status === 401) return Astro.redirect("/login")
-const data = response.ok ? await response.json() as { resource: string; agents: Array<{ clientId: string; name: string | null; scopes: string[] }> } : null
-const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: boolean } : null
+const data = response.ok ? await response.json() as { resource: string; agents: Array<{ clientId: string; name: string | null; scopes: string[]; isKey: boolean; lastUsedAt: string | null }> } : null
+const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: boolean; permissions: Record<string, string> } : null
+const origin = data ? new URL(data.resource).origin : ""
 ---
 <!doctype html>
 <html lang="en">
@@ -20,9 +21,26 @@ const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: 
         <p>Use this server URL in your MCP client or Cloudflare portal:</p>
         <code class="block break-all rounded-md border p-3">{data.resource}</code>
         <p class="text-sm text-muted-foreground">Sign in with your Circles account and grant the permissions you want. Cloudflare Code Mode can use the same typed tools.</p>
+        <section class="space-y-3 rounded-lg border p-4">
+          <h2 class="font-semibold">API keys</h2>
+          <p class="text-sm text-muted-foreground">Call every tool over plain HTTP: <code>POST {origin}/api/tools/&lt;tool&gt;</code> with <code>Authorization: Bearer &lt;key&gt;</code>. Spec: <a class="underline" href="/api/openapi.yaml">/api/openapi.yaml</a>. Keys also work as a bearer token on the MCP URL.</p>
+          <form id="create-key" class="space-y-3">
+            <input name="name" required maxlength="80" placeholder="Key name, e.g. Zapier" class="w-full rounded-md border bg-background px-3 py-2" />
+            {Object.entries(config?.permissions ?? {}).map(([scope, description]) => <label class="flex items-start gap-2 text-sm">
+              <input type="checkbox" name="scope" value={scope} checked={scope.endsWith(":read")} />
+              <span><code>{scope}</code> — {description}</span>
+            </label>)}
+            <button class="rounded-md border px-3 py-2">Create API key</button>
+          </form>
+          <div id="new-key" hidden class="space-y-2">
+            <p class="text-sm font-medium">Copy this key now; it is not shown again.</p>
+            <code class="block break-all rounded-md border p-3"></code>
+            <a href="/mcp" class="text-sm underline">Done</a>
+          </div>
+        </section>
         {data.agents.length ? data.agents.map((agent) => <article class="space-y-3 rounded-lg border p-4">
-          <h2 class="font-semibold">{agent.name ?? "MCP client"}</h2>
-          <p class="break-all text-sm text-muted-foreground">{agent.clientId}</p>
+          <h2 class="font-semibold">{agent.name ?? "MCP client"}{agent.isKey && <span class="ml-2 text-xs font-normal text-muted-foreground">API key</span>}</h2>
+          <p class="break-all text-sm text-muted-foreground">{agent.isKey ? `Last used ${agent.lastUsedAt ? new Date(agent.lastUsedAt).toLocaleString("en-GB") : "never"}` : agent.clientId}</p>
           <p class="text-sm">{agent.scopes.join(", ")}</p>
           <button class="rounded-md border px-3 py-2" data-revoke={agent.clientId}>Revoke access</button>
         </article>) : <p>No agents are connected.</p>}
@@ -43,6 +61,21 @@ const config = configResponse.ok ? await configResponse.json() as { ssoEnabled: 
           if (response.ok) location.reload()
           else { button.disabled = false; if (status) status.textContent = "Access could not be revoked." }
         })
+      })
+      document.querySelector("#create-key")?.addEventListener("submit", async (event) => {
+        event.preventDefault()
+        const form = event.currentTarget as HTMLFormElement
+        const fields = new FormData(form)
+        const response = await fetch("/api/mcp/keys", {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ name: fields.get("name"), scopes: fields.getAll("scope") }),
+        })
+        const data = await response.json().catch(() => null)
+        if (!response.ok || typeof data?.key !== "string") { if (status) status.textContent = data?.error ?? "The key could not be created."; return }
+        form.hidden = true
+        const shown = document.querySelector("#new-key") as HTMLElement
+        shown.querySelector("code")!.textContent = data.key
+        shown.hidden = false
       })
       document.querySelector("#link-sso")?.addEventListener("click", async () => {
         const response = await fetch("/api/auth/link-social", {

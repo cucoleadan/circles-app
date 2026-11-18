@@ -57,6 +57,8 @@ or status changes. Last updated: 2026-11-12.
 - [ ] Resolve ChatGPT's "Missing OAuth callback data" error; confirm whether it
       now completes the flow and calls tools.
 - [ ] Verify modern-client/gateway integration and actual Cloudflare SSO linking.
+- [ ] After deploy: create an API key at `/mcp`, call `POST /api/tools/circles_get_overview`,
+      load `/api/openapi.yaml` in an OpenAPI client, then revoke the key and confirm it gets 401.
 - [ ] Optional live smoke of `circles_post_note_now` + `circles_abort_note` and
       `circles_publish_existing_note` (a failed abort publishes a real Note).
 

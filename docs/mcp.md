@@ -137,6 +137,35 @@ SDK requests for that tenant/client; it does not disable the client for other
 users. Reconnecting requires consent. Logout/session expiry and connection
 replacement also affect underlying token/session/upstream eligibility.
 
+A client that does not request `offline_access` gets only a 15-minute access
+token and no refresh token, so it disconnects after 15 minutes. Its consent row
+then has no `offline_access`. The fix is in the client: it must request that
+scope.
+
+## HTTP API and API keys
+
+For scripts and services that don't speak MCP, `/api/tools` exposes the same
+tools as plain JSON endpoints (`apps/api/src/routes/api.ts`):
+
+- `POST /api/tools/<tool>` takes the tool's arguments as a JSON body and returns
+  `{data, meta?}`. Errors return `{error}`: 400 (bad body or arguments), 401
+  (missing or revoked key), 404 (unknown tool) or 422 (the operation failed).
+- `GET /api/tools` lists the tools the key can call.
+- `GET /api/openapi.yaml` (public) is an OpenAPI 3.1 spec generated from the
+  live tool registry, so it always matches the deployed tools.
+
+Calls go through the in-process MCP server, so scopes, the SDK-read cache and
+queue, audit entries and `circles_get_tool_run` polling are the same as over
+MCP.
+
+Create keys at `/mcp` by choosing a name and permissions. The key (`ck_...`) is
+shown once and only its SHA-256 is stored (`api_keys`). Send it as
+`Authorization: Bearer ck_...`. Each key is a first-party `oauthClient` with
+its own `oauthConsent`, so it appears in the agent list with its last-used time,
+the worker's grant checks apply to it, and "Revoke access" disables it at once.
+A key also works as a bearer token on `/api/mcp`, for MCP gateways that accept
+a static header instead of OAuth.
+
 ## Cloudflare portal and optional SSO
 
 After normal migration-gated deployment:

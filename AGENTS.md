@@ -68,6 +68,12 @@ tool/arguments (under 6 h old); only a miss or `refresh: true` (ignored within
 before falling back to `circles_get_tool_run`. Previously queued aliases remain
 executable through the unchanged worker SDK bridge.
 
+`/api/tools/<tool>` (`routes/api.ts`) is the same tool set as a plain JSON
+HTTP API, authenticated by dashboard API keys (`ck_...`, created at `/mcp`).
+`/api/openapi.yaml` is generated from the live registry. Each key is a
+first-party `oauthClient` plus `oauthConsent`, so every MCP grant check and
+revocation path applies to it. Only the key's hash is stored (`api_keys`).
+
 The extension calls compatibility routes under `/api/ext/*`. Its durable queue
 is scoped to the active `substack_connections.id`, preventing captures from a
 revoked or different Substack account from being delivered into the current

@@ -1,15 +1,37 @@
+import { createHash } from "node:crypto"
 import { createDpopReplayStore, enforceDpopBinding, isDpopBindingError, parseAccessTokenAuthorization, verifyJwsAccessToken } from "better-auth/oauth2"
 import { auth, mcpResource } from "../auth.js"
+import { db } from "../db.js"
 import { getOrCreateAppUser } from "../db/repositories.js"
 import { withTenant } from "../db/tenant.js"
 import type { McpPrincipal } from "./sdk-tools.js"
 
 export class McpUnauthorized extends Error {}
 
+export const API_KEY_PREFIX = "ck_"
+export const API_KEY_CLIENT_PREFIX = "circles-key:"
+export const hashApiKey = (key: string) => createHash("sha256").update(key).digest("hex")
+
+/** A dashboard API key acts as its own agent grant; revoking it deletes the consent. */
+async function keyPrincipal(key: string): Promise<McpPrincipal> {
+  const row = (await db.query(
+    `update api_keys k set last_used_at = now()
+     from "oauthConsent" g join "oauthClient" a on a."clientId" = g."clientId" and not coalesce(a.disabled, false)
+     where k.key_hash = $1 and g."clientId" = k.client_id and g.resources @> $2::jsonb
+     returning k.client_id as "clientId", g."userId" as "authUserId", g.scopes,
+       extract(epoch from k.created_at)::bigint as "issuedAt"`,
+    [hashApiKey(key), JSON.stringify([mcpResource])],
+  )).rows[0]
+  if (!row || !Array.isArray(row.scopes)) throw new McpUnauthorized("The API key is invalid or revoked")
+  return { appUserId: await getOrCreateAppUser(row.authUserId), authUserId: row.authUserId, clientId: row.clientId,
+    issuedAt: Number(row.issuedAt), scopes: new Set(row.scopes as string[]) }
+}
+
 export async function principalFor(request: Request): Promise<McpPrincipal> {
   const authorization = parseAccessTokenAuthorization(request.headers.get("authorization"))
   if (!authorization || !["Bearer", "DPoP"].includes(authorization.scheme) || !authorization.token)
     throw new McpUnauthorized("An OAuth access token is required")
+  if (authorization.scheme === "Bearer" && authorization.token.startsWith(API_KEY_PREFIX)) return keyPrincipal(authorization.token)
 
   const context = await auth.$context
   let claims: Awaited<ReturnType<typeof verifyJwsAccessToken>>

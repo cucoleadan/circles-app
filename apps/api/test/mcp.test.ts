@@ -306,3 +306,36 @@ test("daily briefing calendar boundaries account for DST and invalid dates", () 
   expect(() => localDayRange("2026-02-30", "Europe/Bucharest")).toThrow()
   expect(() => localDayRange("2026-10-14", "not-a-timezone")).toThrow()
 })
+
+describe("Circles HTTP API", () => {
+  test("serves every MCP tool over plain HTTP with an OpenAPI spec and the key's scopes", async () => {
+    const { apiRoutes } = await import("../src/routes/api.js")
+    const mcpAuth = await import("../src/mcp/auth.js")
+    const keyAuth = spyOn(mcpAuth, "principalFor").mockResolvedValue({ ...principal, scopes: new Set(["circles:read"]) })
+    try {
+      const spec = await apiRoutes.request("/openapi.yaml")
+      expect(spec.headers.get("content-type")).toContain("yaml")
+      const parsed = Bun.YAML.parse(await spec.text()) as { openapi: string; paths: Record<string, unknown> }
+      expect(parsed.openapi).toBe("3.1.0")
+      expect(Object.keys(parsed.paths)).toHaveLength(71)
+      expect(parsed.paths["/api/tools/circles_list_people"]).toBeDefined()
+
+      const { tools } = await (await apiRoutes.request("/tools")).json() as { tools: Array<{ name: string }> }
+      expect(tools.length).toBeGreaterThan(0)
+      expect(tools.some((tool) => tool.name === "get_post_analytics")).toBe(false)
+
+      expect((await apiRoutes.request("/tools/nope", { method: "POST" })).status).toBe(404)
+      expect((await apiRoutes.request("/tools/circles_get_day_brief", { method: "POST", body: "[1]" })).status).toBe(400)
+      const invalid = await apiRoutes.request("/tools/circles_get_day_brief", { method: "POST", body: JSON.stringify({ date: "soon" }) })
+      expect([400, 422]).toContain(invalid.status)
+      expect(typeof (await invalid.json()).error).toBe("string")
+      const ungranted = await apiRoutes.request("/tools/get_post_analytics", { method: "POST", body: "{}" })
+      expect([400, 422]).toContain(ungranted.status)
+    } finally { keyAuth.mockRestore() }
+  })
+
+  test("rejects a missing or unknown key", async () => {
+    const { apiRoutes } = await import("../src/routes/api.js")
+    expect((await apiRoutes.request("/tools")).status).toBe(401)
+  })
+})

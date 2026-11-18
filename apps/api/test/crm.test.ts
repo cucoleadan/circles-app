@@ -51,6 +51,7 @@ import { auth, mcpResource } from "../src/auth.js"
 import { handleMcpRequest, mcpRoutes, principalFor } from "../src/mcp/server.js"
 import { Hono } from "hono"
 import { mcpBrowserRoutes } from "../src/mcp/browser.js"
+import { apiRoutes } from "../src/routes/api.js"
 import { enqueueSdkTool, getSdkRun, type McpPrincipal } from "../src/mcp/sdk-tools.js"
 import { Client as McpClient } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -2564,6 +2565,30 @@ describe("MCP OAuth and tenant operations", () => {
     const revoked = await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId: grant.clientId }) })
     expect(revoked.status).toBe(200)
     await expect(principalFor(new Request(mcpResource, { headers: { authorization: `Bearer ${grant.access_token}` } }))).rejects.toThrow()
+  }, 15000)
+
+  test("dashboard API keys call tools over HTTP with their scopes and stop on revocation", async () => {
+    const created = await mcpBrowserRoutes.request("/keys", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" },
+      body: JSON.stringify({ name: "Script", scopes: ["circles:read"] }) })
+    expect(created.status).toBe(201)
+    const { key, clientId } = await created.json() as { key: string; clientId: string }
+    expect(key.startsWith("ck_")).toBe(true)
+    const authorization = { authorization: `Bearer ${key}` }
+    const principal = await principalFor(new Request(mcpResource, { headers: authorization }))
+    expect(principal.appUserId).toBe(userA)
+    expect([...principal.scopes]).toEqual(["circles:read"])
+    const listed = await apiRoutes.request("/tools/circles_list_people", { method: "POST", headers: authorization, body: "{}" })
+    expect(listed.status).toBe(200)
+    expect(Array.isArray(((await listed.json()) as { data: { people: unknown[] } }).data.people)).toBe(true)
+    const write = await apiRoutes.request("/tools/circles_create_person", { method: "POST", headers: authorization, body: JSON.stringify({ name: "Nope" }) })
+    expect(write.ok).toBe(false)
+    const agents = await (await mcpBrowserRoutes.request("/agents", { headers: { cookie: cookieA } })).json() as { agents: Array<{ clientId: string; isKey: boolean; lastUsedAt: string | null }> }
+    expect(agents.agents.find((agent) => agent.clientId === clientId)).toMatchObject({ isKey: true, lastUsedAt: expect.any(String) })
+    await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieB, "content-type": "application/json" }, body: JSON.stringify({ clientId }) })
+    expect((await apiRoutes.request("/tools", { headers: authorization })).status).toBe(200)
+    await mcpBrowserRoutes.request("/agents/revoke", { method: "POST", headers: { cookie: cookieA, "content-type": "application/json" }, body: JSON.stringify({ clientId }) })
+    expect((await apiRoutes.request("/tools", { headers: authorization })).status).toBe(401)
+    expect((await apiRoutes.request("/tools", { headers: { authorization: "Bearer ck_forged" } })).status).toBe(401)
   }, 15000)
 
   test("MCP operations reuse RLS, preserve response shapes and enforce write scopes", async () => {

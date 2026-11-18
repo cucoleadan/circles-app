@@ -6,6 +6,7 @@ import { appOrigins, auth } from "./auth.js"
 import { db } from "./db.js"
 import { ext } from "./routes/ext.js"
 import { v1 } from "./routes/v1.js"
+import { apiRoutes } from "./routes/api.js"
 import { mcpRoutes } from "./mcp/server.js"
 import { mcpBrowserRoutes } from "./mcp/browser.js"
 import { oauthProtocolRoutes } from "./mcp/oauth-http.js"
@@ -42,6 +43,7 @@ app.on(["GET", "POST"], "/api/auth/*", (c) => auth.handler(c.req.raw))
 app.route("/api/mcp", mcpRoutes)
 app.route("/api/mcp", mcpBrowserRoutes)
 
+app.route("/api", apiRoutes)
 app.route("/api/v1", v1)
 app.route("/api/ext", ext)
 

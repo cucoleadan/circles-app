@@ -4,11 +4,13 @@ import { verifyOAuthQueryParams } from "@better-auth/oauth-provider"
 import { auth, mcpResource } from "../auth.js"
 import { getOrCreateAppUser } from "../db/repositories.js"
 import { withTenant } from "../db/tenant.js"
-import { MCP_PERMISSIONS } from "./scopes.js"
+import { MCP_PERMISSIONS, MCP_SCOPES, type McpScope } from "./scopes.js"
+import { API_KEY_CLIENT_PREFIX, API_KEY_PREFIX, hashApiKey } from "./auth.js"
+import { randomBytes, randomUUID } from "node:crypto"
 
 export const mcpBrowserRoutes = new Hono()
 mcpBrowserRoutes.get("/config", (c) => c.json({
-  resource: mcpResource, ssoEnabled: Boolean(process.env.CLOUDFLARE_ACCESS_DISCOVERY_URL),
+  resource: mcpResource, ssoEnabled: Boolean(process.env.CLOUDFLARE_ACCESS_DISCOVERY_URL), permissions: MCP_PERMISSIONS,
 }))
 mcpBrowserRoutes.get("/consent", async (c) => {
   const query = c.req.query("oauth_query") ?? ""
@@ -33,13 +35,38 @@ mcpBrowserRoutes.get("/agents", async (c) => {
   if (!user) return c.json({ error: "Unauthorized" }, 401)
   const agents = await withTenant({ appUserId: user.appUserId }, async (client) => (await client.query(
     `select g."clientId" as "clientId", a.name, g.scopes, g."updatedAt" as "updatedAt",
-       v.revoked_at as "revokedAt" from "oauthConsent" g
+       v.revoked_at as "revokedAt", k.client_id is not null as "isKey", k.last_used_at as "lastUsedAt" from "oauthConsent" g
      join "oauthClient" a on a."clientId" = g."clientId"
+     left join api_keys k on k.client_id = g."clientId"
      left join mcp_grant_revocations v on v.client_id = g."clientId" and v.user_id = $2
      where g."userId" = $1 and g.resources @> $3::jsonb`,
     [user.session.user.id, user.appUserId, JSON.stringify([mcpResource])],
   )).rows)
   return c.json({ agents, resource: mcpResource })
+})
+// An API key is a first-party agent: its own client and consent, so revoking it is the agent revoke below.
+mcpBrowserRoutes.post("/keys", async (c) => {
+  const user = await browserUser(c.req.raw.headers)
+  if (!user) return c.json({ error: "Unauthorized" }, 401)
+  const parsed = z.object({ name: z.string().trim().min(1).max(80), scopes: z.array(z.enum(MCP_SCOPES as [McpScope, ...McpScope[]])).min(1) })
+    .safeParse(await c.req.json().catch(() => null))
+  if (!parsed.success) return c.json({ error: "Give the key a name and at least one permission" }, 400)
+  const clientId = `${API_KEY_CLIENT_PREFIX}${randomUUID()}`
+  const key = `${API_KEY_PREFIX}${randomBytes(32).toString("base64url")}`
+  const scopes = JSON.stringify([...new Set(parsed.data.scopes)])
+  await withTenant({ appUserId: user.appUserId }, async (client) => {
+    await client.query(
+      `insert into "oauthClient"(id, "clientId", name, "userId", scopes, "redirectUris", "grantTypes", "responseTypes",
+         "tokenEndpointAuthMethod", disabled, "createdAt", "updatedAt")
+       values ($1, $2, $3, $4, $5::jsonb, '[]', '[]', '[]', 'none', false, now(), now())`,
+      [randomUUID(), clientId, parsed.data.name, user.session.user.id, scopes])
+    await client.query(
+      `insert into "oauthConsent"(id, "clientId", "userId", resources, scopes, "createdAt", "updatedAt")
+       values ($1, $2, $3, $4::jsonb, $5::jsonb, now(), now())`,
+      [randomUUID(), clientId, user.session.user.id, JSON.stringify([mcpResource]), scopes])
+    await client.query("insert into api_keys(client_id, key_hash) values ($1, $2)", [clientId, hashApiKey(key)])
+  })
+  return c.json({ key, clientId }, 201)
 })
 mcpBrowserRoutes.post("/agents/revoke", async (c) => {
   const user = await browserUser(c.req.raw.headers)
